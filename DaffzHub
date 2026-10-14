@@ -11868,7 +11868,7 @@ SBSearchBarFrame.ClipsDescendants = true
 Instance.new("UICorner", SBSearchBarFrame).CornerRadius = UDim.new(0, 8)
 
 SBSearchInput = Instance.new("TextBox", SBSearchBarFrame)
-SBSearchInput.Size = UDim2.new(1, -90, 1, 0)
+SBSearchInput.Size = UDim2.new(1, -175, 1, 0)
 SBSearchInput.Position = UDim2.new(0, 10, 0, 0)
 SBSearchInput.BackgroundTransparency = 1
 SBSearchInput.PlaceholderText = "Search Script..."
@@ -11887,6 +11887,16 @@ SBSearchBtn.Font = Enum.Font.GothamBold
 SBSearchBtn.TextSize = 13
 SBSearchBtn.TextColor3 = Color3.new(1,1,1)
 Instance.new("UICorner", SBSearchBtn).CornerRadius = UDim.new(0, 6)
+
+SBMapBtn = Instance.new("TextButton", SBSearchBarFrame)
+SBMapBtn.Size = UDim2.new(0, 75, 1, -8)
+SBMapBtn.Position = UDim2.new(1, -160, 0, 4)
+SBMapBtn.Text = "This Map"
+SBMapBtn.BackgroundColor3 = Color3.fromRGB(50,110,200)
+SBMapBtn.Font = Enum.Font.GothamBold
+SBMapBtn.TextSize = 12
+SBMapBtn.TextColor3 = Color3.new(1,1,1)
+Instance.new("UICorner", SBMapBtn).CornerRadius = UDim.new(0, 6)
 
 -- STATUS + REFRESH TIMER
 SBStatusFrame = Instance.new("Frame", SearchContent)
@@ -12253,6 +12263,7 @@ local function SBBuildCard(scriptData, isPinned)
     if scriptData.key then table.insert(badges, {t="🔑 Key", c=Color3.fromRGB(255,160,0), w=50}) end
     if scriptData.patched then table.insert(badges, {t="🚫 Patched", c=Color3.fromRGB(255,80,80), w=60}) end
     if (scriptData.views or 0) > 10000 then table.insert(badges, {t="🔥 Popular", c=Color3.fromRGB(255,140,0), w=60}) end
+    if scriptData.gameId and scriptData.gameId == tostring(game.PlaceId) then table.insert(badges, {t="🎯 This Map", c=Color3.fromRGB(80,160,255), w=70}) end
 
     for _, badge in ipairs(badges) do
         local b = Instance.new("TextLabel", Card)
@@ -12387,6 +12398,7 @@ local function SBFetchScriptblox(query)
             source = "sb",
             title = s.title or "Untitled",
             game = s.game and s.game.name or "Universal",
+            gameId = s.game and tostring(s.game.gameId or "") or "",
             views = s.views or 0,
             likes = s.likeCount or 0,
             verified = s.verified or false,
@@ -12448,6 +12460,17 @@ local function SBDoSearch(silent)
     task.spawn(function()
         local sbRes = SBFetchScriptblox(query)
         local rsRes = SBFetchRawScripts(query)
+        
+        -- scripts made for this exact map go first
+        do
+            local pid = tostring(game.PlaceId)
+            local first, rest = {}, {}
+            for _, s in ipairs(sbRes) do
+                if s.gameId == pid then first[#first + 1] = s else rest[#rest + 1] = s end
+            end
+            for _, s in ipairs(rest) do first[#first + 1] = s end
+            sbRes = first
+        end
 
         SBLastSBResults = sbRes
         SBLastRSResults = rsRes
@@ -12467,6 +12490,75 @@ local function SBDoSearch(silent)
 end
 
 SBSearchBtn.MouseButton1Click:Connect(function() SBDoSearch(false) end)
+
+-- ================================================
+-- MAP SCRIPTS: search for scripts of the current map, using the map's original name
+-- ================================================
+local SBMapNameCache = nil
+
+-- removes tags like [UPDATE] or (Beta) and emoji, so the search matches the real title
+local function SBCleanMapName(n)
+    n = tostring(n or "")
+    n = n:gsub("%b[]", " ")
+    n = n:gsub("%b()", " ")
+    n = n:gsub("[\240-\244][\128-\191]*", "")
+    n = n:gsub("%s+", " ")
+    n = n:match("^%s*(.-)%s*$") or n
+    return n
+end
+
+-- Roblox returns the experience name translated to the language of the request,
+-- so ask for the creator's source language first, then read the name in that language
+local function SBHttp(url, lang)
+    if request then
+        local r = request({Url = url, Method = "GET", Headers = lang and {["Accept-Language"] = lang} or nil})
+        return r and r.Body
+    end
+    return game:HttpGet(url)
+end
+
+local function SBGetMapName()
+    if SBMapNameCache then return SBMapNameCache end
+    local name, lang
+    pcall(function()
+        local body = SBHttp("https://gamelocalization.roblox.com/v1/source-language/games/" .. tostring(game.GameId))
+        local d = HttpService:JSONDecode(body)
+        lang = d and d.languageCode
+    end)
+    pcall(function()
+        local body = SBHttp("https://games.roblox.com/v1/games?universeIds=" .. tostring(game.GameId), lang)
+        local d = HttpService:JSONDecode(body)
+        name = d and d.data and d.data[1] and d.data[1].name
+    end)
+    if not name or name == "" then
+        pcall(function()
+            name = game:GetService("MarketplaceService"):GetProductInfo(game.PlaceId).Name
+        end)
+    end
+    if not name or name == "" then name = DHMapName end
+    if not name or name == "" or name == "Unknown" then return nil end
+    local cleaned = SBCleanMapName(name)
+    if cleaned == "" then cleaned = name end
+    SBMapNameCache = cleaned
+    return cleaned
+end
+
+SBMapBtn.MouseButton1Click:Connect(function()
+    if SBIsSearching then return end
+    SBStatusLabel.Text = "⏳ reading the map name.."
+    SBStatusLabel.TextColor3 = Color3.fromRGB(255,200,100)
+    task.spawn(function()
+        local name = SBGetMapName()
+        if not name then
+            SBStatusLabel.Text = "❌ Could not read the map name"
+            SBStatusLabel.TextColor3 = Color3.fromRGB(255,80,80)
+            return
+        end
+        SBSearchInput.Text = name
+        SBDoSearch(false)
+    end)
+end)
+
 SBSearchInput.FocusLost:Connect(function(enter)
     if enter then SBDoSearch(false) end
 end)
@@ -12819,9 +12911,12 @@ function BuildESP()
         DefaultColor = Color3.fromRGB(255, 70, 70),  -- used when the game has no teams
         LineOrigin = "Bottom",                       -- "Bottom", "Center" or "Top"
         Interval = 0.25,                             -- how often players are re-checked (seconds)
+        NpcColor = Color3.fromRGB(255, 170, 40),     -- NPCs and monsters
+        NpcRange = 500,                              -- NPCs farther than this (studs) are ignored
+        MaxNpc = 40,                                 -- at most this many NPCs are shown (nearest first)
     }
 
-    local on = {player = false, line = false, tag = false, dist = false}
+    local on = {player = false, line = false, tag = false, dist = false, npc = false}
     local style = "Filled"
     local state = {}          -- [Player] = {hl, tag, nameLabel, distLabel, line, root, hum}
     local conns = {}
@@ -12832,6 +12927,7 @@ function BuildESP()
     local lineGui = nil
 
     local function ColorOf(plr)
+        if typeof(plr) == "Instance" and not plr:IsA("Player") then return cfg.NpcColor end
         if plr.Team then return plr.TeamColor.Color end
         return cfg.DefaultColor
     end
@@ -12872,6 +12968,7 @@ function BuildESP()
     -- ONE ADORNMENT PER FEATURE
     ------------------------------------------------
     local function ApplyHighlight(st, char, color)
+        local target = (DHMods and DHMods.HitTarget and DHMods.HitTarget(char)) or char
         local hl = st.hl
         if not hl or hl.Parent ~= char then
             if hl then hl:Destroy() end
@@ -12883,6 +12980,7 @@ function BuildESP()
             st.hl = hl
         end
         hl.Enabled = true
+        hl.Adornee = target
         hl.FillColor = color
         hl.OutlineColor = color
         hl.OutlineTransparency = 0
@@ -12962,7 +13060,7 @@ function BuildESP()
         end
 
         tag.Adornee = adornee
-        st.nameLabel.Text = plr.DisplayName
+        st.nameLabel.Text = (typeof(plr) == "Instance" and plr:IsA("Player")) and plr.DisplayName or plr.Name
         st.nameLabel.TextColor3 = color
         st.distLabel.Visible = on.dist
         if on.dist then
@@ -12983,6 +13081,42 @@ function BuildESP()
             st.line = f
         end
         st.line.BackgroundColor3 = color
+    end
+
+    ------------------------------------------------
+    -- NPC LIST: found once, then kept up to date by events (no scanning every tick)
+    ------------------------------------------------
+    local npcs = {}
+    local npcConns = {}
+    local npcToken = 0
+
+    local function NpcAdd(hum)
+        local m = hum.Parent
+        if not (m and m:IsA("Model")) then return end
+        if Players:GetPlayerFromCharacter(m) then return end
+        if m == Player.Character then return end
+        npcs[m] = true
+    end
+
+    local function NpcSync()
+        for _, c in ipairs(npcConns) do pcall(function() c:Disconnect() end) end
+        npcConns = {}
+        npcs = {}
+        npcToken = npcToken + 1
+        local myToken = npcToken
+        if not on.npc then return end
+        npcConns[#npcConns + 1] = workspace.DescendantAdded:Connect(function(o)
+            if o:IsA("Humanoid") then task.defer(NpcAdd, o) end
+        end)
+        task.spawn(function()
+            local n = 0
+            for _, o in ipairs(workspace:GetDescendants()) do
+                if npcToken ~= myToken or not on.npc then return end
+                if o:IsA("Humanoid") then NpcAdd(o) end
+                n = n + 1
+                if n % 2000 == 0 then task.wait() end
+            end
+        end)
     end
 
     ------------------------------------------------
@@ -13016,6 +13150,33 @@ function BuildESP()
                 else
                     DropPlayer(plr) -- dead, respawning, or not streamed in yet
                 end
+            end
+        end
+        -- NPCs and monsters: any Humanoid model that is not a player (nearest ones first, capped)
+        if on.npc then
+            local npcList = {}
+            for m in pairs(npcs) do
+                local nh = m.Parent and m:FindFirstChildOfClass("Humanoid")
+                local nr = nh and (m:FindFirstChild("HumanoidRootPart") or m.PrimaryPart or m:FindFirstChildWhichIsA("BasePart"))
+                if nh and nr and nr.Parent and nh.Health > 0 then
+                    local nd = (nr.Position - from).Magnitude
+                    if nd <= cfg.NpcRange then
+                        local nView = false
+                        if cam then
+                            local sp = cam:WorldToViewportPoint(nr.Position)
+                            local vs = cam.ViewportSize
+                            nView = sp.Z > 0 and sp.X > -150 and sp.X < vs.X + 150 and sp.Y > -150 and sp.Y < vs.Y + 150
+                        end
+                        npcList[#npcList + 1] = {plr = m, char = m, hum = nh, root = nr, dist = nd, inView = nView}
+                    end
+                elseif not m.Parent then
+                    npcs[m] = nil
+                end
+            end
+            table.sort(npcList, function(a, b) return a.dist < b.dist end)
+            for i = 1, math.min(#npcList, cfg.MaxNpc) do
+                list[#list + 1] = npcList[i]
+                present[npcList[i].plr] = true
             end
         end
         for plr in pairs(state) do
@@ -13196,7 +13357,8 @@ function BuildESP()
 
     -- give everything back when the hub is closed
     DHVisual.OnCleanup(function()
-        on.player, on.line, on.tag = false, false, false
+        on.player, on.line, on.tag, on.npc = false, false, false, false
+        NpcSync()
         SyncLineLoop()
         Stop()
         if lineGui then lineGui:Destroy() end
@@ -13225,6 +13387,11 @@ function BuildESP()
     end)
     DHVisual.AddToggle(box, "Distance ESP", "Adds the distance to the NameTag", function(v)
         on.dist = v
+        Kick()
+    end)
+    DHVisual.AddToggle(box, "NPC ESP", "Also show NPCs and monsters in the ESP above", function(v)
+        on.npc = v
+        NpcSync()
         Kick()
     end)
 end
@@ -14713,8 +14880,19 @@ function DHAnim.Valid(id)
     return good
 end
 
+-- moves an old save file from the top level into the Daffzhub_file folder (once)
+function DHMigrate(old, new)
+    pcall(function()
+        if not (isfile and isfile(old) and not isfile(new)) then return end
+        if makefolder and isfolder and not isfolder("Daffzhub_file") then makefolder("Daffzhub_file") end
+        writefile(new, readfile(old))
+        if delfile then delfile(old) end
+    end)
+end
+
 -- saved packs (instant the next time, like the Emote tab cache)
-DHAnim.File = "DaffzHub_AnimCache.json"
+DHAnim.File = "Daffzhub_file/AnimCache.json"
+DHMigrate("DaffzHub_AnimCache.json", DHAnim.File)
 function DHAnim.DiskLoad()
     if DHAnim.DiskData then return DHAnim.DiskData end
     DHAnim.DiskData = {}
@@ -15455,7 +15633,8 @@ pcall(BuildAnimationPick)
 -- ================================================
 -- ANIMATION TAB (part 4): Saved list. Your mixes are kept in a file.
 -- ================================================
-DHAnim.SaveFile = "DaffzHub_AnimSaved.json"
+DHAnim.SaveFile = "Daffzhub_file/AnimSaved.json"
+DHMigrate("DaffzHub_AnimSaved.json", DHAnim.SaveFile)
 DHAnim.Saved = {}
 
 function DHAnim.SavedLoad()
@@ -16545,6 +16724,145 @@ function DHMods.AbParts(ch)
     return out
 end
 
+-- Hitbox (client side). Modes: Box (extra welded part), Torso (real torso part), Root (HumanoidRootPart, like common hitbox scripts).
+-- Follows Team Check and Target Team. The original values live on the part itself (attributes),
+-- so turning it off or changing the mode always puts everything back.
+DHMods.Hit = {On = false, Size = 8, Mode = "Box", Token = 0}
+
+function DHMods.HitPart(ch, mode)
+    if mode == "Root" then
+        return ch:FindFirstChild("HumanoidRootPart")
+    elseif mode == "Torso" then
+        return ch:FindFirstChild("UpperTorso") or ch:FindFirstChild("Torso")
+    end
+    return nil
+end
+
+function DHMods.HitRestorePart(p)
+    if not (p and p.Parent) then return end
+    if not p:GetAttribute("DH_Hit") then return end
+    local sz = p:GetAttribute("DH_OSize")
+    local tr = p:GetAttribute("DH_OTrans")
+    local cc = p:GetAttribute("DH_OCol")
+    if sz then p.Size = sz end
+    if tr then p.Transparency = tr end
+    if cc ~= nil then p.CanCollide = cc end
+    p:SetAttribute("DH_Hit", nil)
+    p:SetAttribute("DH_OSize", nil)
+    p:SetAttribute("DH_OTrans", nil)
+    p:SetAttribute("DH_OCol", nil)
+end
+
+-- puts one character back to normal, except the part named in keep (can be nil)
+function DHMods.HitClear(ch, keep)
+    if not ch then return end
+    if keep ~= "Box" then
+        local b = ch:FindFirstChild("DH_HitboxPart")
+        if b then b:Destroy() end
+    end
+    local r = ch:FindFirstChild("HumanoidRootPart")
+    if r and r ~= keep then DHMods.HitRestorePart(r) end
+    local t = ch:FindFirstChild("UpperTorso") or ch:FindFirstChild("Torso")
+    if t and t ~= keep then DHMods.HitRestorePart(t) end
+end
+
+function DHMods.HitRestoreAll()
+    for _, pl in ipairs(Players:GetPlayers()) do
+        if pl.Character then DHMods.HitClear(pl.Character) end
+    end
+end
+
+-- the part ESP should outline while Hitbox is on (nil = outline the whole character)
+function DHMods.HitTarget(ch)
+    local h = DHMods.Hit
+    if not h.On then return nil end
+    if h.Mode == "Box" then return ch:FindFirstChild("DH_HitboxPart") end
+    local p = DHMods.HitPart(ch, h.Mode)
+    if p and p:GetAttribute("DH_Hit") then return p end
+    return nil
+end
+
+function DHMods.HitStep()
+    local h = DHMods.Hit
+    local ab = DHMods.Ab
+    local s = Vector3.new(h.Size, h.Size, h.Size)
+    for _, pl in ipairs(Players:GetPlayers()) do
+        local ch = pl.Character
+        local root = ch and ch:FindFirstChild("HumanoidRootPart")
+        if root and pl ~= Player then
+            local hum = ch:FindFirstChildOfClass("Humanoid")
+            local skip = (not hum) or hum.Health <= 0
+                or (ab.Team and pl.Team ~= nil and pl.Team == Player.Team)
+                or DHMods.AbTeamSkip(pl)
+            if skip then
+                DHMods.HitClear(ch)
+            elseif h.Mode == "Box" then
+                DHMods.HitClear(ch, "Box") -- anything left from the other modes goes away
+                local b = ch:FindFirstChild("DH_HitboxPart")
+                if not b then
+                    b = Instance.new("Part")
+                    b.Name = "DH_HitboxPart"
+                    b.Transparency = 0.7
+                    b.Color = Color3.fromRGB(255, 70, 70)
+                    b.Material = Enum.Material.SmoothPlastic
+                    b.CastShadow = false
+                    b.CanCollide = false
+                    b.CanQuery = true
+                    b.CanTouch = true
+                    b.Massless = true
+                    b.Size = s
+                    b.CFrame = root.CFrame
+                    local w = Instance.new("WeldConstraint")
+                    w.Part0 = root
+                    w.Part1 = b
+                    w.Parent = b
+                    b.Parent = ch
+                end
+                if b.Size ~= s then b.Size = s end
+            else
+                local p = DHMods.HitPart(ch, h.Mode)
+                DHMods.HitClear(ch, p) -- box and the other mode's part go back to normal
+                if p then
+                    if not p:GetAttribute("DH_Hit") then
+                        p:SetAttribute("DH_OSize", p.Size)
+                        p:SetAttribute("DH_OTrans", p.Transparency)
+                        p:SetAttribute("DH_OCol", p.CanCollide)
+                        p:SetAttribute("DH_Hit", true)
+                    end
+                    if p.Size ~= s then p.Size = s end
+                    p.Transparency = 0.7
+                    p.CanCollide = false
+                end
+            end
+        end
+    end
+end
+
+function DHMods.HitSet(on)
+    local h = DHMods.Hit
+    h.On = on and true or false
+    h.Token = h.Token + 1
+    local my = h.Token
+    if not h.On then
+        DHMods.HitRestoreAll()
+        return
+    end
+    task.spawn(function()
+        while h.On and h.Token == my do
+            pcall(DHMods.HitStep)
+            task.wait(0.2)
+        end
+    end)
+end
+
+-- Target Team: when one team is picked, every player outside that team is skipped
+function DHMods.AbTeamSkip(pl)
+    local pick = DHMods.Ab.TeamPick
+    if not pick or pick == "All" then return false end
+    if not game:GetService("Teams"):FindFirstChild(pick) then return false end
+    return pl.Team == nil or pl.Team.Name ~= pick
+end
+
 function DHMods.AbTarget(free)
     local ab = DHMods.Ab
     local cam = workspace.CurrentCamera
@@ -16555,7 +16873,7 @@ function DHMods.AbTarget(free)
     local myChar = Player.Character
     for _, pl in ipairs(Players:GetPlayers()) do
         local ch = pl.Character
-        local skip = (pl == Player) or (not ch) or (ab.Team and pl.Team ~= nil and pl.Team == Player.Team)
+        local skip = (pl == Player) or (not ch) or (ab.Team and pl.Team ~= nil and pl.Team == Player.Team) or DHMods.AbTeamSkip(pl)
         if not skip then
             local hum = ch:FindFirstChildOfClass("Humanoid")
             if hum and DHMods.AbAlive(ch, hum) then
@@ -16692,11 +17010,30 @@ function BuildModsPart5()
     DHMods.AddSlider("Smoothness", 0, 95, 30, 5, "%.0f", function(v) DHMods.Ab.Smooth = v end)
     DHMods.AddCycle("Target Part", "Tap to change: Head, Body or Closest", {"Head", "Body", "Closest"}, 1, function(v) DHMods.Ab.Part = v end)
     DHMods.AddToggle("Team Check", "Ignores players on your team", function(on) DHMods.Ab.Team = on end)
+    DHMods.TeamOpts = {"All"}
+    local function RebuildTeams()
+        for i = #DHMods.TeamOpts, 2, -1 do table.remove(DHMods.TeamOpts, i) end
+        for _, t in ipairs(game:GetService("Teams"):GetTeams()) do
+            DHMods.TeamOpts[#DHMods.TeamOpts + 1] = t.Name
+        end
+    end
+    RebuildTeams()
+    pcall(function()
+        local TeamsSvc = game:GetService("Teams")
+        TeamsSvc.ChildAdded:Connect(function() task.defer(RebuildTeams) end)
+        TeamsSvc.ChildRemoved:Connect(function() task.defer(RebuildTeams) end)
+    end)
+    DHMods.AddCycle("Target Team", "Tap to pick the only team to aim at (All = everyone)", DHMods.TeamOpts, 1, function(v) DHMods.Ab.TeamPick = v end)
     DHMods.AddToggle("Wall Check", "Ignores players hidden behind walls", function(on) DHMods.Ab.Wall = on end)
     DHMods.AddToggle("Hold to Aim", "Aims only while the AIM button is held (or right mouse)", function(on)
         DHMods.Ab.Hold = on
         DHMods.AbHoldUI()
     end)
+    DHMods.Header("HITBOX")
+    DHMods.AddCycle("Hitbox Mode", "Tap to change: Box, Torso or Root (Root works like common hitbox scripts)", {"Box", "Torso", "Root"}, 1, function(v) DHMods.Hit.Mode = v; DHMods.HitRestoreAll() end)
+    DHMods.AddToggle("Hitbox", "Big see-through box on other players (client side; follows Team Check and Target Team)", DHMods.HitSet)
+    DHMods.AddSlider("Hitbox Size", 2, 25, 8, 1, "%.0f", function(v) DHMods.Hit.Size = v end)
+    ScreenGui.Destroying:Connect(function() DHMods.HitSet(false) end)
 end
 
 pcall(BuildModsPart5)
@@ -18063,6 +18400,72 @@ function BuildOtherSettings()
     end
 
     ------------------------------------------------
+    -- JOIN / LEAVE ALERT (small notices, top right)
+    ------------------------------------------------
+    local alertConns = {}
+    local alertSeq = 0
+    local alertHolder = Instance.new("Frame", ScreenGui)
+    alertHolder.Name = "DH_AlertHolder"
+    alertHolder.AnchorPoint = Vector2.new(1, 0)
+    alertHolder.Position = UDim2.new(1, -8, 0, 40)
+    alertHolder.Size = UDim2.new(0, 250, 0, 120)
+    alertHolder.BackgroundTransparency = 1
+    local alertList = Instance.new("UIListLayout", alertHolder)
+    alertList.Padding = UDim.new(0, 4)
+    alertList.HorizontalAlignment = Enum.HorizontalAlignment.Right
+    alertList.SortOrder = Enum.SortOrder.LayoutOrder
+
+    local function AlertToast(text, color)
+        alertSeq = alertSeq + 1
+        local t = Instance.new("TextLabel")
+        t.LayoutOrder = alertSeq
+        t.Size = UDim2.new(1, 0, 0, 22)
+        t.BackgroundColor3 = Color3.fromRGB(25, 25, 25)
+        t.BackgroundTransparency = 0.25
+        t.Font = Enum.Font.GothamBold
+        t.TextSize = 11
+        t.TextColor3 = Color3.new(1, 1, 1)
+        t.TextTruncate = Enum.TextTruncate.AtEnd
+        t.Text = text
+        Instance.new("UICorner", t).CornerRadius = UDim.new(0, 8)
+        local st = Instance.new("UIStroke", t)
+        st.Color = color
+        st.Thickness = 1.2
+        t.Parent = alertHolder
+        -- keep at most 4 notices on screen
+        local kids = {}
+        for _, c in ipairs(alertHolder:GetChildren()) do
+            if c:IsA("TextLabel") then kids[#kids + 1] = c end
+        end
+        table.sort(kids, function(a, b) return a.LayoutOrder < b.LayoutOrder end)
+        while #kids > 4 do table.remove(kids, 1):Destroy() end
+        task.delay(3.5, function()
+            if t.Parent then t:Destroy() end
+        end)
+    end
+
+    local function AlertName(plr)
+        if plr.DisplayName ~= "" and plr.DisplayName ~= plr.Name then
+            return plr.DisplayName .. " (@" .. plr.Name .. ")"
+        end
+        return plr.Name
+    end
+
+    local function SetJoinAlert(on)
+        for _, c in ipairs(alertConns) do pcall(function() c:Disconnect() end) end
+        alertConns = {}
+        if on then
+            alertConns[#alertConns + 1] = Players.PlayerAdded:Connect(function(plr)
+                AlertToast("+ " .. AlertName(plr) .. " joined", Color3.fromRGB(60, 200, 90))
+            end)
+            alertConns[#alertConns + 1] = Players.PlayerRemoving:Connect(function(plr)
+                AlertToast("- " .. AlertName(plr) .. " left", Color3.fromRGB(220, 70, 70))
+            end)
+        end
+    end
+    ScreenGui.Destroying:Connect(function() SetJoinAlert(false) end)
+
+    ------------------------------------------------
     -- ROWS (same order as the source video)
     ------------------------------------------------
     AddToggle("Low Graphics", "Shadows, effects and particles off", SetLowGraphics)
@@ -18071,6 +18474,7 @@ function BuildOtherSettings()
     AddToggle("Ping Display", "Show ping on screen", SetPing)
     AddToggle("Full Bright", "Remove darkness and fog", SetFullBright)
     AddToggle("Hide Player", "Hide other players' characters", SetHidePlayer)
+    AddToggle("Join/Leave Alert", "Small notice when a player joins or leaves", SetJoinAlert)
     local mvToggle = AddToggle("Move Button", "Move, resize or hide game buttons", function(on) DHMove.Set(on) end)
     DHMoveToggle = mvToggle
 end
@@ -18253,8 +18657,8 @@ function DHMove.Build()
     end
 
     local MainHub = Instance.new("Frame")
-    MainHub.Size = UDim2.new(0, 150, 0, 195)
-    MainHub.Position = UDim2.new(0, 10, 0.5, -97)
+    MainHub.Size = UDim2.new(0, 150, 0, 225)
+    MainHub.Position = UDim2.new(0, 10, 0.5, -112)
     MainHub.BackgroundColor3 = Color3.fromRGB(25, 25, 30)
     MainHub.BackgroundTransparency = 0.4
     MainHub.Active = true
@@ -18284,7 +18688,8 @@ function DHMove.Build()
     local LoadConfigBtn = createHubButton("Load Config", 70, Color3.fromRGB(200, 150, 0))
     local TrashBtn = createHubButton("Trash (0)", 100, Color3.fromRGB(255, 70, 70))
     local UndoBtn = createHubButton("Undo", 130, Color3.fromRGB(120, 90, 200))
-    local CloseBtn = createHubButton("Close (OFF)", 160, Color3.fromRGB(90, 90, 100))
+    local ResetBtn = createHubButton("Reset All", 160, Color3.fromRGB(200, 90, 50))
+    local CloseBtn = createHubButton("Close (OFF)", 190, Color3.fromRGB(90, 90, 100))
     CloseBtn.MouseButton1Click:Connect(function() DHMove.Set(false) end)
 
     -- confirmation popup
@@ -18557,7 +18962,7 @@ function DHMove.Build()
 
     -- ---------- save / load ----------
     local GameID = tostring(game.GameId > 0 and game.GameId or game.PlaceId)
-    local FolderName = "DaffzHub_MoveButton"
+    local FolderName = "Daffzhub_file/MoveButton"
     local CleanGameName = "Game"
 
     local UpdateTrashUI
@@ -18573,12 +18978,37 @@ function DHMove.Build()
     local function SafeMakeFolder()
         if makefolder and isfolder and not isfolder(FolderName) then pcall(function() makefolder(FolderName) end) end
     end
+    
+    -- saves used to live in their own folder at the top level; move them into Daffzhub_file/MoveButton once
+    local function MigrateOldFolder()
+        pcall(function()
+            local old = "DaffzHub_MoveButton"
+            if not (isfolder and isfolder(old) and listfiles and writefile and readfile and isfile) then return end
+            SafeMakeFolder()
+            for _, f in ipairs(listfiles(old)) do
+                local name = f:match("([^/\\]+)$")
+                if name then
+                    local dest = FolderName .. "/" .. name
+                    if not isfile(dest) then writefile(dest, readfile(f)) end
+                    if delfile then delfile(f) end
+                end
+            end
+            if delfolder then delfolder(old) end
+        end)
+    end
+    MigrateOldFolder()
 
     local function GetAutoExecuteData()
         local path = FolderName .. "/AutoExecuteData.json"
         if isfile and isfile(path) then
             local success, data = pcall(function() return HttpService:JSONDecode(readfile(path)) end)
-            if success and type(data) == "table" then return data end
+            if success and type(data) == "table" then
+                -- saves moved into the Daffzhub_file folder: point old paths to the new place
+                for k, v in pairs(data) do
+                    if type(v) == "string" then data[k] = (v:gsub("^DaffzHub_MoveButton", FolderName)) end
+                end
+                return data
+            end
         end
         return {}
     end
@@ -18734,6 +19164,7 @@ function DHMove.Build()
 
     local function StopEdit()
         do -- always reset, even when the flag was already flipped by the button
+            EditModeActive = false
             ToggleEditBtn.Text = "Edit Mode: OFF"
             ToggleEditBtn.BackgroundColor3 = Color3.fromRGB(50, 150, 255)
             TapShield.Visible = false; TapShield.Active = false; ActionPopup.Visible = false
@@ -18795,6 +19226,7 @@ function DHMove.Build()
                 local o = OrigState[el]
                 local r = s.Rule
                 if r then
+                    KnownTrackedObjects[el] = s.Key
                     el.Position = r.Position
                     if r.SizeModified then el.Size = r.Size elseif o then el.Size = o.Size end
                     el.Visible = not r.IsDeleted
@@ -18810,6 +19242,31 @@ function DHMove.Build()
         if UpdateTrashUI then UpdateTrashUI() end
     end
     UndoBtn.MouseButton1Click:Connect(DoUndo)
+    
+    -- Reset All: puts every touched button back to its original place (Undo can bring it back)
+    local function DoResetAll()
+        local list = {}
+        for obj in pairs(KnownTrackedObjects) do
+            if obj.Parent then list[#list + 1] = obj end
+        end
+        if #list == 0 and not next(RuleMap) then return end
+        PushUndo(list)
+        for _, obj in ipairs(list) do
+            local k = KnownTrackedObjects[obj]
+            local st = OrigState[obj]
+            obj.Position = (k and OriginalPositions[k]) or (st and st.Pos) or obj.Position
+            obj.Size = (k and OriginalSizes[k]) or (st and st.Size) or obj.Size
+            obj.Visible = true
+            OrigState[obj] = nil
+        end
+        for k in pairs(RuleMap) do RuleMap[k] = nil end
+        for obj in pairs(KnownTrackedObjects) do KnownTrackedObjects[obj] = nil end
+        ClearSelection()
+        if UpdateTrashUI then UpdateTrashUI() end
+    end
+    ResetBtn.MouseButton1Click:Connect(function()
+        ShowConfirm("Reset all moved buttons to the original layout?", DoResetAll)
+    end)
 
     local function ModifySize(increment)
         if SelectedElement and #SelectedCluster > 0 then
