@@ -2191,6 +2191,316 @@ local function CreateSectionLabel(text)
     return Lbl
 end
 
+-- STATISTICS TABLE (trader style: Now / Min / Max / Avg + trend arrow)
+DHStatTable = {Rows = {}, Warm = 0, Order = {"fps", "ping", "players", "netin", "netout"}}
+DHStatTable.Defs = {
+    fps = {label = "FPS", dec = 0, good = 1, color = function(v) return DHFpsColor(v) end},
+    ping = {label = "PING ms", dec = 0, good = -1, color = function(v) return DHPingColor(v) end},
+    players = {label = "PLAYERS", dec = 0, good = 0},
+    netin = {label = "MEMORY MB", dec = 0, good = 0},
+    netout = {label = "NET OUT KB/s", dec = 1, good = 0},
+}
+DHStatTable.Cols = {
+    {x = 0.00, w = 0.30, align = Enum.TextXAlignment.Left},
+    {x = 0.30, w = 0.18, align = Enum.TextXAlignment.Right},
+    {x = 0.48, w = 0.15, align = Enum.TextXAlignment.Right},
+    {x = 0.63, w = 0.15, align = Enum.TextXAlignment.Right},
+    {x = 0.78, w = 0.15, align = Enum.TextXAlignment.Right},
+    {x = 0.93, w = 0.07, align = Enum.TextXAlignment.Center},
+}
+
+function DHStatTable.Cell(parent, col, text, size, color, font)
+    local c = DHStatTable.Cols[col]
+    local l = Instance.new("TextLabel", parent)
+    l.Size = UDim2.new(c.w, -4, 1, 0)
+    l.Position = UDim2.new(c.x, 2, 0, 0)
+    l.BackgroundTransparency = 1
+    l.Text = text
+    l.Font = font or Enum.Font.Code
+    l.TextSize = size
+    l.TextColor3 = color
+    l.TextXAlignment = c.align
+    return l
+end
+
+DHStatTable.Title = CreateSectionLabel("STATISTICS")
+DHStatTable.ResetBtn = Instance.new("TextButton", DHStatTable.Title)
+DHStatTable.ResetBtn.Size = UDim2.new(0, 54, 1, 0)
+DHStatTable.ResetBtn.Position = UDim2.new(1, -54, 0, 0)
+DHStatTable.ResetBtn.BackgroundTransparency = 1
+DHStatTable.ResetBtn.Text = "RESET"
+DHStatTable.ResetBtn.Font = Enum.Font.Code
+DHStatTable.ResetBtn.TextSize = 10
+DHStatTable.ResetBtn.TextColor3 = Color3.fromRGB(77,163,255)
+
+DHStatTable.Frame = Instance.new("Frame", InfoScroll)
+DHStatTable.Frame.Size = UDim2.new(1, 0, 0, 26 + #DHStatTable.Order * 28)
+DHStatTable.Frame.BackgroundColor3 = Color3.fromRGB(25,25,25)
+DHStatTable.Frame.ClipsDescendants = true
+Instance.new("UICorner", DHStatTable.Frame).CornerRadius = UDim.new(0, 10)
+
+do
+    local head = Instance.new("Frame", DHStatTable.Frame)
+    head.Size = UDim2.new(1, -16, 0, 26)
+    head.Position = UDim2.new(0, 8, 0, 0)
+    head.BackgroundTransparency = 1
+    local names = {"METRIC", "NOW", "MIN", "MAX", "AVG", ""}
+    for i, n in ipairs(names) do
+        DHStatTable.Cell(head, i, n, 9, Color3.fromRGB(90,90,90), Enum.Font.Gotham)
+    end
+    for i, key in ipairs(DHStatTable.Order) do
+        local d = DHStatTable.Defs[key]
+        local row = Instance.new("Frame", DHStatTable.Frame)
+        row.Size = UDim2.new(1, -16, 0, 28)
+        row.Position = UDim2.new(0, 8, 0, 26 + (i - 1) * 28)
+        row.BackgroundTransparency = 1
+        local line = Instance.new("Frame", row)
+        line.Size = UDim2.new(1, 0, 0, 1)
+        line.BackgroundColor3 = Color3.fromRGB(40,40,40)
+        line.BorderSizePixel = 0
+        DHStatTable.Rows[key] = {
+            min = nil, max = nil, sum = 0, n = 0, hist = {},
+            label = DHStatTable.Cell(row, 1, d.label, 10, Color3.fromRGB(170,170,170), Enum.Font.Gotham),
+            now = DHStatTable.Cell(row, 2, "-", 12, Color3.fromRGB(255,255,255)),
+            mn = DHStatTable.Cell(row, 3, "-", 10, Color3.fromRGB(150,150,150)),
+            mx = DHStatTable.Cell(row, 4, "-", 10, Color3.fromRGB(150,150,150)),
+            av = DHStatTable.Cell(row, 5, "-", 10, Color3.fromRGB(150,150,150)),
+            tr = DHStatTable.Cell(row, 6, "", 10, Color3.fromRGB(150,150,150), Enum.Font.Gotham),
+        }
+    end
+end
+
+function DHStatTable.Fmt(key, v)
+    if DHStatTable.Defs[key].dec == 0 then
+        return tostring(math.floor(v + 0.5))
+    end
+    return string.format("%.1f", v)
+end
+
+function DHStatTable.Push(key, v)
+    local d, r = DHStatTable.Defs[key], DHStatTable.Rows[key]
+    if not (d and r) then return end
+    r.min = r.min and math.min(r.min, v) or v
+    r.max = r.max and math.max(r.max, v) or v
+    r.sum = r.sum + v
+    r.n = r.n + 1
+
+    -- trend: now against the average of the last samples
+    local prev = nil
+    if #r.hist >= 4 then
+        local s = 0
+        for _, x in ipairs(r.hist) do s = s + x end
+        prev = s / #r.hist
+    end
+    r.hist[#r.hist + 1] = v
+    if #r.hist > 10 then table.remove(r.hist, 1) end
+
+    r.now.Text = DHStatTable.Fmt(key, v)
+    r.now.TextColor3 = d.color and d.color(v) or Color3.fromRGB(255,255,255)
+    r.mn.Text = DHStatTable.Fmt(key, r.min)
+    r.mx.Text = DHStatTable.Fmt(key, r.max)
+    r.av.Text = DHStatTable.Fmt(key, r.sum / r.n)
+
+    local arrow, col = "–", Color3.fromRGB(110,110,110)
+    if prev then
+        local diff = v - prev
+        local limit = math.max(math.abs(prev) * 0.03, d.dec == 0 and 0.5 or 0.2)
+        if math.abs(diff) > limit then
+            local up = diff > 0
+            arrow = up and "▲" or "▼"
+            if d.good == 0 then
+                col = Color3.fromRGB(77,163,255)
+            else
+                col = ((up and d.good > 0) or (not up and d.good < 0)) and Color3.fromRGB(47,224,122) or Color3.fromRGB(255,70,70)
+            end
+        end
+    end
+    r.tr.Text = arrow
+    r.tr.TextColor3 = col
+end
+
+DHStatTable.ResetBtn.MouseButton1Click:Connect(function()
+    for _, r in pairs(DHStatTable.Rows) do
+        r.min, r.max, r.sum, r.n, r.hist = nil, nil, 0, 0, {}
+        r.mn.Text, r.mx.Text, r.av.Text, r.tr.Text = "-", "-", "-", ""
+    end
+end)
+
+-- LIVE MONITOR: a moving line per metric, like a heart monitor
+DHStatTable.GraphN = 48
+DHStatTable.Graphs = {}
+DHStatTable.GraphColor = {
+    fps = Color3.fromRGB(47,224,122),
+    ping = Color3.fromRGB(255,200,0),
+    players = Color3.fromRGB(77,163,255),
+    netin = Color3.fromRGB(0,220,255),
+    netout = Color3.fromRGB(255,120,200),
+}
+-- smallest range the graph shows, so a flat value stays a flat line
+DHStatTable.GraphSpan = {fps = 10, ping = 20, players = 2, netin = 50, netout = 2}
+
+CreateSectionLabel("LIVE MONITOR")
+
+for _, key in ipairs(DHStatTable.Order) do
+    local d = DHStatTable.Defs[key]
+    local col = DHStatTable.GraphColor[key]
+    local card = Instance.new("Frame", InfoScroll)
+    card.Size = UDim2.new(1, 0, 0, 78)
+    card.BackgroundColor3 = Color3.fromRGB(12,16,14)
+    card.ClipsDescendants = true
+    Instance.new("UICorner", card).CornerRadius = UDim.new(0, 10)
+
+    local name = Instance.new("TextLabel", card)
+    name.Size = UDim2.new(0.5, -10, 0, 18)
+    name.Position = UDim2.new(0, 10, 0, 4)
+    name.BackgroundTransparency = 1
+    name.Text = d.label
+    name.Font = Enum.Font.Gotham
+    name.TextSize = 10
+    name.TextColor3 = col
+    name.TextXAlignment = Enum.TextXAlignment.Left
+
+    local val = Instance.new("TextLabel", card)
+    val.Size = UDim2.new(0.5, -10, 0, 18)
+    val.Position = UDim2.new(0.5, 0, 0, 4)
+    val.BackgroundTransparency = 1
+    val.Text = "-"
+    val.Font = Enum.Font.Code
+    val.TextSize = 13
+    val.TextColor3 = col
+    val.TextXAlignment = Enum.TextXAlignment.Right
+
+    local area = Instance.new("Frame", card)
+    area.Size = UDim2.new(1, -20, 1, -30)
+    area.Position = UDim2.new(0, 10, 0, 24)
+    area.BackgroundTransparency = 1
+    area.ClipsDescendants = true
+
+    local mid = Instance.new("Frame", area)
+    mid.Size = UDim2.new(1, 0, 0, 1)
+    mid.Position = UDim2.new(0, 0, 0.5, 0)
+    mid.BackgroundColor3 = Color3.fromRGB(30,40,34)
+    mid.BorderSizePixel = 0
+
+    local segs = {}
+    for i = 1, DHStatTable.GraphN - 1 do
+        local s = Instance.new("Frame", area)
+        s.AnchorPoint = Vector2.new(0.5, 0.5)
+        s.BackgroundColor3 = col
+        s.BorderSizePixel = 0
+        s.Size = UDim2.fromOffset(2, 2)
+        s.Visible = false
+        segs[i] = s
+    end
+    local head = Instance.new("Frame", area)
+    head.AnchorPoint = Vector2.new(0.5, 0.5)
+    head.BackgroundColor3 = Color3.fromRGB(255,255,255)
+    head.BorderSizePixel = 0
+    head.Size = UDim2.fromOffset(6, 6)
+    head.Visible = false
+    Instance.new("UICorner", head).CornerRadius = UDim.new(1, 0)
+
+    DHStatTable.Graphs[key] = {area = area, val = val, segs = segs, head = head, data = {}}
+end
+
+function DHStatTable.GraphPush(key, v)
+    local g = DHStatTable.Graphs[key]
+    if not g then return end
+    local N = DHStatTable.GraphN
+    local data = g.data
+    data[#data + 1] = v
+    if #data > N then table.remove(data, 1) end
+
+    local d = DHStatTable.Defs[key]
+    g.val.Text = DHStatTable.Fmt(key, v)
+    if d.color then g.val.TextColor3 = d.color(v) end
+
+    local w, h = g.area.AbsoluteSize.X, g.area.AbsoluteSize.Y
+    if w < 10 or h < 10 then return end
+
+    local lo, hi = math.huge, -math.huge
+    for _, x in ipairs(data) do
+        if x < lo then lo = x end
+        if x > hi then hi = x end
+    end
+    local span = math.max(hi - lo, DHStatTable.GraphSpan[key] or 1)
+    local center = (hi + lo) / 2
+    lo = center - span / 2
+
+    -- newest sample at the right edge, older ones to the left
+    local pts = {}
+    local off = N - #data
+    for i, x in ipairs(data) do
+        pts[i] = Vector2.new((i - 1 + off) / (N - 1) * w, h - 3 - (x - lo) / span * (h - 6))
+    end
+    for i, s in ipairs(g.segs) do
+        local a, b = pts[i], pts[i + 1]
+        if a and b then
+            local dx, dy = b.X - a.X, b.Y - a.Y
+            s.Size = UDim2.fromOffset(math.sqrt(dx * dx + dy * dy) + 1, 2)
+            s.Position = UDim2.fromOffset((a.X + b.X) / 2, (a.Y + b.Y) / 2)
+            s.Rotation = math.deg(math.atan2(dy, dx))
+            s.Visible = true
+        else
+            s.Visible = false
+        end
+    end
+    local last = pts[#pts]
+    if last then
+        g.head.Position = UDim2.fromOffset(last.X, last.Y)
+        g.head.Visible = true
+    end
+end
+
+-- every sample that reaches the table also goes to the graph
+do
+    local basePush = DHStatTable.Push
+    function DHStatTable.Push(key, v)
+        basePush(key, v)
+        DHStatTable.GraphPush(key, v)
+    end
+end
+
+DHStatTable.ResetBtn.MouseButton1Click:Connect(function()
+    for _, g in pairs(DHStatTable.Graphs) do
+        g.data = {}
+        g.val.Text = "-"
+        g.head.Visible = false
+        for _, s in ipairs(g.segs) do s.Visible = false end
+    end
+end)
+
+-- network rate: Roblox exposes it in more than one place, so use the source that really moves
+DHStatTable.NetSrc = {
+    ["in"] = {
+        function(S) return S.DataReceiveKbps end,
+        function(S) return S.Network.ServerStatsItem["Data Receive Kbps"]:GetValue() end,
+        function(S) return S.Network.ServerStatsItem["Receive Data Kbps"]:GetValue() end,
+    },
+    ["out"] = {
+        function(S) return S.DataSendKbps end,
+        function(S) return S.Network.ServerStatsItem["Data Send Kbps"]:GetValue() end,
+        function(S) return S.Network.ServerStatsItem["Send Data Kbps"]:GetValue() end,
+    },
+}
+DHStatTable.NetState = {["in"] = {last = {}, moved = {}}, ["out"] = {last = {}, moved = {}}}
+
+function DHStatTable.ReadNet(dir)
+    local Stats = game:GetService("Stats")
+    local st = DHStatTable.NetState[dir]
+    local first = nil
+    for i, fn in ipairs(DHStatTable.NetSrc[dir]) do
+        local ok, v = pcall(fn, Stats)
+        if ok and type(v) == "number" then
+            if first == nil then first = v end
+            if st.last[i] ~= nil and v ~= st.last[i] then st.moved[i] = true end
+            st.last[i] = v
+            if st.moved[i] then return v end
+        end
+    end
+    return first
+end
+
 CreateSectionLabel("SESSION")
 
 -- ROW GROUP (JobId, PlaceId, MapName, Executor, Uptime)
@@ -2280,6 +2590,467 @@ task.spawn(function()
 end)
 local ExecutorValue = CreateInfoRow("Executor", identifyexecutor and identifyexecutor() or "Unknown")
 local ServerTimeValue = CreateInfoRow("Uptime", "0:00:00", true)
+
+-- ================================================
+-- EXPLOITER WATCH (Info tab): flags suspicious players from what this client can see
+-- Speed / Fly / Teleport / Noclip. Only a hint: a vehicle, a teleporter or lag can look like a cheat.
+-- Turned on from the Setting tab ("Exploiter Detector").
+-- ================================================
+DHExp = {On = false, S = {}, Flagged = {}, Tok = 0}
+DHExp.Cfg = {
+    Interval = 0.25,     -- seconds between checks
+    Hold = 30,           -- seconds a suspect stays marked after the last confirmed hit
+    Range = 450,         -- players farther than this (studs) from the camera are not judged
+    Grace = 4,           -- seconds after a spawn before a player is judged
+    SpeedMul = 1.35,     -- allowed speed = WalkSpeed * SpeedMul + SpeedAdd
+    SpeedAdd = 4,
+    SpeedChecks = 4,     -- this many checks in a row (about 1 second) must be over the limit
+    TeleportDist = 80,   -- studs moved between two checks
+    TeleportCount = 2,   -- teleports inside TeleportWindow seconds to confirm (landing next to you counts double)
+    TeleportWindow = 20,
+    HoverTime = 2.5,     -- seconds in the air with almost no vertical movement
+    RiseTime = 1.5,      -- seconds in the air while still rising
+    NoclipCount = 3,     -- wall crossings inside NoclipWindow seconds
+    NoclipWindow = 8,
+    MaxRows = 8,
+    AdaptMin = 2,        -- this many players tripping the same check at once means it is a map feature
+    AdaptShare = 0.34,   -- ... and at least this share of the players being watched
+    AdaptWindow = 10,    -- seconds
+    SpeedCap = 2.4,      -- the speed limit never goes above WalkSpeed * this
+    FlyCap = 4,          -- the fly times never grow more than this many times
+    FlingVel = 300,      -- reported velocity (studs/s) that is far beyond anything normal
+    FlingSpin = 60,      -- rad/s of spin that no normal character reaches
+    FlingCount = 3,      -- reports inside FlingWindow seconds to confirm
+    FlingWindow = 3,
+    LaunchVy = 70,       -- vertical studs/s that means "thrown", not walking or jumping
+    LaunchSkip = 4,      -- seconds a thrown player is not judged
+}
+DHExp.Label = {fling = "Fling", speed = "Speed", fly = "Fly", tp = "Teleport", noclip = "Noclip"}
+-- limits that grow on their own when a map allows more (sprint, jetpacks, high jumps)
+DHExp.Base = {ratio = DHExp.Cfg.SpeedMul, fly = 1}
+
+function DHExp.Name(plr)
+    if plr.DisplayName ~= "" and plr.DisplayName ~= plr.Name then
+        return plr.DisplayName .. " (@" .. plr.Name .. ")"
+    end
+    return plr.Name
+end
+
+function DHExp.Toast(text)
+    if DHAlertToast then pcall(DHAlertToast, text, Color3.fromRGB(255, 160, 40), 20) end
+end
+
+function DHExp.InWater(pos)
+    local ok, m = pcall(function()
+        local r = Region3.new(pos - Vector3.new(2, 2, 2), pos + Vector3.new(2, 2, 2)):ExpandToGrid(4)
+        return workspace.Terrain:ReadVoxels(r, 4)[1][1][1]
+    end)
+    return ok and m == Enum.Material.Water
+end
+
+-- text for the list: what was confirmed, with the numbers behind it
+function DHExp.Reasons(S, now)
+    local list = {}
+    for _, k in ipairs({"fling", "tp", "speed", "fly", "noclip"}) do
+        if S.hits[k] and now - S.hits[k] <= DHExp.Cfg.Hold and S.info[k] then list[#list + 1] = S.info[k] end
+    end
+    return #list > 0 and table.concat(list, ", ") or "suspicious"
+end
+
+-- one player, one check: returns the table of things CONFIRMED this round (or nil)
+function DHExp.Check(plr, S, now, rp, camPos, myPos)
+    local C = DHExp.Cfg
+    local char = plr.Character
+    local root = char and char:FindFirstChild("HumanoidRootPart")
+    local hum = char and char:FindFirstChildOfClass("Humanoid")
+    if not (root and hum) or hum.Health <= 0 then
+        S.char = nil
+        return nil
+    end
+    local pos = root.Position
+    if S.char ~= char then
+        -- new character (spawn / respawn): wait before judging
+        S.char, S.last, S.lastT = char, pos, now
+        S.grace = now + C.Grace
+        S.airT, S.spd, S.floor, S.tp, S.nc = 0, {}, nil, {}, {}
+        return nil
+    end
+    local dt = now - S.lastT
+    local last = S.last
+    S.last, S.lastT = pos, now
+
+    local function Reset()
+        S.airT, S.spd, S.floor = 0, {}, nil
+    end
+
+    if now < S.grace or dt < 0.15 or dt > 0.6 then Reset() return nil end
+    -- too far away: another player's movement is not reliable at that distance
+    if camPos and (pos - camPos).Magnitude > C.Range then Reset() return nil end
+
+    -- vehicles, ragdolls and similar: not judged
+    local state = nil
+    pcall(function() state = hum:GetState() end)
+    if hum.SeatPart or hum.Sit or hum.PlatformStand
+        or state == Enum.HumanoidStateType.Ragdoll
+        or state == Enum.HumanoidStateType.FallingDown
+        or state == Enum.HumanoidStateType.PlatformStanding
+        or state == Enum.HumanoidStateType.Physics then
+        Reset()
+        S.skip = now + 1.5
+        return nil
+    end
+    if S.skip and now < S.skip then Reset() return nil end
+
+    local hit = {}
+    S.obs = (S.obs or 0) + 1
+    local move = pos - last
+    
+    -- FLING: the owner reports a huge velocity but the player hardly moves, or the body spins wildly
+    S.fl = S.fl or {}
+    local reported = root.AssemblyLinearVelocity.Magnitude
+    local spin = root.AssemblyAngularVelocity.Magnitude
+    if (reported > C.FlingVel and move.Magnitude / dt < reported * 0.35) or spin > C.FlingSpin then
+        S.fl[#S.fl + 1] = now
+        local fresh = {}
+        for _, t in ipairs(S.fl) do
+            if now - t <= C.FlingWindow then fresh[#fresh + 1] = t end
+        end
+        S.fl = fresh
+        if #fresh >= C.FlingCount then
+            hit.fling = "Fling " .. math.floor(math.max(reported, spin))
+            S.fl = {}
+        end
+    end
+
+    -- thrown into the air (knockback, explosion, somebody else's fling): not their doing, skip a few seconds
+    if math.abs(move.Y / dt) > C.LaunchVy then
+        S.skip = now + C.LaunchSkip
+        Reset()
+        return next(hit) and hit or nil
+    end
+
+    -- what the player stands on; movement is measured against it, so platforms, boats and conveyors do not count
+    local ground = workspace:Raycast(pos, Vector3.new(0, -12, 0), rp)
+    local floor = ground and ground.Instance
+    local rel = move
+    if floor and S.floor == floor and S.floorCF then
+        rel = floor.CFrame:PointToObjectSpace(pos) - S.floorCF:PointToObjectSpace(last)
+    end
+    S.floor = floor
+    S.floorCF = floor and floor.CFrame or nil
+
+    -- TELEPORT: a big jump between two checks; two of them (or one landing next to you) confirm
+    if rel.Magnitude > C.TeleportDist then
+        S.spd = {}
+        local w = 1
+        if myPos and (pos - myPos).Magnitude < 25 then w = 2 end
+        S.tp[#S.tp + 1] = {t = now, w = w}
+        local total = 0
+        local fresh = {}
+        for _, e in ipairs(S.tp) do
+            if now - e.t <= C.TeleportWindow then
+                fresh[#fresh + 1] = e
+                total = total + e.w
+            end
+        end
+        S.tp = fresh
+        if total >= C.TeleportCount then
+            hit.tp = string.format("TP %d", math.floor(rel.Magnitude))
+            S.tp = {}
+        end
+    else
+        -- SPEED: every one of the last checks must be over the limit (about 1 second in a row)
+        local ws = math.max(hum.WalkSpeed, 16)
+        if ws >= (S.wsPeak or 0) or now > (S.wsUntil or 0) then
+            S.wsPeak, S.wsUntil = ws, now + 3
+        end
+        local limit = S.wsPeak * DHExp.Base.ratio + C.SpeedAdd
+        local flat = Vector3.new(rel.X, 0, rel.Z).Magnitude / dt
+        local spd = S.spd
+        spd[#spd + 1] = flat
+        if #spd > C.SpeedChecks then table.remove(spd, 1) end
+        if #spd >= C.SpeedChecks then
+            local over, sum = true, 0
+            for _, v in ipairs(spd) do
+                sum = sum + v
+                if v <= limit then over = false end
+            end
+            if over then hit.speed = string.format("Speed %d/%d", math.floor(sum / #spd), math.floor(S.wsPeak)) end
+        end
+    end
+
+    -- FLY: hovering without a floor, or still rising long after any jump would have ended
+    if ground or state == Enum.HumanoidStateType.Climbing then
+        S.airT = 0
+    else
+        if S.airT == 0 then
+            S.airY, S.airMin, S.airMax = pos.Y, pos.Y, pos.Y
+        end
+        S.airT = S.airT + dt
+        S.airMin = math.min(S.airMin, pos.Y)
+        S.airMax = math.max(S.airMax, pos.Y)
+        local vy = move.Y / dt
+        local avg = (pos.Y - S.airY) / S.airT
+        -- what a normal jump looks like on this map (JumpPower / JumpHeight and Gravity differ between maps)
+        local g = math.max(workspace.Gravity, 1)
+        local jv = 50
+        pcall(function()
+            if hum.UseJumpPower then jv = hum.JumpPower else jv = math.sqrt(2 * g * hum.JumpHeight) end
+        end)
+        local jumpAir = 2 * jv / g
+        local hoverT = math.max(C.HoverTime, jumpAir + 1.5) * DHExp.Base.fly
+        local riseT = math.max(C.RiseTime, jumpAir / 2 + 0.8) * DHExp.Base.fly
+        if not DHExp.InWater(pos) then
+            if S.airT > hoverT and (S.airMax - S.airMin) < 6 then
+                hit.fly = string.format("Fly %ds", math.floor(S.airT))
+            elseif S.airT > riseT and avg > 8 and vy > 6 then
+                hit.fly = string.format("Fly up %ds", math.floor(S.airT))
+            end
+        end
+    end
+
+    -- NOCLIP: the same solid wall is hit from both sides of the path between two checks
+    local mag = move.Magnitude
+    if not hit.tp and rel.Magnitude <= C.TeleportDist and mag > 1.5 then
+        local fwd = workspace:Raycast(last, move, rp)
+        local inst = fwd and fwd.Instance
+        if inst and not inst:IsA("Terrain") and inst.CanCollide and inst.Anchored and math.abs(fwd.Normal.Y) < 0.5 then
+            local back = workspace:Raycast(pos, -move, rp)
+            if back and back.Instance == inst then
+                S.nc[#S.nc + 1] = now
+                local fresh = {}
+                for _, t in ipairs(S.nc) do
+                    if now - t <= C.NoclipWindow then fresh[#fresh + 1] = t end
+                end
+                S.nc = fresh
+                if #fresh >= C.NoclipCount then
+                    hit.noclip = "Noclip x" .. #fresh
+                    S.nc = {}
+                end
+            end
+        end
+    end
+
+    -- a fling explains the rest (it throws the player around): report only that
+    if hit.fling then hit = {fling = hit.fling} end
+    return next(hit) and hit or nil
+end
+
+-- different maps allow different things (sprint, jetpacks, boosted jumps): when several players trip the same
+-- check at the same time it is a map feature, not cheating, so the limit is raised and those hits are dropped
+function DHExp.Adapt(results, now)
+    local C, B = DHExp.Cfg, DHExp.Base
+    local total = 0
+    for _, S in pairs(DHExp.S) do
+        if S.obs and S.obs >= 8 then total = total + 1 end
+    end
+    if total < 3 then return end
+    for _, kind in ipairs({"speed", "fly"}) do
+        local who = {}
+        for plr, S in pairs(DHExp.S) do
+            local cur = results[plr] and results[plr][kind]
+            if cur or (S.hits[kind] and now - S.hits[kind] <= C.AdaptWindow) then who[#who + 1] = plr end
+        end
+        if #who >= C.AdaptMin and #who / total >= C.AdaptShare then
+            if kind == "speed" then
+                B.ratio = math.min(B.ratio * 1.2, C.SpeedCap)
+            else
+                B.fly = math.min(B.fly * 1.5, C.FlyCap)
+            end
+            for _, plr in ipairs(who) do
+                if results[plr] then results[plr][kind] = nil end
+                local S = DHExp.S[plr]
+                S.hits[kind], S.info[kind], S.first[kind] = nil, nil, nil
+                S.spd, S.airT = {}, 0
+            end
+        end
+    end
+end
+
+function DHExp.Tick()
+    local C = DHExp.Cfg
+    local now = tick()
+    local chars = {}
+    for _, p in ipairs(Players:GetPlayers()) do
+        if p.Character then chars[#chars + 1] = p.Character end
+    end
+    local rp = RaycastParams.new()
+    rp.FilterType = Enum.RaycastFilterType.Exclude
+    rp.FilterDescendantsInstances = chars
+    rp.IgnoreWater = true
+    rp.RespectCanCollide = true
+
+    local cam = workspace.CurrentCamera
+    local camPos = cam and cam.CFrame.Position
+    local myRoot = Player.Character and Player.Character:FindFirstChild("HumanoidRootPart")
+    local myPos = myRoot and myRoot.Position
+
+    -- 1) check everybody
+    local results = {}
+    for _, plr in ipairs(Players:GetPlayers()) do
+        if plr ~= Player then
+            local S = DHExp.S[plr]
+            if not S then
+                S = {score = 0, airT = 0, hits = {}, info = {}, first = {}, notified = {}, spd = {}, tp = {}, nc = {},
+                     flagged = false, hold = 0, grace = 0}
+                DHExp.S[plr] = S
+            end
+            local ok, hit = pcall(DHExp.Check, plr, S, now, rp, camPos, myPos)
+            if ok and hit then results[plr] = hit end
+        end
+    end
+
+    -- 2) learn what this map allows
+    pcall(DHExp.Adapt, results, now)
+
+    -- 3) mark and announce
+    for plr, hit in pairs(results) do
+        local S = DHExp.S[plr]
+        if S then
+            for k, text in pairs(hit) do
+                if now - (S.hits[k] or -1000) > 3 then S.first[k] = now end
+                S.hits[k] = now
+                S.info[k] = text
+                S.score = S.score + 1
+                S.hold = now + C.Hold
+                S.flagged = true
+                DHExp.Flagged[plr] = true
+                -- speed and fly must keep going for 3 seconds before the notice (a map feature may still be learned)
+                local wait = (k == "speed" or k == "fly") and 3 or 0
+                if now - (S.first[k] or now) >= wait and now - (S.notified[k] or -1000) > 60 then
+                    S.notified[k] = now
+                    DHExp.Toast("! " .. DHExp.Name(plr) .. ": " .. text)
+                end
+            end
+        end
+    end
+
+    -- 4) forget suspects with nothing left to show
+    for plr, S in pairs(DHExp.S) do
+        if S.flagged then
+            local live = false
+            for _, t in pairs(S.hits) do
+                if now - t <= C.Hold then live = true end
+            end
+            if not live then
+                S.flagged = false
+                DHExp.Flagged[plr] = nil
+            end
+        end
+    end
+end
+
+-- UI: list of current suspects
+CreateSectionLabel("EXPLOITER WATCH")
+
+DHExp.Status = Instance.new("TextLabel", InfoScroll)
+DHExp.Status.Size = UDim2.new(1, 0, 0, 16)
+DHExp.Status.BackgroundTransparency = 1
+DHExp.Status.Text = "Off - turn it on in the Setting tab"
+DHExp.Status.Font = Enum.Font.Gotham
+DHExp.Status.TextSize = 10
+DHExp.Status.TextColor3 = Color3.fromRGB(110,110,110)
+DHExp.Status.TextXAlignment = Enum.TextXAlignment.Left
+
+DHExp.Box = Instance.new("Frame", InfoScroll)
+DHExp.Box.Size = UDim2.new(1, 0, 0, 0)
+DHExp.Box.AutomaticSize = Enum.AutomaticSize.Y
+DHExp.Box.BackgroundColor3 = Color3.fromRGB(25,25,25)
+Instance.new("UICorner", DHExp.Box).CornerRadius = UDim.new(0, 10)
+do
+    local lay = Instance.new("UIListLayout", DHExp.Box)
+    lay.SortOrder = Enum.SortOrder.LayoutOrder
+    lay.Padding = UDim.new(0, 2)
+    local pad = Instance.new("UIPadding", DHExp.Box)
+    pad.PaddingTop = UDim.new(0, 4)
+    pad.PaddingBottom = UDim.new(0, 4)
+    pad.PaddingLeft = UDim.new(0, 10)
+    pad.PaddingRight = UDim.new(0, 10)
+end
+
+DHExp.Empty = Instance.new("TextLabel", DHExp.Box)
+DHExp.Empty.LayoutOrder = 0
+DHExp.Empty.Size = UDim2.new(1, 0, 0, 26)
+DHExp.Empty.BackgroundTransparency = 1
+DHExp.Empty.Text = "No suspect right now"
+DHExp.Empty.Font = Enum.Font.Gotham
+DHExp.Empty.TextSize = 11
+DHExp.Empty.TextColor3 = Color3.fromRGB(110,110,110)
+
+function DHExp.Refresh()
+    if not DHExp.Box then return end
+    for _, c in ipairs(DHExp.Box:GetChildren()) do
+        if c:IsA("Frame") then c:Destroy() end
+    end
+    local list = {}
+    for plr, S in pairs(DHExp.S) do
+        if S.flagged and plr.Parent then list[#list + 1] = {plr = plr, S = S} end
+    end
+    table.sort(list, function(a, b) return a.S.score > b.S.score end)
+    DHExp.Empty.Visible = (#list == 0)
+    if DHExp.On then
+        DHExp.Status.Text = "Watching " .. math.max(#Players:GetPlayers() - 1, 0) .. " players  |  " .. #list .. " suspect"
+    end
+    local now = tick()
+    for i = 1, math.min(#list, DHExp.Cfg.MaxRows) do
+        local plr, S = list[i].plr, list[i].S
+        local row = Instance.new("Frame", DHExp.Box)
+        row.LayoutOrder = i
+        row.Size = UDim2.new(1, 0, 0, 26)
+        row.BackgroundTransparency = 1
+
+        local nm = Instance.new("TextLabel", row)
+        nm.Size = UDim2.new(0.55, 0, 1, 0)
+        nm.BackgroundTransparency = 1
+        nm.Text = DHExp.Name(plr)
+        nm.Font = Enum.Font.GothamBold
+        nm.TextSize = 11
+        nm.TextColor3 = Color3.fromRGB(255,120,120)
+        nm.TextXAlignment = Enum.TextXAlignment.Left
+        nm.TextTruncate = Enum.TextTruncate.AtEnd
+
+        local rs = Instance.new("TextLabel", row)
+        rs.Position = UDim2.new(0.55, 0, 0, 0)
+        rs.Size = UDim2.new(0.45, 0, 1, 0)
+        rs.BackgroundTransparency = 1
+        rs.Text = DHExp.Reasons(S, now)
+        rs.Font = Enum.Font.Code
+        rs.TextSize = 10
+        rs.TextColor3 = Color3.fromRGB(200,200,200)
+        rs.TextXAlignment = Enum.TextXAlignment.Right
+        rs.TextTruncate = Enum.TextTruncate.AtEnd
+    end
+end
+
+function DHExp.Set(on)
+    DHExp.Tok = DHExp.Tok + 1
+    DHExp.On = on and true or false
+    if not DHExp.On then
+        DHExp.S, DHExp.Flagged = {}, {}
+        DHExp.Status.Text = "Off - turn it on in the Setting tab"
+        DHExp.Refresh()
+        return
+    end
+    DHExp.Status.Text = "Watching..."
+    local my = DHExp.Tok
+    task.spawn(function()
+        local acc = 0
+        while DHExp.Tok == my and DHExp.On and ScreenGui and ScreenGui.Parent do
+            pcall(DHExp.Tick)
+            acc = acc + DHExp.Cfg.Interval
+            if acc >= 1 then
+                acc = 0
+                pcall(DHExp.Refresh)
+            end
+            task.wait(DHExp.Cfg.Interval)
+        end
+    end)
+end
+
+Players.PlayerRemoving:Connect(function(plr)
+    DHExp.S[plr] = nil
+    DHExp.Flagged[plr] = nil
+end)
 
 -- PLAYER LIST SECTION
 CreateSectionLabel("PLAYER LIST")
@@ -2406,6 +3177,22 @@ table.insert(DHMetrics.listeners, function(m)
     ServerTimeValue.Text = string.format("%d:%02d:%02d", h, mm, s)
 
     PlayersValue.Text = #Players:GetPlayers() .. "/" .. game.Players.MaxPlayers
+end)
+
+-- Statistics table: fed from the same shared metrics (the first 2 seconds are skipped)
+table.insert(DHMetrics.listeners, function(m)
+    local T = DHStatTable
+    if not (T and T.Rows) then return end
+    T.Warm = T.Warm + 1
+    if T.Warm <= 4 then return end
+    if m.fps > 0 then T.Push("fps", m.fps) end
+    if m.ping > 0 then T.Push("ping", m.ping) end
+    T.Push("players", #Players:GetPlayers())
+    local vIn = T.ReadNet("in")
+    local vOut = T.ReadNet("out")
+    local okMem, vMem = pcall(function() return game:GetService("Stats"):GetTotalMemoryUsageMb() end)
+    if okMem and type(vMem) == "number" then T.Push("netin", vMem) end
+    if vOut then T.Push("netout", vOut) end
 end)
 
 DHMetricsStart()
@@ -12928,6 +13715,7 @@ function BuildESP()
 
     local function ColorOf(plr)
         if typeof(plr) == "Instance" and not plr:IsA("Player") then return cfg.NpcColor end
+        if DHExp and DHExp.Flagged and DHExp.Flagged[plr] then return Color3.fromRGB(255, 0, 255) end
         if plr.Team then return plr.TeamColor.Color end
         return cfg.DefaultColor
     end
@@ -15154,7 +15942,9 @@ function DHAnim.CtlStart()
         local vel = root and root.AssemblyLinearVelocity or Vector3.zero
         local spd = Vector3.new(vel.X, 0, vel.Z).Magnitude
         local want = nil
-        if st == Enum.HumanoidStateType.Climbing then
+        if hum.Sit or hum.SeatPart or st == Enum.HumanoidStateType.Seated then
+            want = nil -- sitting: let the map play its own sit animation
+        elseif st == Enum.HumanoidStateType.Climbing then
             want = "climb"
         elseif st == Enum.HumanoidStateType.Swimming then
             want = (spd > 1) and "swim" or "swimidle"
@@ -15194,6 +15984,7 @@ function DHAnim.NeedCtl()
     local sel = DHAnim.Sel
     if not (an and sel) then return false end
     local st = hum:GetState()
+    if hum.Sit or hum.SeatPart then return false end
     if st ~= Enum.HumanoidStateType.Running and st ~= Enum.HumanoidStateType.RunningNoPhysics then
         return false
     end
@@ -18408,41 +19199,69 @@ function BuildOtherSettings()
     alertHolder.Name = "DH_AlertHolder"
     alertHolder.AnchorPoint = Vector2.new(1, 0)
     alertHolder.Position = UDim2.new(1, -8, 0, 40)
-    alertHolder.Size = UDim2.new(0, 250, 0, 120)
+    alertHolder.Size = UDim2.new(0, 230, 0, 24)
     alertHolder.BackgroundTransparency = 1
-    local alertList = Instance.new("UIListLayout", alertHolder)
-    alertList.Padding = UDim.new(0, 4)
-    alertList.HorizontalAlignment = Enum.HorizontalAlignment.Right
-    alertList.SortOrder = Enum.SortOrder.LayoutOrder
+    alertHolder.Active = false
+    pcall(function() alertHolder.Interactable = false end) -- touches go straight through to the game
 
-    local function AlertToast(text, color)
-        alertSeq = alertSeq + 1
+    -- ordinary notices: one at a time in the same spot, the next one waits its turn
+    local alertQueue = {}
+    local alertBusy = false
+
+    local function AlertNext()
+        if alertBusy then return end
+        local item = table.remove(alertQueue, 1)
+        if not item then return end
+        alertBusy = true
+
         local t = Instance.new("TextLabel")
-        t.LayoutOrder = alertSeq
-        t.Size = UDim2.new(1, 0, 0, 22)
+        t.Size = UDim2.new(1, 0, 1, 0)
         t.BackgroundColor3 = Color3.fromRGB(25, 25, 25)
-        t.BackgroundTransparency = 0.25
+        t.BackgroundTransparency = 1
         t.Font = Enum.Font.GothamBold
         t.TextSize = 11
         t.TextColor3 = Color3.new(1, 1, 1)
+        t.TextTransparency = 1
         t.TextTruncate = Enum.TextTruncate.AtEnd
-        t.Text = text
+        t.Text = item.text
+        t.Active = false
+        pcall(function() t.Interactable = false end)
         Instance.new("UICorner", t).CornerRadius = UDim.new(0, 8)
         local st = Instance.new("UIStroke", t)
-        st.Color = color
+        st.Color = item.color
         st.Thickness = 1.2
+        st.Transparency = 1
         t.Parent = alertHolder
-        -- keep at most 4 notices on screen
-        local kids = {}
-        for _, c in ipairs(alertHolder:GetChildren()) do
-            if c:IsA("TextLabel") then kids[#kids + 1] = c end
-        end
-        table.sort(kids, function(a, b) return a.LayoutOrder < b.LayoutOrder end)
-        while #kids > 4 do table.remove(kids, 1):Destroy() end
-        task.delay(3.5, function()
-            if t.Parent then t:Destroy() end
+
+        local Tween = game:GetService("TweenService")
+        local fade = TweenInfo.new(0.2)
+        Tween:Create(t, fade, {BackgroundTransparency = 0.25, TextTransparency = 0}):Play()
+        Tween:Create(st, fade, {Transparency = 0}):Play()
+
+        task.delay(item.life, function()
+            Tween:Create(t, fade, {BackgroundTransparency = 1, TextTransparency = 1}):Play()
+            Tween:Create(st, fade, {Transparency = 1}):Play()
+            task.wait(0.25)
+            t:Destroy()
+            alertBusy = false
+            AlertNext()
         end)
     end
+
+    -- life above 5 means an important notice (exploiter): it goes to the front and stays 5 seconds
+    local function AlertToast(text, color, life)
+        local important = life ~= nil and life > 5
+        local item = {text = text, color = color, life = important and 5 or (life or 2.5)}
+        if important then
+            table.insert(alertQueue, 1, item)
+        else
+            alertQueue[#alertQueue + 1] = item
+        end
+        while #alertQueue > 8 do table.remove(alertQueue, #alertQueue) end
+        AlertNext()
+    end
+
+    DHAlertToast = AlertToast
 
     local function AlertName(plr)
         if plr.DisplayName ~= "" and plr.DisplayName ~= plr.Name then
@@ -18475,6 +19294,7 @@ function BuildOtherSettings()
     AddToggle("Full Bright", "Remove darkness and fog", SetFullBright)
     AddToggle("Hide Player", "Hide other players' characters", SetHidePlayer)
     AddToggle("Join/Leave Alert", "Small notice when a player joins or leaves", SetJoinAlert)
+    AddToggle("Exploiter Detector", "Flag players with suspicious speed, flying, teleport or noclip", function(on) if DHExp then DHExp.Set(on) end end)
     local mvToggle = AddToggle("Move Button", "Move, resize or hide game buttons", function(on) DHMove.Set(on) end)
     DHMoveToggle = mvToggle
 end
@@ -19721,6 +20541,10 @@ featureItems = {
     "   • Server info: JobId, PlaceId, map, executor, uptime",
     "   • FPS & Ping monitor (colored)",
     "   • Player list with search & copy name",
+    "   • Statistics table & live monitor (FPS, Ping,",
+    "     Players, Memory, Net Out)",
+    "   • Exploiter Watch: suspects list (Speed, Fly,",
+    "     Teleport, Noclip, Fling)",
     "",
     "🎵 MUSIC TAB",
     "   • Audio ID player with volume control",
@@ -19772,9 +20596,10 @@ featureItems = {
     "   • Search scripts from Scriptblox & RawScripts",
     "   • Preview & execute scripts",
     "   • Copy script to clipboard",
+    "   • This Map: scripts for the map you are in",
     "",
     "🎨 VISUAL TAB",
-    "   • ESP: Player, Line, NameTag & Distance",
+    "   • ESP: Player, Line, NameTag, Distance & NPC",
     "   • Shaders & Shaders Lite (6 presets each)",
     "   • Shaders Color & Color Lite (8 colors)",
     "   • Weathers (rain, snow, storm & more)",
@@ -19800,6 +20625,8 @@ featureItems = {
     "   • Time Stop, Freeze & Reverse (rewind)",
     "   • Aimbot (circle, smoothness, team/wall check, hold)",
     "   • Silent Aim (redirects shots, uses circle settings)",
+    "   • Target Team: aim at one chosen team",
+    "   • Hitbox (Box, Torso or Root) with size slider",
     "",
     "⚙️ SETTING TAB",
     "   • Instant Prompt toggle",
@@ -19807,7 +20634,8 @@ featureItems = {
     "   • Camera Mode & Camera Sensitivity",
     "   • Other Settings: Low Graphics, No Audio,",
     "     FPS Counter, Ping Display, Full Bright,",
-    "     Hide Player",
+    "     Hide Player, Join/Leave Alert,",
+    "     Exploiter Detector",
     "   • Move Button (move, resize or hide game buttons)",
     "",
     "💳 CREDIT TAB",
@@ -20381,6 +21209,104 @@ end)
 
 -- Wait for GUI to load
 task.wait(1)
+
+-- ================================================
+-- WHAT'S NEW: a small popup, shown once for every new entry in the changelog
+-- To announce an update: add a new entry on TOP of DHChangelog with the next id.
+-- ================================================
+DHChangelog = {
+    {id = 1, date = "2026-10-16", title = "What's New", items = {
+        "Exploiter Detector (Setting tab): flags Speed, Fly, Teleport, Noclip and Fling, and learns what each map allows.",
+        "Statistics table and Live Monitor (Info tab): FPS, Ping, Players, Memory and Net Out with moving lines.",
+        "Join/Leave and exploiter notices: one small notice at a time, they never block your touch.",
+        "Search tab: This Map uses the original name of the map.",
+        "Animation: sitting no longer turns into idle.",
+        "All saves now live in the Daffzhub_file folder (old files move there by themselves).",
+    }},
+}
+
+function DHWhatsNew()
+    local latest = DHChangelog[1]
+    if not latest then return end
+
+    local HttpService = game:GetService("HttpService")
+    local path = "Daffzhub_file/seen_version.json"
+    local seen = 0
+    pcall(function()
+        if isfile and isfile(path) then
+            seen = tonumber(HttpService:JSONDecode(readfile(path)).id) or 0
+        end
+    end)
+    if seen >= latest.id then return end
+
+    local pop = Instance.new("Frame", ScreenGui)
+    pop.Name = "DH_WhatsNew"
+    pop.AnchorPoint = Vector2.new(0.5, 0.5)
+    pop.Position = UDim2.new(0.5, 0, 0.5, 0)
+    pop.Size = UDim2.new(0, 300, 0, 0)
+    pop.AutomaticSize = Enum.AutomaticSize.Y
+    pop.BackgroundColor3 = Color3.fromRGB(25, 25, 25)
+    pop.Active = true
+    pop.ZIndex = 200
+    Instance.new("UICorner", pop).CornerRadius = UDim.new(0, 12)
+    local stroke = Instance.new("UIStroke", pop)
+    stroke.Color = Color3.fromRGB(255, 200, 0)
+    stroke.Thickness = 1.5
+
+    local pad = Instance.new("UIPadding", pop)
+    pad.PaddingTop = UDim.new(0, 12)
+    pad.PaddingBottom = UDim.new(0, 12)
+    pad.PaddingLeft = UDim.new(0, 14)
+    pad.PaddingRight = UDim.new(0, 14)
+    local lay = Instance.new("UIListLayout", pop)
+    lay.Padding = UDim.new(0, 6)
+    lay.SortOrder = Enum.SortOrder.LayoutOrder
+
+    local function Line(text, size, color, font, order)
+        local l = Instance.new("TextLabel", pop)
+        l.LayoutOrder = order
+        l.Size = UDim2.new(1, 0, 0, 0)
+        l.AutomaticSize = Enum.AutomaticSize.Y
+        l.BackgroundTransparency = 1
+        l.Text = text
+        l.Font = font
+        l.TextSize = size
+        l.TextColor3 = color
+        l.TextWrapped = true
+        l.TextXAlignment = Enum.TextXAlignment.Left
+        l.ZIndex = 201
+        return l
+    end
+
+    Line(latest.title .. "  (" .. latest.date .. ")", 17, Color3.fromRGB(255, 200, 0), Enum.Font.GothamBold, 0)
+    for i, it in ipairs(latest.items) do
+        Line("•  " .. it, 12, Color3.fromRGB(215, 215, 215), Enum.Font.Gotham, i)
+    end
+
+    local ok = Instance.new("TextButton", pop)
+    ok.LayoutOrder = 100
+    ok.Size = UDim2.new(1, 0, 0, 34)
+    ok.BackgroundColor3 = Color3.fromRGB(40, 170, 80)
+    ok.Text = "Got it"
+    ok.Font = Enum.Font.GothamBold
+    ok.TextSize = 14
+    ok.TextColor3 = Color3.new(1, 1, 1)
+    ok.ZIndex = 201
+    Instance.new("UICorner", ok).CornerRadius = UDim.new(0, 8)
+
+    ok.MouseButton1Click:Connect(function()
+        pcall(function()
+            if makefolder and isfolder and not isfolder("Daffzhub_file") then makefolder("Daffzhub_file") end
+            if writefile then writefile(path, HttpService:JSONEncode({id = latest.id})) end
+        end)
+        pop:Destroy()
+    end)
+end
+
+task.spawn(function()
+    task.wait(2)
+    pcall(DHWhatsNew)
+end)
 
 end)
 if not ok then warn("DAFFZHUB ERROR: " .. tostring(err)) print("DAFFZHUB ERROR: " .. tostring(err)) end
