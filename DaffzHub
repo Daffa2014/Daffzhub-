@@ -9477,6 +9477,314 @@ end
 -- 4. CONNECT
 CrosshairBtn.MouseButton1Click:Connect(toggleCrosshair)
 
+-- ================================================
+-- BRING TOOLS: Orbit Mode, Grab Limit, Release All (Panic)
+-- and for Move: Rotate + Throw.
+-- All of it lives inside one function, so it adds no top-level locals.
+-- ================================================
+DHOrbit = {on = false, radius = 12, speed = 1.6, t = 0, n = 0, idx = setmetatable({}, {__mode = "k"})}
+DHMoveCfg = {ThrowPower = 150, RotateSpeed = 3}
+DHLimitSteps = {25, 50, 100, 200, 400, math.huge}
+DHLimitIndex = #DHLimitSteps
+DHRot = 0
+
+function DHBringTools()
+    local RED = Color3.fromRGB(180, 30, 30)
+    local GREEN = Color3.fromRGB(30, 180, 30)
+
+    local function Btn(parent, text, pos, size, color)
+        local b = Instance.new("TextButton", parent)
+        b.Position = pos
+        b.Size = size
+        b.BackgroundColor3 = color
+        b.Text = text
+        b.Font = Enum.Font.GothamBold
+        b.TextSize = 13
+        b.TextColor3 = Color3.new(1, 1, 1)
+        Instance.new("UICorner", b).CornerRadius = UDim.new(0, 6)
+        return b
+    end
+
+    -- keep the order: header, Bring Parts, Bring Tools, Move Bring
+    BringPartsLayout.SortOrder = Enum.SortOrder.LayoutOrder
+    HeaderFrame.LayoutOrder = 0
+    BringContainer.LayoutOrder = 1
+    MagnetContainer.LayoutOrder = 3
+
+    -- ---------- BRING TOOLS CONTAINER ----------
+    local box = Instance.new("Frame", BringPartsScroll)
+    box.LayoutOrder = 2
+    box.Size = UDim2.new(1, 0, 0, 245)
+    box.BackgroundColor3 = Color3.fromRGB(25, 25, 25)
+    Instance.new("UICorner", box).CornerRadius = UDim.new(0, 8)
+
+    local head = Instance.new("TextLabel", box)
+    head.Size = UDim2.new(1, -20, 0, 30)
+    head.Position = UDim2.new(0, 10, 0, 5)
+    head.BackgroundTransparency = 1
+    head.Text = "Bring Tools"
+    head.Font = Enum.Font.GothamBold
+    head.TextSize = 16
+    head.TextColor3 = Color3.fromRGB(150, 255, 150)
+    head.TextXAlignment = Enum.TextXAlignment.Left
+
+    local orbitBtn = Btn(box, "Orbit Mode | OFF", UDim2.new(0, 10, 0, 40), UDim2.new(1, -20, 0, 35), RED)
+    orbitBtn.TextSize = 14
+
+    -- ---------- ORBIT DISTANCE SLIDER (part to target) ----------
+    local UIS = game:GetService("UserInputService")
+    local dist = Instance.new("Frame", box)
+    dist.Position = UDim2.new(0, 10, 0, 85)
+    dist.Size = UDim2.new(1, -20, 0, 50)
+    dist.BackgroundColor3 = Color3.fromRGB(35, 35, 35)
+    Instance.new("UICorner", dist).CornerRadius = UDim.new(0, 6)
+
+    local dName = Instance.new("TextLabel", dist)
+    dName.Size = UDim2.new(1, -80, 0, 18)
+    dName.Position = UDim2.new(0, 10, 0, 5)
+    dName.BackgroundTransparency = 1
+    dName.Text = "Orbit Distance"
+    dName.Font = Enum.Font.GothamBold
+    dName.TextSize = 12
+    dName.TextColor3 = Color3.new(1, 1, 1)
+    dName.TextXAlignment = Enum.TextXAlignment.Left
+
+    local dVal = Instance.new("TextLabel", dist)
+    dVal.Size = UDim2.new(0, 60, 0, 18)
+    dVal.Position = UDim2.new(1, -70, 0, 5)
+    dVal.BackgroundTransparency = 1
+    dVal.Font = Enum.Font.GothamBold
+    dVal.TextSize = 12
+    dVal.TextColor3 = Color3.fromRGB(100, 200, 255)
+    dVal.TextXAlignment = Enum.TextXAlignment.Right
+
+    local dBar = Instance.new("Frame", dist)
+    dBar.Size = UDim2.new(1, -24, 0, 8)
+    dBar.Position = UDim2.new(0, 12, 0, 33)
+    dBar.BackgroundColor3 = Color3.fromRGB(50, 50, 50)
+    dBar.BorderSizePixel = 0
+    Instance.new("UICorner", dBar).CornerRadius = UDim.new(0, 4)
+
+    local dFill = Instance.new("Frame", dBar)
+    dFill.Size = UDim2.new(0, 0, 1, 0)
+    dFill.BackgroundColor3 = Color3.fromRGB(35, 160, 90)
+    dFill.BorderSizePixel = 0
+    Instance.new("UICorner", dFill).CornerRadius = UDim.new(0, 4)
+
+    local dKnob = Instance.new("Frame", dBar)
+    dKnob.Size = UDim2.new(0, 16, 0, 16)
+    dKnob.AnchorPoint = Vector2.new(0.5, 0.5)
+    dKnob.BackgroundColor3 = Color3.new(1, 1, 1)
+    dKnob.BorderSizePixel = 0
+    Instance.new("UICorner", dKnob).CornerRadius = UDim.new(0, 8)
+
+    -- a wide invisible area so the bar is easy to hit with a thumb
+    local dHit = Instance.new("TextButton", dist)
+    dHit.Size = UDim2.new(1, 0, 0, 30)
+    dHit.Position = UDim2.new(0, 0, 0, 20)
+    dHit.BackgroundTransparency = 1
+    dHit.Text = ""
+
+    local DMIN, DMAX = 3, 60
+    local dragging = false
+    local function SetDist(r)
+        r = math.clamp(r, 0, 1)
+        local v = math.floor(DMIN + (DMAX - DMIN) * r + 0.5)
+        r = (v - DMIN) / (DMAX - DMIN)
+        dFill.Size = UDim2.new(r, 0, 1, 0)
+        dKnob.Position = UDim2.new(r, 0, 0.5, 0)
+        dVal.Text = v .. " studs"
+        DHOrbit.radius = v
+    end
+    SetDist((DHOrbit.radius - DMIN) / (DMAX - DMIN))
+
+    local function FromInput(input)
+        SetDist((input.Position.X - dBar.AbsolutePosition.X) / math.max(1, dBar.AbsoluteSize.X))
+    end
+    dHit.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+            dragging = true
+            BringPartsScroll.ScrollingEnabled = false
+            FromInput(input)
+        end
+    end)
+    UIS.InputChanged:Connect(function(input)
+        if dragging and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
+            FromInput(input)
+        end
+    end)
+    UIS.InputEnded:Connect(function(input)
+        if dragging and (input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch) then
+            dragging = false
+            BringPartsScroll.ScrollingEnabled = true
+        end
+    end)
+
+    local lim = Instance.new("Frame", box)
+    lim.Position = UDim2.new(0, 10, 0, 140)
+    lim.Size = UDim2.new(1, -20, 0, 40)
+    lim.BackgroundColor3 = Color3.fromRGB(35, 35, 35)
+    Instance.new("UICorner", lim).CornerRadius = UDim.new(0, 6)
+
+    local limMinus = Btn(lim, "-", UDim2.new(0, 5, 0, 5), UDim2.new(0, 40, 0, 30), Color3.fromRGB(255, 100, 100))
+    limMinus.TextSize = 18
+    local limPlus = Btn(lim, "+", UDim2.new(1, -45, 0, 5), UDim2.new(0, 40, 0, 30), Color3.fromRGB(100, 255, 100))
+    limPlus.TextSize = 18
+    limPlus.TextColor3 = Color3.new(0, 0, 0)
+
+    local limLabel = Instance.new("TextLabel", lim)
+    limLabel.Position = UDim2.new(0, 50, 0, 5)
+    limLabel.Size = UDim2.new(1, -100, 0, 30)
+    limLabel.BackgroundTransparency = 1
+    limLabel.Font = Enum.Font.GothamBold
+    limLabel.TextSize = 13
+    limLabel.TextColor3 = Color3.new(1, 1, 1)
+    limLabel.Text = "Grab Limit: Unlimited"
+
+    local panicBtn = Btn(box, "Release All (Panic)", UDim2.new(0, 10, 0, 190), UDim2.new(1, -20, 0, 40), Color3.fromRGB(200, 40, 40))
+    panicBtn.TextSize = 14
+
+    -- ---------- ORBIT ----------
+    local function SetOrbit(on)
+        DHOrbit.on = on
+        orbitBtn.Text = on and "Orbit Mode | ON" or "Orbit Mode | OFF"
+        orbitBtn.BackgroundColor3 = on and GREEN or RED
+        if not on then
+            -- parts go back to being pulled to one point
+            for _, o in pairs(bringObjs) do
+                local ap = o.objs and o.objs[2]
+                if ap and ap.Parent then
+                    pcall(function() ap.Mode = Enum.PositionAlignmentMode.TwoAttachment end)
+                end
+            end
+        end
+    end
+
+    RunService.Heartbeat:Connect(function(dt)
+        if not DHOrbit.on or not blackHoleActive then return end
+        local tp = targetPart
+        if not (tp and tp.Parent) then return end
+        DHOrbit.t = DHOrbit.t + dt * DHOrbit.speed
+        local c = tp.Position
+        for v in pairs(forcedParts) do
+            local o = bringObjs[v]
+            local ap = o and o.objs and o.objs[2]
+            if ap and ap.Parent then
+                local i = DHOrbit.idx[v]
+                if not i then
+                    DHOrbit.n = DHOrbit.n + 1
+                    i = DHOrbit.n
+                    DHOrbit.idx[v] = i
+                end
+                local a = DHOrbit.t + i * 2.39996
+                local r = DHOrbit.radius + (i % 3) * 3
+                local h = ((i * 7) % 5 - 2) * 1.5
+                pcall(function()
+                    if ap.Mode ~= Enum.PositionAlignmentMode.OneAttachment then
+                        ap.Mode = Enum.PositionAlignmentMode.OneAttachment
+                    end
+                    ap.Position = c + Vector3.new(math.cos(a) * r, h, math.sin(a) * r)
+                end)
+            end
+        end
+    end)
+
+    orbitBtn.MouseButton1Click:Connect(function()
+        SetOrbit(not DHOrbit.on)
+    end)
+
+    -- ---------- GRAB LIMIT ----------
+    local function ApplyLimit()
+        local v = DHLimitSteps[DHLimitIndex]
+        BringCfg.MaxParts = v
+        limLabel.Text = "Grab Limit: " .. (v == math.huge and "Unlimited" or tostring(v))
+        if BringCount > v then
+            local list = {}
+            for p in pairs(forcedParts) do list[#list + 1] = p end
+            for _, p in ipairs(list) do
+                if BringCount <= v then break end
+                BringRelease(p)
+            end
+        end
+    end
+
+    limMinus.MouseButton1Click:Connect(function()
+        DHLimitIndex = math.max(1, DHLimitIndex - 1)
+        ApplyLimit()
+    end)
+    limPlus.MouseButton1Click:Connect(function()
+        DHLimitIndex = math.min(#DHLimitSteps, DHLimitIndex + 1)
+        ApplyLimit()
+    end)
+    ApplyLimit()
+
+    -- ---------- RELEASE ALL / PANIC ----------
+    local function Panic()
+        SetOrbit(false)
+        local list = {}
+        for p in pairs(forcedParts) do list[#list + 1] = p end
+        for _, p in ipairs(list) do BringRelease(p) end
+        if blackHoleActive then ToggleBringParts() end
+        if magnetEnabled then ToggleMagnet() end
+        -- also unfreeze everything frozen with Move
+        for p in pairs(frozenData) do
+            if p and p.Parent then
+                for _, x in ipairs(p:GetChildren()) do
+                    if x:IsA("BodyPosition") or x:IsA("BodyGyro") then x:Destroy() end
+                end
+            end
+        end
+        frozenData = {}
+        DHRot = 0
+        BringStatusLabel.Text = "Grabbed: 0 | Owned: 0"
+        MagnetStatus.Text = "Status: Idle"
+    end
+    panicBtn.MouseButton1Click:Connect(Panic)
+
+    -- ---------- MOVE: ROTATE + THROW ----------
+    MagnetContainer.Size = UDim2.new(1, 0, 0, 365)
+    MagnetStatus.Position = UDim2.new(0, 10, 0, 340)
+
+    local throwBtn = Btn(MagnetContainer, "Throw", UDim2.new(0.52, 5, 0, 260), UDim2.new(0.48, -5, 0, 30), Color3.fromRGB(200, 120, 30))
+    throwBtn.TextSize = 12
+    local rotL = Btn(MagnetContainer, "< Rotate", UDim2.new(0, 10, 0, 300), UDim2.new(0.48, -5, 0, 30), Color3.fromRGB(100, 150, 255))
+    rotL.TextSize = 12
+    local rotR = Btn(MagnetContainer, "Rotate >", UDim2.new(0.52, 5, 0, 300), UDim2.new(0.48, -5, 0, 30), Color3.fromRGB(100, 150, 255))
+    rotR.TextSize = 12
+
+    -- hold the button to turn the block you are holding
+    rotL.MouseButton1Down:Connect(function() DHRot = -1 end)
+    rotR.MouseButton1Down:Connect(function() DHRot = 1 end)
+    rotL.MouseButton1Up:Connect(function() DHRot = 0 end)
+    rotR.MouseButton1Up:Connect(function() DHRot = 0 end)
+    game:GetService("UserInputService").InputEnded:Connect(function(i)
+        if i.UserInputType == Enum.UserInputType.Touch or i.UserInputType == Enum.UserInputType.MouseButton1 then
+            DHRot = 0
+        end
+    end)
+
+    RunService.RenderStepped:Connect(function(dt)
+        if DHRot ~= 0 and heldBlock and mBodyGyro and mBodyGyro.Parent then
+            local cf = mBodyGyro.CFrame
+            mBodyGyro.CFrame = CFrame.Angles(0, DHRot * DHMoveCfg.RotateSpeed * dt, 0) * (cf - cf.Position)
+        end
+    end)
+
+    -- Throw: let go of the held block and send it where the camera looks.
+    -- Move turns OFF so it does not grab the thrown block again.
+    throwBtn.MouseButton1Click:Connect(function()
+        local blk = heldBlock
+        if not (blk and blk.Parent and mBodyVelocity) then
+            MagnetStatus.Text = "Status: Hold a block first"
+            return
+        end
+        local dir = Camera.CFrame.LookVector
+        if magnetEnabled then ToggleMagnet() end
+        pcall(function() blk.AssemblyLinearVelocity = dir * DHMoveCfg.ThrowPower end)
+        MagnetStatus.Text = "Status: Thrown"
+    end)
+end
+pcall(DHBringTools)
 
 do
 -- ================================================
@@ -15942,8 +16250,8 @@ function DHAnim.CtlStart()
         local vel = root and root.AssemblyLinearVelocity or Vector3.zero
         local spd = Vector3.new(vel.X, 0, vel.Z).Magnitude
         local want = nil
-        if hum.Sit or hum.SeatPart or st == Enum.HumanoidStateType.Seated then
-            want = nil -- sitting: let the map play its own sit animation
+        if hum.Sit or hum.SeatPart or st == Enum.HumanoidStateType.Seated or (ECurrentAnim and ECurrentAnim.IsPlaying) then
+            want = nil -- sitting or emoting: let the map / the Emote tab play
         elseif st == Enum.HumanoidStateType.Climbing then
             want = "climb"
         elseif st == Enum.HumanoidStateType.Swimming then
@@ -15985,6 +16293,8 @@ function DHAnim.NeedCtl()
     if not (an and sel) then return false end
     local st = hum:GetState()
     if hum.Sit or hum.SeatPart then return false end
+    -- an emote is playing: that is not the map replacing our animations
+    if ECurrentAnim and ECurrentAnim.IsPlaying then return false end
     if st ~= Enum.HumanoidStateType.Running and st ~= Enum.HumanoidStateType.RunningNoPhysics then
         return false
     end
@@ -20575,6 +20885,8 @@ featureItems = {
     "   • Bring to self / all players",
     "   • Move Parts with Freeze fix",
     "   • Delay control",
+    "   • Orbit Mode, Grab Limit & Release All (Panic)",
+    "   • Move: Rotate & Throw",
     "",
     "🔗 JOINER TAB",
     "   • Join by JobID / PlaceID",
