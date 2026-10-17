@@ -5586,7 +5586,7 @@ local function updateProtectionStatus()
     for _, v in pairs(protections) do
         if v then count = count + 1 end
     end
-    ProtectionStatus.Text = "Protections: " .. count .. "/5 active"
+    ProtectionStatus.Text = "Protections: " .. count .. "/6 active"
 end
 
 -- ================================================
@@ -5750,6 +5750,97 @@ DisableAllBtn.MouseButton1Click:Connect(function()
         AntiAfkBtn.Text = "Anti AFK | OFF"
     end
     updateProtectionStatus()
+end)
+
+-- ================================================
+-- ANTI RAGDOLL: stops the "thrown and limp" state (counter for fling / touch ragdoll)
+-- ================================================
+protections.antiRagdoll = false
+DHAR = {}
+
+function DHAntiRagdollUI()
+    -- make room for one more button (old buttons keep their code, only their place moves down)
+    ProtectionSection.Size = UDim2.new(1, 0, 0, 365)
+    EnableAllBtn.Position = UDim2.new(0, 10, 0, 290)
+    DisableAllBtn.Position = UDim2.new(0.52, 5, 0, 290)
+    ProtectionStatus.Position = UDim2.new(0, 10, 0, 330)
+
+    AntiRagdollBtn = Instance.new("TextButton", ProtectionSection)
+    AntiRagdollBtn.Size = UDim2.new(1, -20, 0, 35)
+    AntiRagdollBtn.Position = UDim2.new(0, 10, 0, 245)
+    AntiRagdollBtn.BackgroundColor3 = Color3.fromRGB(180,30,30)
+    AntiRagdollBtn.Text = "Anti Ragdoll | OFF"
+    AntiRagdollBtn.Font = Enum.Font.GothamBold
+    AntiRagdollBtn.TextSize = 13
+    AntiRagdollBtn.TextColor3 = Color3.new(1,1,1)
+    Instance.new("UICorner", AntiRagdollBtn).CornerRadius = UDim.new(0, 6)
+end
+pcall(DHAntiRagdollUI)
+
+function DHAR.States(hum, enabled)
+    pcall(function() hum:SetStateEnabled(Enum.HumanoidStateType.FallingDown, enabled) end)
+    pcall(function() hum:SetStateEnabled(Enum.HumanoidStateType.Ragdoll, enabled) end)
+end
+
+function DHAR.Stop()
+    if DHAR.Conn then
+        DHAR.Conn:Disconnect()
+        DHAR.Conn = nil
+    end
+    local char = Player.Character
+    local hum = char and char:FindFirstChildOfClass("Humanoid")
+    if hum then DHAR.States(hum, true) end
+end
+
+function DHAR.Start()
+    if DHAR.Conn then return end
+    DHAR.Conn = RunService.Heartbeat:Connect(function()
+        if not protections.antiRagdoll then return end
+        local char = Player.Character
+        local hum = char and char:FindFirstChildOfClass("Humanoid")
+        if not hum or hum.Health <= 0 then return end
+        DHAR.States(hum, false)
+        if hum.SeatPart then return end
+        local st = hum:GetState()
+        if hum.PlatformStand then hum.PlatformStand = false end
+        if st == Enum.HumanoidStateType.Ragdoll or st == Enum.HumanoidStateType.FallingDown
+            or st == Enum.HumanoidStateType.PlatformStanding then
+            hum:ChangeState(Enum.HumanoidStateType.GettingUp)
+        end
+    end)
+end
+
+function DHAR.SetBtn(on)
+    if not AntiRagdollBtn then return end
+    AntiRagdollBtn.BackgroundColor3 = on and Color3.fromRGB(30,180,30) or Color3.fromRGB(180,30,30)
+    AntiRagdollBtn.Text = on and "Anti Ragdoll | ON" or "Anti Ragdoll | OFF"
+end
+
+if AntiRagdollBtn then
+    AntiRagdollBtn.MouseButton1Click:Connect(function()
+        protections.antiRagdoll = not protections.antiRagdoll
+        if protections.antiRagdoll then DHAR.Start() else DHAR.Stop() end
+        DHAR.SetBtn(protections.antiRagdoll)
+        updateProtectionStatus()
+    end)
+end
+
+EnableAllBtn.MouseButton1Click:Connect(function()
+    if not protections.antiRagdoll then
+        protections.antiRagdoll = true
+        DHAR.Start()
+        DHAR.SetBtn(true)
+        updateProtectionStatus()
+    end
+end)
+
+DisableAllBtn.MouseButton1Click:Connect(function()
+    if protections.antiRagdoll then
+        protections.antiRagdoll = false
+        DHAR.Stop()
+        DHAR.SetBtn(false)
+        updateProtectionStatus()
+    end
 end)
 
 Player.CharacterAdded:Connect(function(char)
@@ -16430,7 +16521,7 @@ function DHAnim.CtlStart()
         local vel = root and root.AssemblyLinearVelocity or Vector3.zero
         local spd = Vector3.new(vel.X, 0, vel.Z).Magnitude
         local want = nil
-        if hum.Sit or hum.SeatPart or st == Enum.HumanoidStateType.Seated or (ECurrentAnim and ECurrentAnim.IsPlaying) or mapAct then
+        if DHAnim.IsSeated(hum) or (ECurrentAnim and ECurrentAnim.IsPlaying) or mapAct then
             want = nil -- sitting, emoting or a map action (crawl, vent): let the map / the Emote tab play
         elseif st == Enum.HumanoidStateType.Climbing then
             want = "climb"
@@ -16464,7 +16555,23 @@ function DHAnim.CtlStart()
     return true
 end
 
--- true when the map plays its own animations inst-- tracks the map plays on purpose (crawl, vent, emote) use the Action priorities
+-- sitting: a Seat, the Seated state, or the body welded to something that is not part of us
+-- (maps with their own seats or vehicles)
+function DHAnim.IsSeated(hum)
+    if not hum then return false end
+    if hum.Sit or hum.SeatPart or hum:GetState() == Enum.HumanoidStateType.Seated then return true end
+    local root, char = hum.RootPart, hum.Parent
+    if not (root and char) then return false end
+    local ok, joints = pcall(function() return root:GetJoints() end)
+    if not ok or not joints then return false end
+    for _, j in ipairs(joints) do
+        local a, b
+        pcall(function() a, b = j.Part0, j.Part1 end)
+        local other = (a == root) and b or a
+        if other and other ~= root and not other:IsDescendantOf(char) then return true end
+    end
+    return false
+end
 -- tracks the map plays on purpose (crawl, vent, emote) use the Action priorities
 function DHAnim.IsMapAction(t)
     local p = t.Priority
@@ -16491,6 +16598,7 @@ function DHAnim.MapBusy()
     return false
 end
 
+-- true when the map plays its own animations instead of the ones we set
 function DHAnim.NeedCtl()
     local char = Player.Character
     local hum = char and char:FindFirstChildOfClass("Humanoid")
@@ -16498,7 +16606,7 @@ function DHAnim.NeedCtl()
     local sel = DHAnim.Sel
     if not (an and sel) then return false end
     local st = hum:GetState()
-    if hum.Sit or hum.SeatPart then return false end
+    if DHAnim.IsSeated(hum) then return false end
     -- an emote is playing: that is not the map replacing our animations
     if ECurrentAnim and ECurrentAnim.IsPlaying then return false end
     if st ~= Enum.HumanoidStateType.Running and st ~= Enum.HumanoidStateType.RunningNoPhysics then
@@ -16658,7 +16766,7 @@ function DHAnim.Guard()
         while ScreenGui and ScreenGui.Parent do
             task.wait(1.5)
             local sel = DHAnim.Sel
-            local idle = tick() - (DHAnim.BusyT or 0) > 6
+            local idle = tick() - (DHAnim.BusyT or 0) > 6 and not DHAnim.IsSeated(Player.Character and Player.Character:FindFirstChildOfClass("Humanoid"))
             if sel and next(sel) and DHAnim.Mode and idle then
                 local lost = false
                 local char = Player.Character
@@ -17521,6 +17629,79 @@ function DHMods.NoclipSet(on)
 end
 
 function BuildModsMovement()
+-- ---------- Speed Glitch: normal speed on the ground, faster only while in the air ----------
+DHMods.AirMult = 1.6
+function DHMods.SpeedGlitchSet(on)
+    if DHMods.SgConn then
+        DHMods.SgConn:Disconnect()
+        DHMods.SgConn = nil
+    end
+    local function Restore()
+        local hum = Player.Character and Player.Character:FindFirstChildOfClass("Humanoid")
+        if hum and DHMods.SgBoost and DHMods.SgHum == hum and DHMods.SgBase then
+            hum.WalkSpeed = DHMods.SgBase
+        end
+        DHMods.SgBoost = false
+    end
+    if not on then
+        Restore()
+        return
+    end
+    DHMods.SgBoost = false
+    DHMods.SgConn = RunService.Heartbeat:Connect(function()
+        local char = Player.Character
+        local hum = char and char:FindFirstChildOfClass("Humanoid")
+        if not hum or hum.Health <= 0 then return end
+        if DHMods.SgHum ~= hum then
+            DHMods.SgHum = hum
+            DHMods.SgBoost = false
+        end
+        local st = hum:GetState()
+        local air = (st == Enum.HumanoidStateType.Jumping or st == Enum.HumanoidStateType.Freefall) and not hum.SeatPart
+        if air then
+            if not DHMods.SgBoost then
+                DHMods.SgBase = hum.WalkSpeed
+                DHMods.SgBoost = true
+            end
+            hum.WalkSpeed = DHMods.SgBase * DHMods.AirMult
+        elseif DHMods.SgBoost then
+            hum.WalkSpeed = DHMods.SgBase
+            DHMods.SgBoost = false
+        end
+    end)
+end
+
+-- ---------- Double Jump: one extra jump in the air, refilled when you land ----------
+function DHMods.DoubleJumpSet(on)
+    if DHMods.DjConn then
+        DHMods.DjConn:Disconnect()
+        DHMods.DjConn = nil
+    end
+    if DHMods.DjBeat then
+        DHMods.DjBeat:Disconnect()
+        DHMods.DjBeat = nil
+    end
+    if not on then return end
+    DHMods.DjUsed = false
+    DHMods.DjGround = tick()
+    DHMods.DjBeat = RunService.Heartbeat:Connect(function()
+        local char = Player.Character
+        local hum = char and char:FindFirstChildOfClass("Humanoid")
+        if hum and hum.FloorMaterial ~= Enum.Material.Air then
+            DHMods.DjUsed = false
+            DHMods.DjGround = tick()
+        end
+    end)
+    DHMods.DjConn = UIS.JumpRequest:Connect(function()
+        local char = Player.Character
+        local hum = char and char:FindFirstChildOfClass("Humanoid")
+        if not hum or hum.Health <= 0 or hum.SeatPart then return end
+        if hum.FloorMaterial ~= Enum.Material.Air then return end
+        if DHMods.DjUsed then return end
+        DHMods.DjUsed = true
+        hum:ChangeState(Enum.HumanoidStateType.Jumping)
+    end)
+end
     if not DHMods.Scroll then return end
     DHMods.Header("MOVEMENT")
 
@@ -17552,6 +17733,8 @@ function BuildModsMovement()
     Hold("▼  Down (hold)", -1)
 
     DHMods.AddToggle("Infinite Jump", "Jump again while in the air", DHMods.JumpSet)
+    DHMods.AddToggle("Speed Glitch", "Normal speed on the ground, faster only while in the air", DHMods.SpeedGlitchSet)
+    DHMods.AddToggle("Double Jump", "One extra jump in the air, refilled when you land", DHMods.DoubleJumpSet)
     DHMods.AddToggle("Noclip", "Walk through walls and objects", DHMods.NoclipSet)
 
     ScreenGui.Destroying:Connect(function()
@@ -17756,11 +17939,17 @@ function DHMods.XrayToggle(on)
     end)
 end
 
+function BuildModsAirSpeed()
+    if not DHMods.Scroll then return end
+    DHMods.AddSlider("Air Speed", 1, 4, 1.6, 0.1, "%.1fx", function(v) DHMods.AirMult = v end)
+end
+
+pcall(BuildModsAirSpeed)
+
 function BuildModsPart3()
     if not DHMods.Scroll then return end
     DHMods.Header("SURVIVAL")
     DHMods.GodApi = DHMods.AddToggle("God Mode (beta)", "Beta: only works if the map handles damage on your side", DHMods.GodSet)
-
     DHMods.Header("VISION")
     DHMods.AddToggle("Xray Vision", "See through walls and objects around you", DHMods.XrayToggle)
     DHMods.AddSlider("Xray Transparency", 0.1, 0.9, 0.6, 0.05, "%.2f", function(v) DHMods.XrayVal = v end)
@@ -21074,7 +21263,7 @@ featureItems = {
     "   • WalkSpeed & JumpPower modifier",
     "   • Spectate players",
     "   • Teleport to players",
-    "   • Protection System (Anti AFK, Fling, Sit, Slap, Void)",
+    "   • Protection System (Anti AFK, Fling, Sit, Slap, Void, Ragdoll)",
     "   • Utility: Reset to Spawn, Heal, SafeZone",
     "",
     "📍 WAYPOINTS TAB",
@@ -21141,7 +21330,7 @@ featureItems = {
     "   • Saved mixes (kept in a file)",
     "",
     "🧩 MODS TAB",
-    "   • Float (neon pad), Infinite Jump, Noclip",
+    "   • Float (neon pad), Infinite Jump, Double Jump, Speed Glitch, Noclip",
     "   • God Mode (beta)",
     "   • Xray Vision with slider & Potato Mode",
     "   • Time Stop, Freeze & Reverse (rewind)",
@@ -21745,6 +21934,11 @@ DHChangelogTags = {
 }
 
 DHChangelog = {
+    {id = 4, date = "2026-10-17", title = "What's New", items = {
+        {"Added", "Mods tab: Speed Glitch (normal speed on the ground, faster in the air, with an Air Speed slider)."},
+        {"Added", "Mods tab: Double Jump, one extra jump in the air."},
+        {"Added", "Player tab: Anti Ragdoll in the Protection System, so being hit or thrown no longer leaves you limp."},
+    }},
     {id = 3, date = "2026-10-17", title = "What's New", items = {
         {"Added",   "What's New now groups every note by category, each with its own color."},
         {"Changed", "NPC ESP has its own switches (Highlight, Line, NameTag, Distance) and no longer needs the Player ESP."},
@@ -21754,14 +21948,6 @@ DHChangelog = {
         {"Added", "Bring Part tab: Bring Tools with Orbit Mode (distance and speed sliders), Grab Limit and Release All (Panic)."},
         {"Added", "Move Bring: Rotate the block you hold, and Throw it where you look."},
         {"Fixed", "Animation: playing an emote no longer switches Animation to Override by itself."},
-    }},
-    {id = 1, date = "2026-10-16", title = "What's New", items = {
-        {"Added",   "Exploiter Detector (Setting tab): flags Speed, Fly, Teleport, Noclip and Fling, and learns what each map allows."},
-        {"Added",   "Statistics table and Live Monitor (Info tab): FPS, Ping, Players, Memory and Net Out with moving lines."},
-        {"Added",   "Join/Leave and exploiter notices: one small notice at a time, they never block your touch."},
-        {"Changed", "Search tab: This Map uses the original name of the map."},
-        {"Changed", "All saves now live in the Daffzhub_file folder (old files move there by themselves)."},
-        {"Fixed",   "Animation: sitting no longer turns into idle."},
     }},
 }
 
