@@ -9514,7 +9514,7 @@ function DHBringTools()
     -- ---------- BRING TOOLS CONTAINER ----------
     local box = Instance.new("Frame", BringPartsScroll)
     box.LayoutOrder = 2
-    box.Size = UDim2.new(1, 0, 0, 245)
+    box.Size = UDim2.new(1, 0, 0, 295)
     box.BackgroundColor3 = Color3.fromRGB(25, 25, 25)
     Instance.new("UICorner", box).CornerRadius = UDim.new(0, 8)
 
@@ -9620,8 +9620,95 @@ function DHBringTools()
         end
     end)
 
+    -- ---------- ORBIT SPEED SLIDER ----------
+    local spd = Instance.new("Frame", box)
+    spd.Position = UDim2.new(0, 10, 0, 140)
+    spd.Size = UDim2.new(1, -20, 0, 50)
+    spd.BackgroundColor3 = Color3.fromRGB(35, 35, 35)
+    Instance.new("UICorner", spd).CornerRadius = UDim.new(0, 6)
+
+    local sName = Instance.new("TextLabel", spd)
+    sName.Size = UDim2.new(1, -80, 0, 18)
+    sName.Position = UDim2.new(0, 10, 0, 5)
+    sName.BackgroundTransparency = 1
+    sName.Text = "Orbit Speed"
+    sName.Font = Enum.Font.GothamBold
+    sName.TextSize = 12
+    sName.TextColor3 = Color3.new(1, 1, 1)
+    sName.TextXAlignment = Enum.TextXAlignment.Left
+
+    local sVal = Instance.new("TextLabel", spd)
+    sVal.Size = UDim2.new(0, 60, 0, 18)
+    sVal.Position = UDim2.new(1, -70, 0, 5)
+    sVal.BackgroundTransparency = 1
+    sVal.Font = Enum.Font.GothamBold
+    sVal.TextSize = 12
+    sVal.TextColor3 = Color3.fromRGB(100, 200, 255)
+    sVal.TextXAlignment = Enum.TextXAlignment.Right
+
+    local sBar = Instance.new("Frame", spd)
+    sBar.Size = UDim2.new(1, -24, 0, 8)
+    sBar.Position = UDim2.new(0, 12, 0, 33)
+    sBar.BackgroundColor3 = Color3.fromRGB(50, 50, 50)
+    sBar.BorderSizePixel = 0
+    Instance.new("UICorner", sBar).CornerRadius = UDim.new(0, 4)
+
+    local sFill = Instance.new("Frame", sBar)
+    sFill.Size = UDim2.new(0, 0, 1, 0)
+    sFill.BackgroundColor3 = Color3.fromRGB(35, 160, 90)
+    sFill.BorderSizePixel = 0
+    Instance.new("UICorner", sFill).CornerRadius = UDim.new(0, 4)
+
+    local sKnob = Instance.new("Frame", sBar)
+    sKnob.Size = UDim2.new(0, 16, 0, 16)
+    sKnob.AnchorPoint = Vector2.new(0.5, 0.5)
+    sKnob.BackgroundColor3 = Color3.new(1, 1, 1)
+    sKnob.BorderSizePixel = 0
+    Instance.new("UICorner", sKnob).CornerRadius = UDim.new(0, 8)
+
+    local sHit = Instance.new("TextButton", spd)
+    sHit.Size = UDim2.new(1, 0, 0, 30)
+    sHit.Position = UDim2.new(0, 0, 0, 20)
+    sHit.BackgroundTransparency = 1
+    sHit.Text = ""
+
+    local SMIN, SMAX = 0.2, 8
+    local sDrag = false
+    local function SetSpeed(r)
+        r = math.clamp(r, 0, 1)
+        local v = math.floor((SMIN + (SMAX - SMIN) * r) * 10 + 0.5) / 10
+        r = (v - SMIN) / (SMAX - SMIN)
+        sFill.Size = UDim2.new(r, 0, 1, 0)
+        sKnob.Position = UDim2.new(r, 0, 0.5, 0)
+        sVal.Text = string.format("%.1fx", v)
+        DHOrbit.speed = v
+    end
+    SetSpeed((DHOrbit.speed - SMIN) / (SMAX - SMIN))
+
+    local function SpeedFromInput(input)
+        SetSpeed((input.Position.X - sBar.AbsolutePosition.X) / math.max(1, sBar.AbsoluteSize.X))
+    end
+    sHit.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+            sDrag = true
+            BringPartsScroll.ScrollingEnabled = false
+            SpeedFromInput(input)
+        end
+    end)
+    UIS.InputChanged:Connect(function(input)
+        if sDrag and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
+            SpeedFromInput(input)
+        end
+    end)
+    UIS.InputEnded:Connect(function(input)
+        if sDrag and (input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch) then
+            sDrag = false
+            BringPartsScroll.ScrollingEnabled = true
+        end
+    end)
+
     local lim = Instance.new("Frame", box)
-    lim.Position = UDim2.new(0, 10, 0, 140)
+    lim.Position = UDim2.new(0, 10, 0, 195)
     lim.Size = UDim2.new(1, -20, 0, 40)
     lim.BackgroundColor3 = Color3.fromRGB(35, 35, 35)
     Instance.new("UICorner", lim).CornerRadius = UDim.new(0, 6)
@@ -9641,7 +9728,7 @@ function DHBringTools()
     limLabel.TextColor3 = Color3.new(1, 1, 1)
     limLabel.Text = "Grab Limit: Unlimited"
 
-    local panicBtn = Btn(box, "Release All (Panic)", UDim2.new(0, 10, 0, 190), UDim2.new(1, -20, 0, 40), Color3.fromRGB(200, 40, 40))
+    local panicBtn = Btn(box, "Release All (Panic)", UDim2.new(0, 10, 0, 245), UDim2.new(1, -20, 0, 40), Color3.fromRGB(200, 40, 40))
     panicBtn.TextSize = 14
 
     -- ---------- ORBIT ----------
@@ -14011,8 +14098,10 @@ function BuildESP()
         MaxNpc = 40,                                 -- at most this many NPCs are shown (nearest first)
     }
 
-    local on = {player = false, line = false, tag = false, dist = false, npc = false}
+    local on = {player = false, line = false, tag = false, dist = false, npc = false,
+        npcHL = false, npcLine = false, npcTag = false, npcDist = false}
     local style = "Filled"
+    local npcStyle = "Filled"
     local state = {}          -- [Player] = {hl, tag, nameLabel, distLabel, line, root, hum}
     local conns = {}
     local token = 0
@@ -14080,7 +14169,9 @@ function BuildESP()
         hl.FillColor = color
         hl.OutlineColor = color
         hl.OutlineTransparency = 0
-        hl.FillTransparency = (style == "Filled") and 0.5 or 1
+        -- players use the Player style, NPCs use the NPC style
+        local useStyle = Players:GetPlayerFromCharacter(char) and style or npcStyle
+        hl.FillTransparency = (useStyle == "Filled") and 0.5 or 1
     end
 
     local function HideHighlight(st)
@@ -14119,7 +14210,7 @@ function BuildESP()
         st.dotFrame.BackgroundColor3 = color
     end
 
-    local function ApplyTag(st, plr, char, color, distance)
+    local function ApplyTag(st, plr, char, color, distance, showDist)
         local adornee = char:FindFirstChild("Head") or st.root
         if not adornee then return end
 
@@ -14158,8 +14249,8 @@ function BuildESP()
         tag.Adornee = adornee
         st.nameLabel.Text = (typeof(plr) == "Instance" and plr:IsA("Player")) and plr.DisplayName or plr.Name
         st.nameLabel.TextColor3 = color
-        st.distLabel.Visible = on.dist
-        if on.dist then
+        st.distLabel.Visible = showDist == true
+        if showDist then
             st.distLabel.Text = string.format("%dm", math.floor(distance + 0.5))
         end
     end
@@ -14220,7 +14311,7 @@ function BuildESP()
     -- so new players, leavers, respawns, deaths and streaming all fix themselves.
     ------------------------------------------------
     local function Reconcile()
-        if not (on.player or on.line or on.tag) then return end
+        if not (on.player or on.line or on.tag or on.npc) then return end
         EnsureGuis()
 
         local cam = workspace.CurrentCamera
@@ -14292,7 +14383,15 @@ function BuildESP()
             st.hum = e.hum
             local color = ColorOf(e.plr)
 
-                        if on.player then
+            -- players use the Player switches, NPCs use their own NPC switches
+            local wHL, wTag, wLine, wDist
+            if typeof(e.plr) == "Instance" and not e.plr:IsA("Player") then
+                wHL, wTag, wLine, wDist = on.npcHL, on.npcTag, on.npcLine, on.npcDist
+            else
+                wHL, wTag, wLine, wDist = on.player, on.tag, on.line, on.dist
+            end
+
+            if wHL then
                 if e.inView then
                     slots = slots + 1
                     if slots <= cfg.MaxHighlights then
@@ -14314,8 +14413,8 @@ function BuildESP()
                 DropDot(st)
             end
 
-            if on.tag then
-                ApplyTag(st, e.plr, e.char, color, e.dist)
+            if wTag then
+                ApplyTag(st, e.plr, e.char, color, e.dist, wDist)
             elseif st.tag then
                 st.tag:Destroy()
                 st.tag = nil
@@ -14323,7 +14422,7 @@ function BuildESP()
                 st.distLabel = nil
             end
 
-            if on.line then
+            if wLine then
                 ApplyLine(st, color)
             elseif st.line then
                 st.line:Destroy()
@@ -14382,10 +14481,10 @@ function BuildESP()
     end
 
     local function SyncLineLoop()
-        if on.line and not lineBound then
+        if (on.line or on.npcLine) and not lineBound then
             lineBound = true
             RunService:BindToRenderStep("DH_ESP_Lines", Enum.RenderPriority.Camera.Value + 1, RenderLinesSafe)
-        elseif not on.line and lineBound then
+        elseif not (on.line or on.npcLine) and lineBound then
             lineBound = false
             pcall(function() RunService:UnbindFromRenderStep("DH_ESP_Lines") end)
         end
@@ -14443,7 +14542,7 @@ function BuildESP()
 
     local function Refresh()
         SyncLineLoop()
-        if on.player or on.line or on.tag then
+        if on.player or on.line or on.tag or on.npc then
             Start()
             Kick()
         else
@@ -14454,6 +14553,7 @@ function BuildESP()
     -- give everything back when the hub is closed
     DHVisual.OnCleanup(function()
         on.player, on.line, on.tag, on.npc = false, false, false, false
+        on.npcHL, on.npcLine, on.npcTag, on.npcDist = false, false, false, false
         NpcSync()
         SyncLineLoop()
         Stop()
@@ -14465,29 +14565,95 @@ function BuildESP()
     -- UI
     ------------------------------------------------
     local box = DHVisual.AddContainer("ESP", 10)
-    DHVisual.AddToggle(box, "Player ESP", "Highlight other players (through walls)", function(v)
+
+    -- a smaller container inside the ESP container (the normal row helpers work inside it)
+    local function SubBox(title, color)
+        local sb = Instance.new("Frame")
+        sb.Name = "S_" .. title
+        sb.Size = UDim2.new(1, 0, 0, 0)
+        sb.AutomaticSize = Enum.AutomaticSize.Y
+        sb.BackgroundColor3 = Color3.fromRGB(18, 18, 18)
+        sb.BorderSizePixel = 0
+        sb.LayoutOrder = DHVisual.Next(box)
+        sb.Parent = box
+        Instance.new("UICorner", sb).CornerRadius = UDim.new(0, 8)
+        local edge = Instance.new("UIStroke", sb)
+        edge.Color = color
+        edge.Thickness = 1
+        edge.Transparency = 0.5
+
+        local pad = Instance.new("UIPadding", sb)
+        pad.PaddingLeft = UDim.new(0, 6)
+        pad.PaddingRight = UDim.new(0, 6)
+        pad.PaddingTop = UDim.new(0, 6)
+        pad.PaddingBottom = UDim.new(0, 8)
+        local list = Instance.new("UIListLayout", sb)
+        list.Padding = UDim.new(0, 8)
+        list.SortOrder = Enum.SortOrder.LayoutOrder
+
+        local h = Instance.new("TextLabel", sb)
+        h.Name = "Header"
+        h.Size = UDim2.new(1, 0, 0, 22)
+        h.BackgroundTransparency = 1
+        h.Text = title
+        h.Font = Enum.Font.GothamBold
+        h.TextSize = 14
+        h.TextColor3 = color
+        h.TextXAlignment = Enum.TextXAlignment.Left
+        h.LayoutOrder = 0
+
+        sb:SetAttribute("n", 0)
+        return sb
+    end
+
+    -- ---------- PLAYERS ----------
+    local playerBox = SubBox("Players", Color3.fromRGB(100, 200, 255))
+    DHVisual.AddToggle(playerBox, "Player ESP", "Highlight other players (through walls)", function(v)
         on.player = v
         Refresh()
     end)
-    DHVisual.AddChoice(box, "Player ESP Style", {"Filled", "Outline"}, "Filled", function(v)
+    DHVisual.AddChoice(playerBox, "Player ESP Style", {"Filled", "Outline"}, "Filled", function(v)
         style = v
         Kick()
     end)
-    DHVisual.AddToggle(box, "Line ESP", "Line from the screen to each player", function(v)
+    DHVisual.AddToggle(playerBox, "Line ESP", "Line from the screen to each player", function(v)
         on.line = v
         Refresh()
     end)
-    DHVisual.AddToggle(box, "NameTag ESP", "Name above each player", function(v)
+    DHVisual.AddToggle(playerBox, "NameTag ESP", "Name above each player", function(v)
         on.tag = v
         Refresh()
     end)
-    DHVisual.AddToggle(box, "Distance ESP", "Adds the distance to the NameTag", function(v)
+    DHVisual.AddToggle(playerBox, "Distance ESP", "Adds the distance to the NameTag", function(v)
         on.dist = v
         Kick()
     end)
-    DHVisual.AddToggle(box, "NPC ESP", "Also show NPCs and monsters in the ESP above", function(v)
-        on.npc = v
+
+    -- ---------- NPCs (own switches: nothing here depends on the Player ESP switches) ----------
+    local function NpcUpdate()
+        on.npc = on.npcHL or on.npcLine or on.npcTag
         NpcSync()
+        Refresh()
+    end
+    local npcBox = SubBox("NPCs and monsters", cfg.NpcColor)
+    DHVisual.AddToggle(npcBox, "NPC ESP", "Highlight NPCs and monsters (through walls)", function(v)
+        on.npcHL = v
+        NpcUpdate()
+    end)
+    DHVisual.AddChoice(npcBox, "NPC ESP Style", {"Filled", "Outline"}, "Filled", function(v)
+        npcStyle = v
+        Kick()
+    end)
+    DHVisual.AddToggle(npcBox, "NPC Line ESP", "Line from the screen to each NPC", function(v)
+        on.npcLine = v
+        NpcUpdate()
+    end)
+    DHVisual.AddToggle(npcBox, "NPC NameTag ESP", "Name above each NPC", function(v)
+        on.npcTag = v
+        NpcUpdate()
+    end)
+    DHVisual.AddToggle(npcBox, "NPC Distance ESP", "Adds the distance to the NPC NameTag", function(v)
+        on.npcDist = v
         Kick()
     end)
 end
@@ -16124,7 +16290,7 @@ function DHAnim.Reload(char, fn)
     local animator = hum:FindFirstChildOfClass("Animator")
     if animator then
         for _, t in ipairs(animator:GetPlayingAnimationTracks()) do
-            t:Stop(0)
+            if not DHAnim.IsMapAction(t) then t:Stop(0) end
         end
     end
     fn(animate)
@@ -16135,6 +16301,7 @@ end
 function DHAnim.Restore()
     DHAnim.Tok = (DHAnim.Tok or 0) + 1
     DHAnim.CtlStop()
+    DHAnim.Healthy = nil
     DHAnim.Applied = nil
     DHAnim.Mode = nil
     DHAnim.Fixes = 0
@@ -16218,6 +16385,8 @@ end
 -- the map ignores the Animate script (custom animation system): play our own tracks
 function DHAnim.CtlStart()
     DHAnim.CtlStop()
+    DHAnim.CtlClean = nil
+    DHAnim.FreeT = nil
     local char = Player.Character
     local hum = char and char:FindFirstChildOfClass("Humanoid")
     local an = hum and hum:FindFirstChildOfClass("Animator")
@@ -16245,13 +16414,24 @@ function DHAnim.CtlStart()
 
     DHAnim.CtlConn = game:GetService("RunService").Heartbeat:Connect(function()
         if not hum.Parent then return end
+        -- a map action (crawl, vent) must stay visible: pause our tracks while it plays.
+        -- Only when the map is "clean" (no action tracks for 1.5 s), so maps that play their
+        -- everyday idle/walk on an Action priority keep working in override mode.
+        local mapAct = false
+        if DHAnim.MapBusy() then
+            DHAnim.FreeT = nil
+            mapAct = DHAnim.CtlClean == true
+        else
+            DHAnim.FreeT = DHAnim.FreeT or tick()
+            if tick() - DHAnim.FreeT > 1.5 then DHAnim.CtlClean = true end
+        end
         local st = hum:GetState()
         local root = hum.RootPart
         local vel = root and root.AssemblyLinearVelocity or Vector3.zero
         local spd = Vector3.new(vel.X, 0, vel.Z).Magnitude
         local want = nil
-        if hum.Sit or hum.SeatPart or st == Enum.HumanoidStateType.Seated or (ECurrentAnim and ECurrentAnim.IsPlaying) then
-            want = nil -- sitting or emoting: let the map / the Emote tab play
+        if hum.Sit or hum.SeatPart or st == Enum.HumanoidStateType.Seated or (ECurrentAnim and ECurrentAnim.IsPlaying) or mapAct then
+            want = nil -- sitting, emoting or a map action (crawl, vent): let the map / the Emote tab play
         elseif st == Enum.HumanoidStateType.Climbing then
             want = "climb"
         elseif st == Enum.HumanoidStateType.Swimming then
@@ -16284,7 +16464,33 @@ function DHAnim.CtlStart()
     return true
 end
 
--- true when the map plays its own animations instead of the ones we set
+-- true when the map plays its own animations inst-- tracks the map plays on purpose (crawl, vent, emote) use the Action priorities
+-- tracks the map plays on purpose (crawl, vent, emote) use the Action priorities
+function DHAnim.IsMapAction(t)
+    local p = t.Priority
+    if not (p == Enum.AnimationPriority.Action or p == Enum.AnimationPriority.Action2
+        or p == Enum.AnimationPriority.Action3 or p == Enum.AnimationPriority.Action4) then
+        return false
+    end
+    if DHAnim.CtlTracks then
+        for _, mine in pairs(DHAnim.CtlTracks) do
+            if mine == t then return false end
+        end
+    end
+    return true
+end
+
+function DHAnim.MapBusy()
+    local char = Player.Character
+    local hum = char and char:FindFirstChildOfClass("Humanoid")
+    local an = hum and hum:FindFirstChildOfClass("Animator")
+    if not an then return false end
+    for _, t in ipairs(an:GetPlayingAnimationTracks()) do
+        if t.IsPlaying and DHAnim.IsMapAction(t) then return true end
+    end
+    return false
+end
+
 function DHAnim.NeedCtl()
     local char = Player.Character
     local hum = char and char:FindFirstChildOfClass("Humanoid")
@@ -16312,8 +16518,10 @@ function DHAnim.NeedCtl()
     if not any then return false end
     for _, t in ipairs(an:GetPlayingAnimationTracks()) do
         local n = t.Animation and tostring(t.Animation.AnimationId):match("%d+")
-        if n and ok[n] then return false end
+        if n and ok[n] then DHAnim.Healthy = true return false end
     end
+    -- the animations worked before and now the map plays an action (crawl, vent): not a replacement
+    if DHAnim.Healthy and DHAnim.MapBusy() then return false end
     return true
 end
 
@@ -16471,6 +16679,7 @@ function DHAnim.Guard()
                             strikes = 0
                             if DHAnim.CtlStart() then
                                 DHAnim.Mode = "Override"
+                                DHAnim.Healthy = nil
                                 DHAnim.Badge()
                                 DHAnim.Say("The map plays its own animations: switched to override mode")
                             end
@@ -20885,8 +21094,8 @@ featureItems = {
     "   • Bring to self / all players",
     "   • Move Parts with Freeze fix",
     "   • Delay control",
-    "   • Orbit Mode, Grab Limit & Release All (Panic)",
-    "   • Move: Rotate & Throw",
+    "   • Orbit Mode (distance & speed), Grab Limit,",
+    "     Release All (Panic)",
     "",
     "🔗 JOINER TAB",
     "   • Join by JobID / PlaceID",
@@ -20911,7 +21120,8 @@ featureItems = {
     "   • This Map: scripts for the map you are in",
     "",
     "🎨 VISUAL TAB",
-    "   • ESP: Player, Line, NameTag, Distance & NPC",
+    "   • ESP: Player, Line, NameTag & Distance",
+    "   • NPC ESP: own Highlight, Line, NameTag & Distance",
     "   • Shaders & Shaders Lite (6 presets each)",
     "   • Shaders Color & Color Lite (8 colors)",
     "   • Weathers (rain, snow, storm & more)",
@@ -21526,14 +21736,32 @@ task.wait(1)
 -- WHAT'S NEW: a small popup, shown once for every new entry in the changelog
 -- To announce an update: add a new entry on TOP of DHChangelog with the next id.
 -- ================================================
+-- Each item is {"Category", "text"}. Categories: Added, Changed, Fixed, Removed (each has its own color).
+DHChangelogTags = {
+    {key = "Added",   color = Color3.fromRGB(80, 200, 110)},
+    {key = "Changed", color = Color3.fromRGB(255, 170, 40)},
+    {key = "Fixed",   color = Color3.fromRGB(90, 170, 255)},
+    {key = "Removed", color = Color3.fromRGB(255, 90, 90)},
+}
+
 DHChangelog = {
+    {id = 3, date = "2026-10-17", title = "What's New", items = {
+        {"Added",   "What's New now groups every note by category, each with its own color."},
+        {"Changed", "NPC ESP has its own switches (Highlight, Line, NameTag, Distance) and no longer needs the Player ESP."},
+        {"Fixed",   "Animation: in Override mode, map actions such as crawling stay visible on your screen."},
+    }},
+    {id = 2, date = "2026-10-17", title = "What's New", items = {
+        {"Added", "Bring Part tab: Bring Tools with Orbit Mode (distance and speed sliders), Grab Limit and Release All (Panic)."},
+        {"Added", "Move Bring: Rotate the block you hold, and Throw it where you look."},
+        {"Fixed", "Animation: playing an emote no longer switches Animation to Override by itself."},
+    }},
     {id = 1, date = "2026-10-16", title = "What's New", items = {
-        "Exploiter Detector (Setting tab): flags Speed, Fly, Teleport, Noclip and Fling, and learns what each map allows.",
-        "Statistics table and Live Monitor (Info tab): FPS, Ping, Players, Memory and Net Out with moving lines.",
-        "Join/Leave and exploiter notices: one small notice at a time, they never block your touch.",
-        "Search tab: This Map uses the original name of the map.",
-        "Animation: sitting no longer turns into idle.",
-        "All saves now live in the Daffzhub_file folder (old files move there by themselves).",
+        {"Added",   "Exploiter Detector (Setting tab): flags Speed, Fly, Teleport, Noclip and Fling, and learns what each map allows."},
+        {"Added",   "Statistics table and Live Monitor (Info tab): FPS, Ping, Players, Memory and Net Out with moving lines."},
+        {"Added",   "Join/Leave and exploiter notices: one small notice at a time, they never block your touch."},
+        {"Changed", "Search tab: This Map uses the original name of the map."},
+        {"Changed", "All saves now live in the Daffzhub_file folder (old files move there by themselves)."},
+        {"Fixed",   "Animation: sitting no longer turns into idle."},
     }},
 }
 
@@ -21574,8 +21802,8 @@ function DHWhatsNew()
     lay.Padding = UDim.new(0, 6)
     lay.SortOrder = Enum.SortOrder.LayoutOrder
 
-    local function Line(text, size, color, font, order)
-        local l = Instance.new("TextLabel", pop)
+    local function Line(text, size, color, font, order, parent)
+        local l = Instance.new("TextLabel", parent or pop)
         l.LayoutOrder = order
         l.Size = UDim2.new(1, 0, 0, 0)
         l.AutomaticSize = Enum.AutomaticSize.Y
@@ -21591,8 +21819,58 @@ function DHWhatsNew()
     end
 
     Line(latest.title .. "  (" .. latest.date .. ")", 17, Color3.fromRGB(255, 200, 0), Enum.Font.GothamBold, 0)
-    for i, it in ipairs(latest.items) do
-        Line("•  " .. it, 12, Color3.fromRGB(215, 215, 215), Enum.Font.Gotham, i)
+    -- the notes sit in a small scroll area, so a long list never runs off the screen
+    local scroll = Instance.new("ScrollingFrame", pop)
+    scroll.LayoutOrder = 1
+    scroll.Size = UDim2.new(1, 0, 0, 60)
+    scroll.BackgroundTransparency = 1
+    scroll.BorderSizePixel = 0
+    scroll.ScrollBarThickness = 3
+    scroll.CanvasSize = UDim2.new(0, 0, 0, 0)
+    scroll.AutomaticCanvasSize = Enum.AutomaticSize.Y
+    scroll.ZIndex = 201
+    local slay = Instance.new("UIListLayout", scroll)
+    slay.Padding = UDim.new(0, 6)
+    slay.SortOrder = Enum.SortOrder.LayoutOrder
+    slay:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function()
+        scroll.Size = UDim2.new(1, 0, 0, math.min(slay.AbsoluteContentSize.Y, 240))
+    end)
+
+    local function Esc(s)
+        s = s:gsub("&", "&amp;")
+        s = s:gsub("<", "&lt;")
+        s = s:gsub(">", "&gt;")
+        return s
+    end
+    local function Hex(c)
+        return string.format("#%02X%02X%02X", math.floor(c.R * 255 + 0.5), math.floor(c.G * 255 + 0.5), math.floor(c.B * 255 + 0.5))
+    end
+
+    local gray = Color3.fromRGB(215, 215, 215)
+    local order = 1
+    -- plain text notes (no category) come first
+    for _, it in ipairs(latest.items) do
+        if type(it) == "string" then
+            Line("•  " .. it, 12, gray, Enum.Font.Gotham, order, scroll)
+            order = order + 1
+        end
+    end
+    -- then one colored group per category
+    for _, tg in ipairs(DHChangelogTags) do
+        local first = true
+        for _, it in ipairs(latest.items) do
+            if type(it) == "table" and it[1] == tg.key then
+                if first then
+                    first = false
+                    Line("●  " .. tg.key, 13, tg.color, Enum.Font.GothamBold, order, scroll)
+                    order = order + 1
+                end
+                local l = Line("", 12, gray, Enum.Font.Gotham, order, scroll)
+                l.RichText = true
+                l.Text = '<font color="' .. Hex(tg.color) .. '">•</font>  ' .. Esc(tostring(it[2]))
+                order = order + 1
+            end
+        end
     end
 
     local ok = Instance.new("TextButton", pop)
