@@ -20,6 +20,11 @@ local lastPosition = Character.PrimaryPart and Character.PrimaryPart.Position or
 
 -- MAIN GUI
 local ScreenGui = Instance.new("ScreenGui")
+-- if DaffzHub is already open (executed twice), close the old one first so nothing runs double
+pcall(function()
+    local oldGui = Player:WaitForChild("PlayerGui"):FindFirstChild("DaffzHub")
+    if oldGui then oldGui:Destroy() end
+end)
 ScreenGui.Name = "DaffzHub"
 ScreenGui.ResetOnSpawn = false
 ScreenGui.ZIndexBehavior = Enum.ZIndexBehavior.Global
@@ -1206,7 +1211,79 @@ refreshScriptList()
 -- ================================================
 -- PIN SYSTEM - BIG BUTTONS VERSION
 -- ================================================
-local CORRECT_PIN = "240614"
+-- PIN check: only a salted SHA-256 of the PIN lives in the code, never the PIN itself
+DHSha = {}
+DHSha.K = {
+        0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5,
+        0x3956c25b, 0x59f111f1, 0x923f82a4, 0xab1c5ed5,
+        0xd807aa98, 0x12835b01, 0x243185be, 0x550c7dc3,
+        0x72be5d74, 0x80deb1fe, 0x9bdc06a7, 0xc19bf174,
+        0xe49b69c1, 0xefbe4786, 0x0fc19dc6, 0x240ca1cc,
+        0x2de92c6f, 0x4a7484aa, 0x5cb0a9dc, 0x76f988da,
+        0x983e5152, 0xa831c66d, 0xb00327c8, 0xbf597fc7,
+        0xc6e00bf3, 0xd5a79147, 0x06ca6351, 0x14292967,
+        0x27b70a85, 0x2e1b2138, 0x4d2c6dfc, 0x53380d13,
+        0x650a7354, 0x766a0abb, 0x81c2c92e, 0x92722c85,
+        0xa2bfe8a1, 0xa81a664b, 0xc24b8b70, 0xc76c51a3,
+        0xd192e819, 0xd6990624, 0xf40e3585, 0x106aa070,
+        0x19a4c116, 0x1e376c08, 0x2748774c, 0x34b0bcb5,
+        0x391c0cb3, 0x4ed8aa4a, 0x5b9cca4f, 0x682e6ff3,
+        0x748f82ee, 0x78a5636f, 0x84c87814, 0x8cc70208,
+        0x90befffa, 0xa4506ceb, 0xbef9a3f7, 0xc67178f2,
+}
+
+function DHSha.Hash(msg)
+    local band, bxor, bnot, rshift, rrotate = bit32.band, bit32.bxor, bit32.bnot, bit32.rshift, bit32.rrotate
+    local K = DHSha.K
+    local M = 4294967296
+    local h0, h1, h2, h3 = 0x6a09e667, 0xbb67ae85, 0x3c6ef372, 0xa54ff53a
+    local h4, h5, h6, h7 = 0x510e527f, 0x9b05688c, 0x1f83d9ab, 0x5be0cd19
+    local len = #msg
+    local bits = len * 8
+    msg = msg .. "\128" .. string.rep("\0", (55 - len) % 64)
+        .. string.char(0, 0, 0, 0, band(rshift(bits, 24), 255), band(rshift(bits, 16), 255), band(rshift(bits, 8), 255), band(bits, 255))
+    for chunk = 1, #msg, 64 do
+        local w = {}
+        for i = 0, 15 do
+            local b1, b2, b3, b4 = string.byte(msg, chunk + i * 4, chunk + i * 4 + 3)
+            w[i] = b1 * 16777216 + b2 * 65536 + b3 * 256 + b4
+        end
+        for i = 16, 63 do
+            local x, y = w[i - 15], w[i - 2]
+            local s0 = bxor(rrotate(x, 7), rrotate(x, 18), rshift(x, 3))
+            local s1 = bxor(rrotate(y, 17), rrotate(y, 19), rshift(y, 10))
+            w[i] = (w[i - 16] + s0 + w[i - 7] + s1) % M
+        end
+        local a, b, c, d, e, f, g, h = h0, h1, h2, h3, h4, h5, h6, h7
+        for i = 0, 63 do
+            local S1 = bxor(rrotate(e, 6), rrotate(e, 11), rrotate(e, 25))
+            local ch = bxor(band(e, f), band(bnot(e), g))
+            local t1 = (h + S1 + ch + K[i + 1] + w[i]) % M
+            local S0 = bxor(rrotate(a, 2), rrotate(a, 13), rrotate(a, 22))
+            local maj = bxor(band(a, b), band(a, c), band(b, c))
+            local t2 = (S0 + maj) % M
+            h = g
+            g = f
+            f = e
+            e = (d + t1) % M
+            d = c
+            c = b
+            b = a
+            a = (t1 + t2) % M
+        end
+        h0 = (h0 + a) % M
+        h1 = (h1 + b) % M
+        h2 = (h2 + c) % M
+        h3 = (h3 + d) % M
+        h4 = (h4 + e) % M
+        h5 = (h5 + f) % M
+        h6 = (h6 + g) % M
+        h7 = (h7 + h) % M
+    end
+    return string.format("%08x%08x%08x%08x%08x%08x%08x%08x", h0, h1, h2, h3, h4, h5, h6, h7)
+end
+
+local CORRECT_PIN_HASH = "33d6fb75c7e05f5c7789d5b0f04212daecc634ee045a38418aa6fc283ff29e03"
 local ScriptTabUnlocked = false
 local CurrentPIN = ""
 
@@ -1312,7 +1389,7 @@ for row = 1, 4 do
                 
             elseif num == "✓" then
                 -- SUBMIT
-                if CurrentPIN == CORRECT_PIN then
+                if DHSha.Hash("DaffzHub|" .. CurrentPIN) == CORRECT_PIN_HASH then
                     PINDisplay.Text = "✓ CORRECT!"
                     PINDisplay.TextColor3 = Color3.fromRGB(80,200,80)
                     task.wait(0.8)
@@ -1333,7 +1410,7 @@ for row = 1, 4 do
                 PINDisplay.TextColor3 = Color3.new(1,1,1)
                 
                 -- AUTO-CHECK
-                if CurrentPIN == CORRECT_PIN then
+                if DHSha.Hash("DaffzHub|" .. CurrentPIN) == CORRECT_PIN_HASH then
                     PINDisplay.Text = "✓ CORRECT!"
                     PINDisplay.TextColor3 = Color3.fromRGB(80,200,80)
                     task.wait(0.8)
@@ -1653,14 +1730,14 @@ end)
 -- Execute
 ExecuteBtn.MouseButton1Click:Connect(function()
     if ScriptBox.Text ~= "" then
-        local func = loadstring(ScriptBox.Text)
+        local func, loadErr = loadstring(ScriptBox.Text)
         if func then
             local success, result = pcall(func)
             if not success then
-                AddToConsole("Error: " .. tostring(result))
+                AddToConsole("Error: " .. tostring(result), Color3.fromRGB(255, 90, 90))
             end
         else
-            AddToConsole("Failed to load script")
+            AddToConsole("Syntax error: " .. tostring(loadErr), Color3.fromRGB(255, 90, 90))
         end
     end
 end)
@@ -1689,33 +1766,63 @@ CopyBtn.MouseButton1Click:Connect(function()
 end)
 
 -- Fungsi AddToConsole (hanya untuk output script)
-function AddToConsole(text)
+-- Wraps long lines, never yields (so print() keeps working everywhere), keeps the newest 200 lines
+ConsoleLayout.SortOrder = Enum.SortOrder.LayoutOrder
+DHConsoleN = 0
+ConsoleLayout:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function()
+    ConsoleOutput.CanvasPosition = Vector2.new(0, math.max(0, ConsoleLayout.AbsoluteContentSize.Y - ConsoleOutput.AbsoluteSize.Y))
+end)
+
+function AddToConsole(text, color)
+    DHConsoleN = DHConsoleN + 1
     local line = Instance.new("TextLabel")
-    line.Size = UDim2.new(1, -10, 0, 18)
+    line.Size = UDim2.new(1, -10, 0, 0)
+    line.AutomaticSize = Enum.AutomaticSize.Y
     line.BackgroundTransparency = 1
     line.Text = tostring(text)
     line.Font = Enum.Font.Code
     line.TextSize = 12
-    line.TextColor3 = Color3.new(1,1,1)
+    line.TextColor3 = color or Color3.new(1,1,1)
     line.TextXAlignment = Enum.TextXAlignment.Left
+    line.TextYAlignment = Enum.TextYAlignment.Top
+    line.TextWrapped = true
+    line.LayoutOrder = DHConsoleN
     line.Parent = ConsoleOutput
-    
-    task.wait()
-    ConsoleOutput.CanvasPosition = Vector2.new(0, ConsoleOutput.CanvasSize.Y.Offset)
+
+    local count, oldest = 0, nil
+    for _, child in ipairs(ConsoleOutput:GetChildren()) do
+        if child:IsA("TextLabel") then
+            count = count + 1
+            if not oldest then oldest = child end
+        end
+    end
+    if count > 200 and oldest then oldest:Destroy() end
 end
 
--- Hook ke print
+-- Hook ke print and warn
 local oldPrint = print
 print = function(...)
-    local args = {...}
-    local text = ""
-    for i, v in ipairs(args) do
-        text = text .. tostring(v)
-        if i < #args then text = text .. " " end
-    end
-    AddToConsole(text)
+    local args = table.pack(...)
+    local parts = {}
+    for i = 1, args.n do parts[i] = tostring(args[i]) end
+    pcall(AddToConsole, table.concat(parts, " "))
     oldPrint(...)
 end
+
+DHOldWarn = warn
+warn = function(...)
+    local args = table.pack(...)
+    local parts = {}
+    for i = 1, args.n do parts[i] = tostring(args[i]) end
+    pcall(AddToConsole, table.concat(parts, " "), Color3.fromRGB(255, 200, 80))
+    DHOldWarn(...)
+end
+
+-- when the hub is deleted, print and warn go back to normal
+ScreenGui.Destroying:Connect(function()
+    print = oldPrint
+    warn = DHOldWarn
+end)
 
 -- ================================================
 -- EDITOR V3 - SAVE/LOAD SCRIPT (MIRIP WAYPOINT)
@@ -2025,17 +2132,27 @@ end
 -- ================================================
 SaveScriptBtn.MouseButton1Click:Connect(function()
     local name = ScriptNameBox.Text:match("^%s*(.-)%s*$")
+    name = (name:gsub('[\\/:*?"<>|%.]', "_"))  -- keep the file name safe
     if name ~= "" and ScriptBox.Text ~= "" then
         local file = SCRIPTS_FOLDER .. "/" .. name .. ".txt"
-        writefile(file, ScriptBox.Text)
-        ScriptNameBox.Text = ""
-        refreshScriptList(ScriptSearch.Text)
-        
-        SaveScriptBtn.Text = "Saved!"
-        SaveScriptBtn.BackgroundColor3 = Color3.fromRGB(0,120,0)
-        task.wait(1)
-        SaveScriptBtn.Text = "Save"
-        SaveScriptBtn.BackgroundColor3 = Color3.fromRGB(30,180,30)
+        local function doSave()
+            local ok = pcall(function() writefile(file, ScriptBox.Text) end)
+            ScriptNameBox.Text = ""
+            refreshScriptList(ScriptSearch.Text)
+
+            SaveScriptBtn.Text = ok and "Saved!" or "Failed"
+            SaveScriptBtn.BackgroundColor3 = ok and Color3.fromRGB(0,120,0) or Color3.fromRGB(120,0,0)
+            task.wait(1)
+            SaveScriptBtn.Text = "Save"
+            SaveScriptBtn.BackgroundColor3 = Color3.fromRGB(30,180,30)
+        end
+        local exists = false
+        pcall(function() exists = isfile(file) end)
+        if exists then
+            ShowConfirmPopup("Replace the saved script \"" .. name .. "\"?", Color3.fromRGB(200, 180, 30), doSave)
+        else
+            doSave()
+        end
     end
 end)
 
@@ -3502,7 +3619,7 @@ Instance.new("UICorner", VolumeReset).CornerRadius = UDim.new(0, 6)
 -- ================================================
 ListSection = Instance.new("Frame", MusicScroll)
 ListSection.Size = UDim2.new(1, 0, 0, 300)
-ListSection.Position = UDim2.new(0, 0, 0, 250)
+ListSection.Position = UDim2.new(0, 0, 0, 600)
 ListSection.BackgroundColor3 = Color3.fromRGB(25,25,25)
 Instance.new("UICorner", ListSection).CornerRadius = UDim.new(0, 8)
 
@@ -3785,7 +3902,7 @@ VolumeReset.MouseButton1Click:Connect(function()
     currentVolume = 5
     VolumeValue.Text = "50%"
     if CurrentSound and CurrentSound.IsPlaying then
-        CurrentSound.Volume = 10
+        CurrentSound.Volume = currentVolume / 10
     end
 end)
 
@@ -3802,10 +3919,142 @@ VolumeValue.FocusLost:Connect(function()
     end
 end)
 
--- Play button
+-- Play / Resume, Stop / Pause and the seek bar
+DHMusic = {Paused = false, Id = nil, Drag = false, Ratio = 0}
+
+function DHMusic.Fmt(t)
+    t = math.max(0, math.floor(t or 0))
+    return string.format("%d:%02d", math.floor(t / 60), t % 60)
+end
+
+function DHMusic.SetPlayText()
+    local id = MusicBox.Text:gsub("%s", "")
+    PlayBtn.Text = (DHMusic.Paused and id == DHMusic.Id) and "▶ Resume" or "▶ Play"
+end
+
+function DHMusic.Show(pos, len)
+    if not DHMusic.Fill then return end
+    local r = (len and len > 0) and math.clamp(pos / len, 0, 1) or 0
+    DHMusic.Fill.Size = UDim2.new(r, 0, 1, 0)
+    DHMusic.Knob.Position = UDim2.new(r, 0, 0.5, 0)
+    DHMusic.Cur.Text = DHMusic.Fmt(pos)
+    DHMusic.Total.Text = DHMusic.Fmt(len)
+end
+
+function DHMusic.Build()
+    local sec = Instance.new("Frame", MusicScroll)
+    sec.Size = UDim2.new(1, 0, 0, 50)
+    sec.Position = UDim2.new(0, 0, 0, 250)
+    sec.BackgroundColor3 = Color3.fromRGB(25,25,25)
+    Instance.new("UICorner", sec).CornerRadius = UDim.new(0, 8)
+
+    local cur = Instance.new("TextLabel", sec)
+    cur.Size = UDim2.new(0, 60, 0, 18)
+    cur.Position = UDim2.new(0, 12, 0, 4)
+    cur.BackgroundTransparency = 1
+    cur.Text = "0:00"
+    cur.Font = Enum.Font.GothamBold
+    cur.TextSize = 12
+    cur.TextColor3 = Color3.fromRGB(100, 200, 255)
+    cur.TextXAlignment = Enum.TextXAlignment.Left
+
+    local total = Instance.new("TextLabel", sec)
+    total.Size = UDim2.new(0, 60, 0, 18)
+    total.Position = UDim2.new(1, -72, 0, 4)
+    total.BackgroundTransparency = 1
+    total.Text = "0:00"
+    total.Font = Enum.Font.GothamBold
+    total.TextSize = 12
+    total.TextColor3 = Color3.fromRGB(170, 170, 170)
+    total.TextXAlignment = Enum.TextXAlignment.Right
+
+    local bar = Instance.new("Frame", sec)
+    bar.Size = UDim2.new(1, -24, 0, 8)
+    bar.Position = UDim2.new(0, 12, 0, 34)
+    bar.BackgroundColor3 = Color3.fromRGB(50, 50, 50)
+    bar.BorderSizePixel = 0
+    Instance.new("UICorner", bar).CornerRadius = UDim.new(0, 4)
+
+    local fill = Instance.new("Frame", bar)
+    fill.Size = UDim2.new(0, 0, 1, 0)
+    fill.BackgroundColor3 = Color3.fromRGB(0, 120, 212)
+    fill.BorderSizePixel = 0
+    Instance.new("UICorner", fill).CornerRadius = UDim.new(0, 4)
+
+    local knob = Instance.new("Frame", bar)
+    knob.Size = UDim2.new(0, 16, 0, 16)
+    knob.AnchorPoint = Vector2.new(0.5, 0.5)
+    knob.Position = UDim2.new(0, 0, 0.5, 0)
+    knob.BackgroundColor3 = Color3.new(1, 1, 1)
+    knob.BorderSizePixel = 0
+    Instance.new("UICorner", knob).CornerRadius = UDim.new(0, 8)
+
+    -- wide invisible area so the bar is easy to hit with a thumb
+    local hit = Instance.new("TextButton", sec)
+    hit.Size = UDim2.new(1, 0, 0, 30)
+    hit.Position = UDim2.new(0, 0, 0, 20)
+    hit.BackgroundTransparency = 1
+    hit.Text = ""
+
+    DHMusic.Bar, DHMusic.Fill, DHMusic.Knob, DHMusic.Cur, DHMusic.Total = bar, fill, knob, cur, total
+
+    local function FromInput(input)
+        local s = CurrentSound
+        if not s or not s.Parent or s.TimeLength <= 0 then return end
+        DHMusic.Ratio = math.clamp((input.Position.X - bar.AbsolutePosition.X) / math.max(1, bar.AbsoluteSize.X), 0, 1)
+        DHMusic.Show(DHMusic.Ratio * s.TimeLength, s.TimeLength)
+    end
+
+    hit.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+            local s = CurrentSound
+            if not s or not s.Parent or s.TimeLength <= 0 then return end
+            DHMusic.Drag = true
+            MusicScroll.ScrollingEnabled = false
+            FromInput(input)
+        end
+    end)
+    UIS.InputChanged:Connect(function(input)
+        if DHMusic.Drag and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
+            FromInput(input)
+        end
+    end)
+    UIS.InputEnded:Connect(function(input)
+        if DHMusic.Drag and (input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch) then
+            DHMusic.Drag = false
+            MusicScroll.ScrollingEnabled = true
+            local s = CurrentSound
+            if s and s.Parent and s.TimeLength > 0 then
+                s.TimePosition = DHMusic.Ratio * s.TimeLength
+            end
+        end
+    end)
+
+    DHMusic.Beat = RunService.Heartbeat:Connect(function()
+        if not bar.Parent then
+            DHMusic.Beat:Disconnect()
+            return
+        end
+        if DHMusic.Drag then return end
+        local s = CurrentSound
+        if s and s.Parent then DHMusic.Show(s.TimePosition, s.TimeLength) end
+    end)
+end
+pcall(DHMusic.Build)
+
+MusicBox:GetPropertyChangedSignal("Text"):Connect(DHMusic.SetPlayText)
+
+-- Play button (becomes Resume while paused on the same ID)
 PlayBtn.MouseButton1Click:Connect(function()
     local id = MusicBox.Text:gsub("%s", "")
     if id ~= "" and tonumber(id) then
+        if DHMusic.Paused and CurrentSound and CurrentSound.Parent and DHMusic.Id == id then
+            CurrentSound.Volume = currentVolume / 10
+            CurrentSound:Resume()
+            DHMusic.Paused = false
+            DHMusic.SetPlayText()
+            return
+        end
         if CurrentSound then
             CurrentSound:Stop()
             CurrentSound:Destroy()
@@ -3815,14 +4064,42 @@ PlayBtn.MouseButton1Click:Connect(function()
         CurrentSound.Volume = currentVolume / 10
         CurrentSound:SetAttribute("DH_Music", true) -- so "No Audio" does not mute the hub music
         CurrentSound.Parent = workspace
+        DHMusic.Id = id
+        DHMusic.Paused = false
+        DHMusic.SetPlayText()
+        local snd = CurrentSound
+        snd.Ended:Connect(function()
+            if CurrentSound == snd then
+                DHMusic.Paused = false
+                DHMusic.SetPlayText()
+            end
+        end)
         CurrentSound:Play()
     end
 end)
 
--- Stop button
+-- Stop button: pauses at the current time (the bar freezes). Press again to stop for real.
 StopBtn.MouseButton1Click:Connect(function()
+    local s = CurrentSound
+    if not s or not s.Parent then return end
+    if s.IsPlaying then
+        s:Pause()
+        DHMusic.Paused = true
+    else
+        s:Stop()
+        DHMusic.Paused = false
+        DHMusic.Show(0, s.TimeLength)
+    end
+    DHMusic.SetPlayText()
+end)
+
+-- when the hub is deleted, the music stops too
+ScreenGui.Destroying:Connect(function()
     if CurrentSound then
-        CurrentSound:Stop()
+        pcall(function()
+            CurrentSound:Stop()
+            CurrentSound:Destroy()
+        end)
     end
 end)
 
@@ -3853,6 +4130,194 @@ MusicSearch:GetPropertyChangedSignal("Text"):Connect(function()
     updateMusicList(MusicSearch.Text)
 end)
 
+-- ================================================
+-- SEARCH MUSIC: find songs in the Roblox audio library by name
+-- ================================================
+DHMS = {Busy = false}
+
+function DHMS.Clear()
+    for _, c in ipairs(DHMS.List:GetChildren()) do
+        if c:IsA("Frame") then c:Destroy() end
+    end
+end
+
+function DHMS.AddRow(item)
+    local id = tostring(item.AssetId or item.Id or "")
+    if id == "" then return end
+    local title = tostring(item.Title or item.Name or ("Audio " .. id))
+    local artist = tostring(item.Artist or "")
+    local dur = tonumber(item.Duration)
+    local sub = (artist ~= "" and (artist .. "  •  ") or "") .. (dur and (DHMusic.Fmt(dur) .. "  •  ") or "") .. id
+
+    local row = Instance.new("Frame", DHMS.List)
+    row.Size = UDim2.new(1, 0, 0, 50)
+    row.BackgroundColor3 = Color3.fromRGB(35,35,35)
+    Instance.new("UICorner", row).CornerRadius = UDim.new(0, 6)
+
+    local nm = Instance.new("TextLabel", row)
+    nm.Size = UDim2.new(1, -100, 0, 24)
+    nm.Position = UDim2.new(0, 10, 0, 3)
+    nm.BackgroundTransparency = 1
+    nm.Text = title
+    nm.Font = Enum.Font.GothamBold
+    nm.TextSize = 12
+    nm.TextColor3 = Color3.new(1,1,1)
+    nm.TextXAlignment = Enum.TextXAlignment.Left
+    nm.TextTruncate = Enum.TextTruncate.AtEnd
+
+    local sb = Instance.new("TextLabel", row)
+    sb.Size = UDim2.new(1, -100, 0, 18)
+    sb.Position = UDim2.new(0, 10, 0, 28)
+    sb.BackgroundTransparency = 1
+    sb.Text = sub
+    sb.Font = Enum.Font.Gotham
+    sb.TextSize = 10
+    sb.TextColor3 = Color3.fromRGB(160,160,160)
+    sb.TextXAlignment = Enum.TextXAlignment.Left
+    sb.TextTruncate = Enum.TextTruncate.AtEnd
+
+    local useBtn = Instance.new("TextButton", row)
+    useBtn.Size = UDim2.new(0, 38, 0, 38)
+    useBtn.Position = UDim2.new(1, -86, 0.5, -19)
+    useBtn.BackgroundColor3 = Color3.fromRGB(30, 170, 60)
+    useBtn.Text = "↑"
+    useBtn.Font = Enum.Font.GothamBold
+    useBtn.TextSize = 16
+    useBtn.TextColor3 = Color3.new(1,1,1)
+    Instance.new("UICorner", useBtn).CornerRadius = UDim.new(0, 4)
+
+    local saveBtn = Instance.new("TextButton", row)
+    saveBtn.Size = UDim2.new(0, 38, 0, 38)
+    saveBtn.Position = UDim2.new(1, -44, 0.5, -19)
+    saveBtn.BackgroundColor3 = Color3.fromRGB(0, 120, 212)
+    saveBtn.Text = "💾"
+    saveBtn.Font = Enum.Font.GothamBold
+    saveBtn.TextSize = 14
+    saveBtn.TextColor3 = Color3.new(1,1,1)
+    Instance.new("UICorner", saveBtn).CornerRadius = UDim.new(0, 4)
+
+    useBtn.MouseButton1Click:Connect(function()
+        MusicBox.Text = id
+        DHMS.Status.Text = "ID placed in the box. Press Play."
+    end)
+
+    saveBtn.MouseButton1Click:Connect(function()
+        for _, v in ipairs(savedMusic) do
+            local existingId = type(v) == "table" and v.id or tostring(v)
+            if existingId == id then
+                DHMS.Status.Text = "Already in Saved Music."
+                return
+            end
+        end
+        table.insert(savedMusic, {name = title, id = id})
+        saveMusic()
+        updateMusicList(MusicSearch.Text)
+        DHMS.Status.Text = "Saved to Saved Music."
+    end)
+end
+
+function DHMS.Search(q)
+    q = (q or ""):match("^%s*(.-)%s*$")
+    if q == "" or DHMS.Busy then return end
+    DHMS.Busy = true
+    DHMS.Status.Text = "Searching..."
+    DHMS.Clear()
+    task.spawn(function()
+        local ok, res = pcall(function()
+            local p = Instance.new("AudioSearchParams")
+            p.SearchKeyword = q
+            local pages = game:GetService("AssetService"):SearchAudioAsync(p)
+            return pages:GetCurrentPage()
+        end)
+        DHMS.Busy = false
+        if not DHMS.List.Parent then return end
+        if not ok then
+            DHMS.Status.Text = "Search is not available here: " .. string.sub(tostring(res), 1, 60)
+            return
+        end
+        if type(res) ~= "table" or #res == 0 then
+            DHMS.Status.Text = "No results."
+            return
+        end
+        local n = math.min(#res, 25)
+        for i = 1, n do
+            pcall(DHMS.AddRow, res[i])
+        end
+        DHMS.Status.Text = n .. " results. ↑ puts the ID in the box, 💾 saves it."
+    end)
+end
+
+function DHMS.Build()
+    local sec = Instance.new("Frame", MusicScroll)
+    sec.Size = UDim2.new(1, 0, 0, 280)
+    sec.Position = UDim2.new(0, 0, 0, 310)
+    sec.BackgroundColor3 = Color3.fromRGB(25,25,25)
+    Instance.new("UICorner", sec).CornerRadius = UDim.new(0, 8)
+
+    local hd = Instance.new("TextLabel", sec)
+    hd.Size = UDim2.new(1, -20, 0, 25)
+    hd.Position = UDim2.new(0, 10, 0, 5)
+    hd.BackgroundTransparency = 1
+    hd.Text = "🔎 SEARCH MUSIC"
+    hd.Font = Enum.Font.GothamBold
+    hd.TextSize = 14
+    hd.TextColor3 = Color3.fromRGB(255, 200, 100)
+    hd.TextXAlignment = Enum.TextXAlignment.Left
+
+    local box = Instance.new("TextBox", sec)
+    box.Size = UDim2.new(1, -110, 0, 32)
+    box.Position = UDim2.new(0, 10, 0, 35)
+    box.BackgroundColor3 = Color3.fromRGB(35,35,35)
+    box.PlaceholderText = "Song name or artist..."
+    box.Text = ""
+    box.Font = Enum.Font.Gotham
+    box.TextSize = 13
+    box.TextColor3 = Color3.new(1,1,1)
+    box.TextXAlignment = Enum.TextXAlignment.Left
+    box.ClearTextOnFocus = false
+    Instance.new("UIPadding", box).PaddingLeft = UDim.new(0, 8)
+    Instance.new("UICorner", box).CornerRadius = UDim.new(0, 6)
+
+    local go = Instance.new("TextButton", sec)
+    go.Size = UDim2.new(0, 80, 0, 32)
+    go.Position = UDim2.new(1, -90, 0, 35)
+    go.BackgroundColor3 = Color3.fromRGB(0, 120, 212)
+    go.Text = "Search"
+    go.Font = Enum.Font.GothamBold
+    go.TextSize = 13
+    go.TextColor3 = Color3.new(1,1,1)
+    Instance.new("UICorner", go).CornerRadius = UDim.new(0, 6)
+
+    local st = Instance.new("TextLabel", sec)
+    st.Size = UDim2.new(1, -20, 0, 16)
+    st.Position = UDim2.new(0, 10, 0, 72)
+    st.BackgroundTransparency = 1
+    st.Text = ""
+    st.Font = Enum.Font.Gotham
+    st.TextSize = 11
+    st.TextColor3 = Color3.fromRGB(170,170,170)
+    st.TextXAlignment = Enum.TextXAlignment.Left
+    st.TextTruncate = Enum.TextTruncate.AtEnd
+
+    local list = Instance.new("ScrollingFrame", sec)
+    list.Size = UDim2.new(1, -20, 1, -100)
+    list.Position = UDim2.new(0, 10, 0, 92)
+    list.BackgroundTransparency = 1
+    list.BorderSizePixel = 0
+    list.ScrollBarThickness = 1
+    list.CanvasSize = UDim2.new(0, 0, 0, 0)
+    list.AutomaticCanvasSize = Enum.AutomaticSize.Y
+    local lay = Instance.new("UIListLayout", list)
+    lay.Padding = UDim.new(0, 4)
+
+    DHMS.List, DHMS.Status = list, st
+    go.MouseButton1Click:Connect(function() DHMS.Search(box.Text) end)
+    box.FocusLost:Connect(function(enter)
+        if enter then DHMS.Search(box.Text) end
+    end)
+end
+pcall(DHMS.Build)
+
 -- Initial update
 updateMusicList("")
 
@@ -3870,7 +4335,7 @@ updateMusicList("")
 -- ================================================
 YouTubeContainer = Instance.new("Frame", MusicScroll)
 YouTubeContainer.Size = UDim2.new(1, 0, 0, 120)
-YouTubeContainer.Position = UDim2.new(0, 0, 0, 560)  -- Sesuaikan dengan posisi setelah Volume
+YouTubeContainer.Position = UDim2.new(0, 0, 0, 910)  -- Sesuaikan dengan posisi setelah Volume
 YouTubeContainer.BackgroundColor3 = Color3.fromRGB(25,25,25)
 YouTubeContainer.ClipsDescendants = true
 Instance.new("UICorner", YouTubeContainer).CornerRadius = UDim.new(0, 8)
@@ -4191,7 +4656,7 @@ TPSafeZoneBtn.MouseButton1Click:Connect(ToggleSafeZone)
 
 -- MONITOR: kalau karakter kabur dari SafeZone tanpa pencet Teleport Back
 task.spawn(function()
-    while true do
+    while ScreenGui.Parent do
         task.wait(1)
         if safeZoneActive and safeZonePlatform then
             local char = Player.Character
@@ -4351,7 +4816,7 @@ end
 
 -- LOOP PAKSA JUMPPOWER (biar gak ke-reset sama script map)
 task.spawn(function()
-    while true do
+    while ScreenGui.Parent do
         task.wait(0.1)
         if JumpEnabled then
             local humanoid = GetHumanoid()
@@ -4374,9 +4839,9 @@ end
 
 -- LOOP PAKSA WALKSPEED (biar gak ke-reset sama script map)
 task.spawn(function()
-    while true do
+    while ScreenGui.Parent do
         task.wait(0.1)
-        if WalkEnabled then
+        if WalkEnabled and not (DHMods and DHMods.SgBoost) then
             local humanoid = GetHumanoid()
             local value = tonumber(WalkValue.Text) or 16
             if humanoid and humanoid.WalkSpeed ~= value then
@@ -4405,6 +4870,24 @@ Player.CharacterAdded:Connect(function(newChar)
             pcall(function()
                 humanoid.JumpPower = value
                 humanoid.JumpHeight = value * 0.144
+            end)
+        end
+    end
+end)
+
+-- when the hub is deleted, WalkSpeed and JumpPower go back to normal and stay normal after respawn
+ScreenGui.Destroying:Connect(function()
+    local wasWalk, wasJump = WalkEnabled, JumpEnabled
+    WalkEnabled = false
+    JumpEnabled = false
+    local char = Player.Character
+    local hum = char and char:FindFirstChildOfClass("Humanoid")
+    if hum then
+        if wasWalk then pcall(function() hum.WalkSpeed = OriginalWalkSpeed end) end
+        if wasJump then
+            pcall(function()
+                hum.JumpPower = OriginalJumpPower
+                hum.JumpHeight = OriginalJumpPower * 0.144
             end)
         end
     end
@@ -5456,10 +5939,11 @@ local function startAntiAfk()
             task.wait(240)
             if not protections.antiAfk then break end
             pcall(function()
-                if Humanoid then 
-                    Humanoid.Jump = true 
-                    task.wait(0.1) 
-                    Humanoid.Jump = false 
+                local hum = Player.Character and Player.Character:FindFirstChildOfClass("Humanoid")
+                if hum then
+                    hum.Jump = true
+                    task.wait(0.1)
+                    hum.Jump = false
                 end
             end)
         end
@@ -5787,6 +6271,7 @@ function DHAR.Stop()
         DHAR.Conn:Disconnect()
         DHAR.Conn = nil
     end
+    DHAR.Hum = nil
     local char = Player.Character
     local hum = char and char:FindFirstChildOfClass("Humanoid")
     if hum then DHAR.States(hum, true) end
@@ -5796,10 +6281,14 @@ function DHAR.Start()
     if DHAR.Conn then return end
     DHAR.Conn = RunService.Heartbeat:Connect(function()
         if not protections.antiRagdoll then return end
+        if DHMods and DHMods.WwActive then return end
         local char = Player.Character
         local hum = char and char:FindFirstChildOfClass("Humanoid")
         if not hum or hum.Health <= 0 then return end
-        DHAR.States(hum, false)
+        if DHAR.Hum ~= hum then
+            DHAR.Hum = hum
+            DHAR.States(hum, false)
+        end
         if hum.SeatPart then return end
         local st = hum:GetState()
         if hum.PlatformStand then hum.PlatformStand = false end
@@ -5809,6 +6298,16 @@ function DHAR.Start()
         end
     end)
 end
+
+-- when the hub is deleted, every protection goes off with it
+ScreenGui.Destroying:Connect(function()
+    protections.antiRagdoll = false
+    protections.antiAfk = false
+    pcall(DHAR.Stop)
+    pcall(stopAntiFling)
+    pcall(stopAntiVoid)
+    pcall(stopAntiSit)
+end)
 
 function DHAR.SetBtn(on)
     if not AntiRagdollBtn then return end
@@ -5948,7 +6447,7 @@ HealLabel.ZIndex = 2
 
 -- Update % terus menerus
 task.spawn(function()
-    while true do
+    while ScreenGui.Parent do
         task.wait(0.1)
         if Player.Character then
             local hum = Player.Character:FindFirstChildOfClass("Humanoid")
@@ -11169,7 +11668,7 @@ end
 -- ================================================
 local function touchFlingLoop()
     task.spawn(function()
-        while true do
+        while ScreenGui.Parent do
             RunService.Heartbeat:Wait()
             
             if touchActive then
@@ -12177,9 +12676,9 @@ end)
 
 -- LOOP PAKSA SPEED BOOST DESYNC (biar tetap jalan walau map coba reset)
 task.spawn(function()
-    while true do
+    while ScreenGui.Parent do
         task.wait(0.1)
-        if desyncSpeedOn then
+        if desyncSpeedOn and not (DHMods and DHMods.SgBoost) then
             local hum = Player.Character and Player.Character:FindFirstChild("Humanoid")
             if hum and hum.WalkSpeed ~= 100 then
                 hum.WalkSpeed = 100
@@ -13856,7 +14355,7 @@ SBSearchInput:GetPropertyChangedSignal("Text"):Connect(function()
 end)
 
 task.spawn(function()
-    while true do
+    while ScreenGui.Parent do
         task.wait(1)
         if SBIsScrolling or SBIsTyping or SBLastQuery == "" then
             SBRefreshCountdown = 30
@@ -17628,6 +18127,189 @@ function DHMods.NoclipSet(on)
     end
 end
 
+-- ---------- Wall Walk: walk on walls and ceilings like a spider ----------
+function DHMods.WwExit(hum, root, onFloor)
+    local ww = DHMods.Ww
+    if not ww or not ww.Active then return end
+    ww.Active = false
+    DHMods.WwActive = false
+    if root and root.Parent then
+        local look = ww.Fwd or root.CFrame.LookVector
+        look = Vector3.new(look.X, 0, look.Z)
+        if look.Magnitude < 0.05 then look = Vector3.new(0, 0, -1) end
+        root.CFrame = CFrame.lookAt(root.Position, root.Position + look)
+        root.AssemblyAngularVelocity = Vector3.zero
+    end
+    if hum and hum.Parent then
+        hum.PlatformStand = false
+        hum:ChangeState(onFloor and Enum.HumanoidStateType.GettingUp or Enum.HumanoidStateType.Freefall)
+    end
+end
+
+function DHMods.WwStep(ww, dt, rp)
+    local char = Player.Character
+    local hum = char and char:FindFirstChildOfClass("Humanoid")
+    local root = char and char:FindFirstChild("HumanoidRootPart")
+    if not (hum and root) or hum.Health <= 0 then
+        DHMods.WwExit(nil, nil, false)
+        return
+    end
+    if hum.SeatPart then return end
+    local cam = workspace.CurrentCamera
+    if not cam then return end
+    rp.FilterDescendantsInstances = {char}
+
+    -- what the player pushes (forward f, right r), rebuilt from MoveDirection which is camera relative
+    local look = cam.CFrame.LookVector
+    local flatLook = Vector3.new(look.X, 0, look.Z)
+    if flatLook.Magnitude < 0.01 then flatLook = Vector3.new(0, 0, -1) end
+    flatLook = flatLook.Unit
+    local flatRight = Vector3.new(-flatLook.Z, 0, flatLook.X)
+    local md = hum.MoveDirection
+    local f, r = 0, 0
+    if md.Magnitude > 0.1 then
+        f = md:Dot(flatLook)
+        r = md:Dot(flatRight)
+    end
+
+    if not ww.Active then
+        -- walking into a wall (or a steep slope)? start climbing it
+        if tick() < ww.Cool then return end
+        local dir = flatLook * f + flatRight * r
+        if dir.Magnitude < 0.1 then return end
+        dir = dir.Unit
+        local hit = workspace:Raycast(root.Position, dir * 3.2, rp)
+        if hit and hit.Normal.Y < 0.7 then
+            ww.Active = true
+            DHMods.WwActive = true
+            ww.Up = hit.Normal
+            ww.Target = hit.Normal
+            ww.Fwd = dir
+            ww.Lost = 0
+            hum.PlatformStand = true
+        end
+        return
+    end
+
+    local up = ww.Up
+    -- forward on the surface: where the camera looks, or straight "up the wall" when the camera faces it
+    local tf = look - up * look:Dot(up)
+    if tf.Magnitude < 0.35 then
+        local cu = cam.CFrame.UpVector
+        tf = cu - up * cu:Dot(up)
+    end
+    if tf.Magnitude < 0.01 then
+        local fb = ww.Fwd or Vector3.new(0, 0, -1)
+        tf = fb - up * fb:Dot(up)
+    end
+    if tf.Magnitude < 0.01 then return end
+    tf = tf.Unit
+    local tr = tf:Cross(up)
+    local dir = tf * f + tr * r
+    local moving = dir.Magnitude > 0.1
+    if moving then
+        dir = dir.Unit
+        ww.Fwd = dir
+        ww.Dir = dir
+    else
+        ww.Dir = Vector3.zero
+    end
+
+    -- find the surface: ahead (inner corner), under the feet, or around an edge (outer corner)
+    local pos = root.Position
+    local target, hitPos = nil, nil
+    if moving then
+        local h = workspace:Raycast(pos, dir * 3.2, rp)
+        if h and h.Normal:Dot(up) < 0.9 then target, hitPos = h.Normal, h.Position end
+    end
+    if not target then
+        local h = workspace:Raycast(pos, -up * 5, rp)
+        if h then target, hitPos = h.Normal, h.Position end
+    end
+    if not target and moving then
+        local h = workspace:Raycast(pos + dir * 3, (-dir - up) * 3.5, rp)
+        if h then target, hitPos = h.Normal, h.Position end
+    end
+
+    if target then
+        ww.Lost = 0
+        ww.Target = target
+    else
+        ww.Lost = ww.Lost + dt
+        if ww.Lost > 0.3 then
+            DHMods.WwExit(hum, root, false)
+            return
+        end
+    end
+
+    local tn = ww.Target or up
+    -- back on normal ground: hand control back to the normal walking
+    if tn.Y > 0.85 and up.Y > 0.85 then
+        DHMods.WwExit(hum, root, true)
+        return
+    end
+
+    up = up:Lerp(tn, math.clamp(dt * 12, 0, 1))
+    if up.Magnitude < 0.01 then up = tn end
+    up = up.Unit
+    ww.Up = up
+
+    local fwd = ww.Fwd or tf
+    fwd = fwd - up * fwd:Dot(up)
+    if fwd.Magnitude < 0.01 then fwd = tf end
+    fwd = fwd.Unit
+    root.CFrame = CFrame.fromMatrix(pos, fwd:Cross(up), up, -fwd)
+
+    -- no gravity here: we set the speed ourselves and hold the body 3 studs off the surface
+    local hold = -6
+    if target then hold = math.clamp((3 - (pos - hitPos):Dot(tn)) * 12, -25, 25) end
+    root.AssemblyLinearVelocity = (moving and dir * hum.WalkSpeed or Vector3.zero) + tn * hold
+    root.AssemblyAngularVelocity = Vector3.zero
+end
+
+function DHMods.WallWalkSet(on)
+    DHMods.Ww = DHMods.Ww or {}
+    local ww = DHMods.Ww
+    if ww.Conn then
+        ww.Conn:Disconnect()
+        ww.Conn = nil
+    end
+    if ww.Jump then
+        ww.Jump:Disconnect()
+        ww.Jump = nil
+    end
+    if not on then
+        local char = Player.Character
+        DHMods.WwExit(char and char:FindFirstChildOfClass("Humanoid"), char and char:FindFirstChild("HumanoidRootPart"), true)
+        return
+    end
+    ww.Active = false
+    DHMods.WwActive = false
+    ww.Up = Vector3.new(0, 1, 0)
+    ww.Lost = 0
+    ww.Cool = 0
+    local rp = RaycastParams.new()
+    rp.FilterType = Enum.RaycastFilterType.Exclude
+    rp.RespectCanCollide = true
+
+    -- jump lets go of the wall and kicks you away from it
+    ww.Jump = UIS.JumpRequest:Connect(function()
+        if not ww.Active then return end
+        local char = Player.Character
+        local hum = char and char:FindFirstChildOfClass("Humanoid")
+        local root = char and char:FindFirstChild("HumanoidRootPart")
+        if not (hum and root) then return end
+        local kick = ww.Up * 45 + (ww.Dir or Vector3.zero) * hum.WalkSpeed
+        ww.Cool = tick() + 0.4
+        DHMods.WwExit(hum, root, false)
+        root.AssemblyLinearVelocity = kick
+    end)
+
+    ww.Conn = RunService.Heartbeat:Connect(function(dt)
+        pcall(DHMods.WwStep, ww, dt, rp)
+    end)
+end
+
 function BuildModsMovement()
 -- ---------- Speed Glitch: normal speed on the ground, faster only while in the air ----------
 DHMods.AirMult = 1.6
@@ -17735,6 +18417,7 @@ end
     DHMods.AddToggle("Infinite Jump", "Jump again while in the air", DHMods.JumpSet)
     DHMods.AddToggle("Speed Glitch", "Normal speed on the ground, faster only while in the air", DHMods.SpeedGlitchSet)
     DHMods.AddToggle("Double Jump", "One extra jump in the air, refilled when you land", DHMods.DoubleJumpSet)
+    DHMods.AddToggle("Wall Walk", "Walk into a wall to climb walls and ceilings like a spider, jump to let go", DHMods.WallWalkSet)
     DHMods.AddToggle("Noclip", "Walk through walls and objects", DHMods.NoclipSet)
 
     ScreenGui.Destroying:Connect(function()
@@ -17941,15 +18624,57 @@ end
 
 function BuildModsAirSpeed()
     if not DHMods.Scroll then return end
-    DHMods.AddSlider("Air Speed", 1, 4, 1.6, 0.1, "%.1fx", function(v) DHMods.AirMult = v end)
+    DHMods.AddSlider("Air Speed", 1, 10, 1.6, 0.1, "%.1fx", function(v) DHMods.AirMult = v end)
 end
 
 pcall(BuildModsAirSpeed)
+
+-- ---------- Fast Respawn (beta): tries to skip the wait after you die ----------
+function DHMods.FastRespawnSet(on)
+    if DHMods.FrConn then
+        DHMods.FrConn:Disconnect()
+        DHMods.FrConn = nil
+    end
+    if DHMods.FrDied then
+        DHMods.FrDied:Disconnect()
+        DHMods.FrDied = nil
+    end
+    if not on then return end
+
+    local function Hook(char)
+        if DHMods.FrDied then
+            DHMods.FrDied:Disconnect()
+            DHMods.FrDied = nil
+        end
+        local hum = char:FindFirstChildOfClass("Humanoid") or char:WaitForChild("Humanoid", 5)
+        if not hum then return end
+        DHMods.FrDied = hum.Died:Connect(function()
+            if tick() - (DHMods.FrLast or 0) < 2 then return end
+            DHMods.FrLast = tick()
+            task.defer(function()
+                -- the same character swap the "respawn" command of popular admin scripts uses
+                pcall(function()
+                    char:ClearAllChildren()
+                    local tmp = Instance.new("Model")
+                    tmp.Parent = workspace
+                    Player.Character = tmp
+                    task.wait()
+                    Player.Character = char
+                    tmp:Destroy()
+                end)
+            end)
+        end)
+    end
+
+    if Player.Character then Hook(Player.Character) end
+    DHMods.FrConn = Player.CharacterAdded:Connect(Hook)
+end
 
 function BuildModsPart3()
     if not DHMods.Scroll then return end
     DHMods.Header("SURVIVAL")
     DHMods.GodApi = DHMods.AddToggle("God Mode (beta)", "Beta: only works if the map handles damage on your side", DHMods.GodSet)
+    DHMods.AddToggle("Fast Respawn (beta)", "Beta: tries to skip the respawn wait, works only on some maps", DHMods.FastRespawnSet)
     DHMods.Header("VISION")
     DHMods.AddToggle("Xray Vision", "See through walls and objects around you", DHMods.XrayToggle)
     DHMods.AddSlider("Xray Transparency", 0.1, 0.9, 0.6, 0.05, "%.2f", function(v) DHMods.XrayVal = v end)
@@ -18861,7 +19586,7 @@ end)
 -- LOOP PAKSA: terus jaga HoldDuration tetap instan selama toggle ON
 -- (buat lawan kalau ada server yang nge-reset HoldDuration di background)
 task.spawn(function()
-    while true do
+    while ScreenGui.Parent do
         task.wait(0.3)
         if promptEnabled and not isRestoring then
             for obj, _ in pairs(processedPrompts) do
@@ -21255,7 +21980,7 @@ featureItems = {
     "     Teleport, Noclip, Fling)",
     "",
     "🎵 MUSIC TAB",
-    "   • Audio ID player with volume control",
+    "   • Audio ID player with volume control, seek bar and search",
     "   • Saved music list (search, rename, auto execute)",
     "   • YouTube music player",
     "",
@@ -21330,8 +22055,8 @@ featureItems = {
     "   • Saved mixes (kept in a file)",
     "",
     "🧩 MODS TAB",
-    "   • Float (neon pad), Infinite Jump, Double Jump, Speed Glitch, Noclip",
-    "   • God Mode (beta)",
+    "   • Float (neon pad), Infinite Jump, Double Jump, Speed Glitch, Wall Walk, Noclip",
+    "   • God Mode (beta), Fast Respawn (beta)",
     "   • Xray Vision with slider & Potato Mode",
     "   • Time Stop, Freeze & Reverse (rewind)",
     "   • Aimbot (circle, smoothness, team/wall check, hold)",
@@ -21934,20 +22659,21 @@ DHChangelogTags = {
 }
 
 DHChangelog = {
+    {id = 6, date = "2026-10-18", title = "What's New", items = {
+        {"Added", "Mods tab: Wall Walk, walk into a wall to climb walls and ceilings like a spider, jump to let go."},
+        {"Added", "Mods tab: Fast Respawn (beta), tries to skip the wait after you die."},
+        {"Fixed", "Delete GUI now fully switches off protections, WalkSpeed, JumpPower and music."},
+    }},
+    {id = 5, date = "2026-10-17", title = "What's New", items = {
+        {"Added", "Music tab: a seek bar shows the time and can be dragged. Stop now pauses, and Play turns into Resume."},
+        {"Added", "Music tab: Search Music finds songs in the Roblox audio library by name, then puts the ID in the box or saves it."},
+        {"Fixed", "Music tab: the R button now resets the volume to 50%, as its label says."},
+        {"Fixed", "Editor console: print no longer pauses scripts, it scrolls to the newest line, wraps long lines and shows warnings and syntax errors."},
+    }},
     {id = 4, date = "2026-10-17", title = "What's New", items = {
         {"Added", "Mods tab: Speed Glitch (normal speed on the ground, faster in the air, with an Air Speed slider)."},
         {"Added", "Mods tab: Double Jump, one extra jump in the air."},
         {"Added", "Player tab: Anti Ragdoll in the Protection System, so being hit or thrown no longer leaves you limp."},
-    }},
-    {id = 3, date = "2026-10-17", title = "What's New", items = {
-        {"Added",   "What's New now groups every note by category, each with its own color."},
-        {"Changed", "NPC ESP has its own switches (Highlight, Line, NameTag, Distance) and no longer needs the Player ESP."},
-        {"Fixed",   "Animation: in Override mode, map actions such as crawling stay visible on your screen."},
-    }},
-    {id = 2, date = "2026-10-17", title = "What's New", items = {
-        {"Added", "Bring Part tab: Bring Tools with Orbit Mode (distance and speed sliders), Grab Limit and Release All (Panic)."},
-        {"Added", "Move Bring: Rotate the block you hold, and Throw it where you look."},
-        {"Fixed", "Animation: playing an emote no longer switches Animation to Override by itself."},
     }},
 }
 
