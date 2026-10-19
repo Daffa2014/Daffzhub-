@@ -12,6 +12,21 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local AvatarEditorService = game:GetService("AvatarEditorService")
 local CoreGui = game:GetService("CoreGui")
 local Player = Players.LocalPlayer
+
+-- Sorts a list of players A-Z (names that start with a digit or symbol go last)
+function DHSortPlayers(list, byName)
+    table.sort(list, function(a, b)
+        local x = (byName and a.Name or a.DisplayName):lower()
+        local y = (byName and b.Name or b.DisplayName):lower()
+        local gx = x:match("^%a") and 0 or 1
+        local gy = y:match("^%a") and 0 or 1
+        if gx ~= gy then return gx < gy end
+        if x ~= y then return x < y end
+        return a.Name:lower() < b.Name:lower()
+    end)
+    return list
+end
+
 local lastPlayerUpdate = tick()
 local Camera = workspace.CurrentCamera
 local Character = Player.Character or Player.CharacterAdded:Wait()
@@ -3328,9 +3343,7 @@ local function updatePlayerList(search)
     local visibleCount = 0
     local allPlayers = Players:GetPlayers()
 
-    table.sort(allPlayers, function(a, b)
-        return a.Name:lower() < b.Name:lower()
-    end)
+    DHSortPlayers(allPlayers)
 
     for _, p in ipairs(allPlayers) do
         local name = p.Name:lower()
@@ -5151,7 +5164,7 @@ local function UpdatePlayerLists()
         if child:IsA("TextButton") then child:Destroy() end
     end
 
-    for _, player in ipairs(Players:GetPlayers()) do
+    for _, player in ipairs(DHSortPlayers(Players:GetPlayers())) do
         if player ~= Player then
             -- Spectate Item
             local spectateItem = Instance.new("TextButton", SpectateList)
@@ -5439,7 +5452,7 @@ local function GetSpectatablePlayers()
             table.insert(list, p)
         end
     end
-    return list
+    return DHSortPlayers(list)
 end
 
 -- Fungsi spektate player
@@ -6070,7 +6083,7 @@ local function updateProtectionStatus()
     for _, v in pairs(protections) do
         if v then count = count + 1 end
     end
-    ProtectionStatus.Text = "Protections: " .. count .. "/6 active"
+    ProtectionStatus.Text = "Protections: " .. count .. "/7 active"
 end
 
 -- ================================================
@@ -6365,6 +6378,320 @@ Player.CharacterAdded:Connect(function(char)
         task.wait(1.5)
         pcall(applyJumpSettings)
     end)
+end)
+
+-- ================================================
+-- ANTI KICK: blocks kicks that game scripts run on your own client
+-- ================================================
+protections.antiKick = false
+DHAK = {On = false, Hooked = false}
+
+function DHAK.UI()
+    -- make room for one more button (old buttons keep their code, only their place moves down)
+    ProtectionSection.Size = UDim2.new(1, 0, 0, 410)
+    EnableAllBtn.Position = UDim2.new(0, 10, 0, 335)
+    DisableAllBtn.Position = UDim2.new(0.52, 5, 0, 335)
+    ProtectionStatus.Position = UDim2.new(0, 10, 0, 375)
+
+    AntiKickBtn = Instance.new("TextButton", ProtectionSection)
+    AntiKickBtn.Size = UDim2.new(1, -20, 0, 35)
+    AntiKickBtn.Position = UDim2.new(0, 10, 0, 290)
+    AntiKickBtn.BackgroundColor3 = Color3.fromRGB(180,30,30)
+    AntiKickBtn.Text = "Anti Kick | OFF"
+    AntiKickBtn.Font = Enum.Font.GothamBold
+    AntiKickBtn.TextSize = 13
+    AntiKickBtn.TextColor3 = Color3.new(1,1,1)
+    Instance.new("UICorner", AntiKickBtn).CornerRadius = UDim.new(0, 6)
+end
+pcall(DHAK.UI)
+
+function DHAK.Install()
+    if DHAK.Hooked then return true end
+    if not (hookmetamethod and getnamecallmethod and checkcaller) then return false end
+    local wrap = newcclosure or function(f) return f end
+
+    local oldNc
+    oldNc = hookmetamethod(game, "__namecall", wrap(function(self, ...)
+        if DHAK.On and self == Player and not checkcaller() then
+            local m = getnamecallmethod()
+            if m == "Kick" or m == "kick" then return end
+        end
+        return oldNc(self, ...)
+    end))
+
+    -- Player.Kick(Player) called without the colon
+    if hookfunction then
+        pcall(function()
+            local oldKick
+            oldKick = hookfunction(Player.Kick, wrap(function(self, ...)
+                if DHAK.On and self == Player and not checkcaller() then return end
+                return oldKick(self, ...)
+            end))
+        end)
+    end
+
+    DHAK.Hooked = true
+    return true
+end
+
+function DHAK.SetBtn(on)
+    if not AntiKickBtn then return end
+    AntiKickBtn.BackgroundColor3 = on and Color3.fromRGB(30,180,30) or Color3.fromRGB(180,30,30)
+    AntiKickBtn.Text = on and "Anti Kick | ON" or "Anti Kick | OFF"
+end
+
+function DHAK.Apply(on)
+    if on then
+        local ok, res = pcall(DHAK.Install)
+        if not (ok and res) then return false end
+    end
+    DHAK.On = on
+    protections.antiKick = on
+    DHAK.SetBtn(on)
+    updateProtectionStatus()
+    return true
+end
+
+if AntiKickBtn then
+    AntiKickBtn.MouseButton1Click:Connect(function()
+        if not DHAK.Apply(not protections.antiKick) then
+            AntiKickBtn.Text = "Anti Kick | Not supported"
+            task.delay(2, function() DHAK.SetBtn(protections.antiKick) end)
+        end
+    end)
+end
+
+EnableAllBtn.MouseButton1Click:Connect(function()
+    if not protections.antiKick then DHAK.Apply(true) end
+end)
+
+DisableAllBtn.MouseButton1Click:Connect(function()
+    if protections.antiKick then DHAK.Apply(false) end
+end)
+
+ScreenGui.Destroying:Connect(function()
+    DHAK.On = false
+    protections.antiKick = false
+end)
+
+-- ================================================
+-- FOLLOW PLAYER: stays inside the body of a player (the list works like Spectate / Teleport)
+-- ================================================
+DHFP = {Target = nil, Conn = nil, Following = false, Orig = nil, Parts = nil, PartsChar = nil}
+
+function DHFP.Build()
+    local sec = Instance.new("Frame", PlayerScroll)
+    sec.Name = "UFollowSection"
+    sec.Size = UDim2.new(1, 0, 0, 180)
+    sec.BackgroundColor3 = Color3.fromRGB(25,25,25)
+    sec.LayoutOrder = 5
+    sec.ClipsDescendants = true
+    Instance.new("UICorner", sec).CornerRadius = UDim.new(0, 8)
+
+    local title = Instance.new("TextLabel", sec)
+    title.Size = UDim2.new(1, -20, 0, 30)
+    title.Position = UDim2.new(0, 10, 0, 0)
+    title.BackgroundTransparency = 1
+    title.Text = "Follow Player"
+    title.TextXAlignment = Enum.TextXAlignment.Left
+    title.TextColor3 = Color3.new(1,1,1)
+    title.Font = Enum.Font.GothamBold
+    title.TextSize = 14
+
+    local search = Instance.new("TextBox", sec)
+    search.Size = UDim2.new(1, -20, 0, 30)
+    search.Position = UDim2.new(0, 10, 0, 35)
+    search.BackgroundColor3 = Color3.fromRGB(35,35,35)
+    search.PlaceholderText = "Search player..."
+    search.Text = ""
+    search.TextColor3 = Color3.new(1,1,1)
+    search.Font = Enum.Font.Gotham
+    search.TextSize = 13
+    search.ClipsDescendants = true
+    Instance.new("UICorner", search).CornerRadius = UDim.new(0, 6)
+
+    local list = Instance.new("ScrollingFrame", sec)
+    list.Size = UDim2.new(1, -20, 0, 70)
+    list.Position = UDim2.new(0, 10, 0, 70)
+    list.BackgroundColor3 = Color3.fromRGB(35,35,35)
+    list.ScrollBarThickness = 1
+    list.CanvasSize = UDim2.new(0,0,0,0)
+    list.ClipsDescendants = true
+    Instance.new("UICorner", list).CornerRadius = UDim.new(0, 6)
+
+    local layout = Instance.new("UIListLayout", list)
+    layout.Padding = UDim.new(0, 2)
+    layout:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function()
+        list.CanvasSize = UDim2.new(0, 0, 0, layout.AbsoluteContentSize.Y)
+    end)
+
+    local refresh = Instance.new("TextButton", sec)
+    refresh.Size = UDim2.new(0.48, -5, 0, 30)
+    refresh.Position = UDim2.new(0, 10, 0, 145)
+    refresh.Text = "Refresh List"
+    refresh.BackgroundColor3 = Color3.fromRGB(100,100,100)
+    refresh.TextColor3 = Color3.new(1,1,1)
+    refresh.Font = Enum.Font.GothamBold
+    refresh.TextSize = 13
+    Instance.new("UICorner", refresh).CornerRadius = UDim.new(0, 6)
+
+    local btn = Instance.new("TextButton", sec)
+    btn.Size = UDim2.new(0.48, -5, 0, 30)
+    btn.Position = UDim2.new(0.52, 5, 0, 145)
+    btn.Text = "Follow"
+    btn.BackgroundColor3 = Color3.fromRGB(40,170,80)
+    btn.TextColor3 = Color3.new(1,1,1)
+    btn.Font = Enum.Font.GothamBold
+    btn.TextSize = 13
+    Instance.new("UICorner", btn).CornerRadius = UDim.new(0, 6)
+
+    DHFP.Search = search
+    DHFP.List = list
+    DHFP.Btn = btn
+    DHFP.Refresh = refresh
+end
+pcall(DHFP.Build)
+
+function DHFP.Hint(text)
+    local s = DHFP.Search
+    if not s then return end
+    s.PlaceholderText = text
+    task.delay(1.5, function()
+        if s.Parent then s.PlaceholderText = "Search player..." end
+    end)
+end
+
+function DHFP.Filter()
+    if not DHFP.List then return end
+    local q = DHFP.Search.Text:lower()
+    for _, c in ipairs(DHFP.List:GetChildren()) do
+        if c:IsA("TextButton") then
+            c.Visible = q == "" or c.Text:lower():find(q, 1, true) ~= nil
+        end
+    end
+end
+
+function DHFP.Fill()
+    if not DHFP.List then return end
+    for _, c in ipairs(DHFP.List:GetChildren()) do
+        if c:IsA("TextButton") then c:Destroy() end
+    end
+    for _, p in ipairs(DHSortPlayers(Players:GetPlayers())) do
+        if p ~= Player then
+            local b = Instance.new("TextButton", DHFP.List)
+            b.Size = UDim2.new(1, -10, 0, 25)
+            b.Text = p.DisplayName .. " (@" .. p.Name .. ")"
+            b.Font = Enum.Font.Gotham
+            b.TextSize = 12
+            b.TextTruncate = Enum.TextTruncate.AtEnd
+            b.TextColor3 = Color3.new(1,1,1)
+            b.AutoButtonColor = true
+            b.BackgroundColor3 = (DHFP.Target == p) and Color3.fromRGB(40,100,180) or Color3.fromRGB(45,45,45)
+            Instance.new("UICorner", b).CornerRadius = UDim.new(0, 4)
+            b.MouseButton1Click:Connect(function()
+                -- while following, picking another player switches to them
+                DHFP.Target = p
+                for _, o in ipairs(DHFP.List:GetChildren()) do
+                    if o:IsA("TextButton") then o.BackgroundColor3 = Color3.fromRGB(45,45,45) end
+                end
+                b.BackgroundColor3 = Color3.fromRGB(40,100,180)
+            end)
+        end
+    end
+    DHFP.Filter()
+end
+
+function DHFP.Restore()
+    if DHFP.Orig then
+        for part, v in pairs(DHFP.Orig) do
+            if part.Parent then part.CanCollide = v end
+        end
+    end
+    DHFP.Orig = nil
+    DHFP.Parts = nil
+    DHFP.PartsChar = nil
+end
+
+function DHFP.SetBtn()
+    if not DHFP.Btn then return end
+    DHFP.Btn.Text = DHFP.Following and "Unfollow" or "Follow"
+    DHFP.Btn.BackgroundColor3 = DHFP.Following and Color3.fromRGB(180,40,40) or Color3.fromRGB(40,170,80)
+end
+
+function DHFP.Step()
+    local tp = DHFP.Target
+    if not tp or not tp.Parent then
+        DHFP.Set(false)
+        DHFP.Hint("Target left the server")
+        return
+    end
+    if DHMods and DHMods.WwActive then return end
+
+    local tchar = tp.Character
+    local troot = tchar and (tchar:FindFirstChild("HumanoidRootPart") or tchar.PrimaryPart)
+    local char = Player.Character
+    local root = char and char:FindFirstChild("HumanoidRootPart")
+    if not (troot and root) then return end
+
+    -- our own parts must not collide with theirs
+    if DHFP.PartsChar ~= char then
+        DHFP.PartsChar = char
+        DHFP.Parts = {}
+        for _, d in ipairs(char:GetDescendants()) do
+            if d:IsA("BasePart") then DHFP.Parts[#DHFP.Parts + 1] = d end
+        end
+    end
+    DHFP.Orig = DHFP.Orig or {}
+    for _, p in ipairs(DHFP.Parts) do
+        if p.Parent then
+            if DHFP.Orig[p] == nil then DHFP.Orig[p] = p.CanCollide end
+            p.CanCollide = false
+        end
+    end
+
+    root.CFrame = troot.CFrame
+    root.AssemblyLinearVelocity = Vector3.zero
+    root.AssemblyAngularVelocity = Vector3.zero
+end
+
+function DHFP.Set(on)
+    if DHFP.Conn then
+        DHFP.Conn:Disconnect()
+        DHFP.Conn = nil
+    end
+    DHFP.Restore()
+    DHFP.Following = on and true or false
+    DHFP.SetBtn()
+    if not on then return end
+
+    local ok, ev = pcall(function() return RunService.PreSimulation end)
+    if not (ok and ev) then ev = RunService.Stepped end
+    DHFP.Conn = ev:Connect(function()
+        pcall(DHFP.Step)
+    end)
+end
+
+if DHFP.Btn then
+    DHFP.Btn.MouseButton1Click:Connect(function()
+        if DHFP.Following then
+            DHFP.Set(false)
+            return
+        end
+        if not (DHFP.Target and DHFP.Target.Parent) then
+            DHFP.Hint("Select a player first!")
+            return
+        end
+        DHFP.Set(true)
+    end)
+    DHFP.Refresh.MouseButton1Click:Connect(DHFP.Fill)
+    DHFP.Search:GetPropertyChangedSignal("Text"):Connect(DHFP.Filter)
+    Players.PlayerAdded:Connect(DHFP.Fill)
+    Players.PlayerRemoving:Connect(function() task.defer(DHFP.Fill) end)
+    DHFP.Fill()
+end
+
+ScreenGui.Destroying:Connect(function()
+    pcall(DHFP.Set, false)
 end)
 
 -- ================================================
@@ -7470,7 +7797,7 @@ Instance.new("UICorner", SaveWaypointBtn).CornerRadius = UDim.new(0, 8)
 
 local WaypointSearch = Instance.new("TextBox", WaypointsContent)
 WaypointSearch.Size = UDim2.new(1, -20, 0, 32)
-WaypointSearch.Position = UDim2.new(0, 10, 0, 85)
+WaypointSearch.Position = UDim2.new(0, 10, 0, 125)
 WaypointSearch.BackgroundColor3 = Color3.fromRGB(25,25,25)
 WaypointSearch.PlaceholderText = "Search waypoints..."
 WaypointSearch.Text = ""
@@ -7480,8 +7807,8 @@ WaypointSearch.TextColor3 = Color3.new(1,1,1)
 Instance.new("UICorner", WaypointSearch).CornerRadius = UDim.new(0, 8)
 
 local WaypointList = Instance.new("ScrollingFrame", WaypointsContent)
-WaypointList.Size = UDim2.new(1, -20, 1, -130)
-WaypointList.Position = UDim2.new(0, 10, 0, 122)
+WaypointList.Size = UDim2.new(1, -20, 1, -170)
+WaypointList.Position = UDim2.new(0, 10, 0, 162)
 WaypointList.BackgroundColor3 = Color3.fromRGB(25,25,25)
 WaypointList.ScrollBarThickness = 1
 WaypointList.CanvasSize = UDim2.new(0, 0, 0, 0)
@@ -7916,6 +8243,7 @@ local function ViewWaypoint(cframe)
 end
 
 function PopulateWaypointList(searchQuery)
+    if DHW and DHW.Sync then DHW.Sync() end
     for _, child in pairs(WaypointList:GetChildren()) do
         if child:IsA("Frame") then
             child:Destroy()
@@ -8132,6 +8460,238 @@ SaveWaypointBtn.MouseButton1Click:Connect(function()
     SaveWaypointBtn.Text = "Saved!"
     task.wait(0.5)
     SaveWaypointBtn.Text = "Save Current Position"
+end)
+
+-- ================================================
+-- WAYPOINT EXTRAS: file saving per map, Back, Death Point, world markers
+-- ================================================
+DHW = {Loaded = false, Last = nil, Back = nil, Safe = nil, Prev = nil, Death = false, Markers = true, T = 0}
+DHW.Dir = "Daffzhub_file/Waypoint"
+DHW.Id = tostring(game.PlaceId)
+DHW.MapName = tostring(game.Name):gsub("[^%w _%-]", ""):gsub("^%s+", ""):gsub("%s+$", ""):sub(1, 40)
+if DHW.MapName == "" then DHW.MapName = "Map" end
+DHW.File = DHW.Dir .. "/" .. DHW.MapName .. "_" .. DHW.Id .. ".json"
+
+function DHW.Encode()
+    local t = {}
+    for name, cf in pairs(WaypointsData) do
+        t[name] = {cf:GetComponents()}
+    end
+    return HttpService:JSONEncode(t)
+end
+
+-- finds the file of this map (works even if the map was renamed)
+function DHW.Find()
+    local found
+    pcall(function()
+        if listfiles and isfolder and isfolder(DHW.Dir) then
+            for _, f in ipairs(listfiles(DHW.Dir)) do
+                if tostring(f):find("_" .. DHW.Id .. ".json", 1, true) then
+                    found = f
+                    break
+                end
+            end
+        end
+    end)
+    return found
+end
+
+function DHW.Load()
+    pcall(function()
+        if not (isfile and readfile) then return end
+        local src = DHW.Find()
+        if src then
+            DHW.File = src
+        else
+            -- old single-folder save from the first version
+            local old = "Daffzhub_file/waypoints_" .. DHW.Id .. ".json"
+            if isfile(old) then src = old end
+        end
+        if src and isfile(src) then
+            local t = HttpService:JSONDecode(readfile(src))
+            for name, c in pairs(t) do
+                if type(name) == "string" and type(c) == "table" and #c == 12 and not WaypointsData[name] then
+                    WaypointsData[name] = CFrame.new(unpack(c))
+                end
+            end
+        end
+    end)
+    DHW.Loaded = true
+    DHW.Last = DHW.Encode()
+end
+
+-- called by PopulateWaypointList: saves to file and rebuilds markers when something changed
+function DHW.Sync()
+    if not DHW.Loaded then return end
+    local s = DHW.Encode()
+    if s == DHW.Last then return end
+    DHW.Last = s
+    pcall(function()
+        if writefile then
+            if makefolder and isfolder then
+                if not isfolder("Daffzhub_file") then makefolder("Daffzhub_file") end
+                if not isfolder(DHW.Dir) then makefolder(DHW.Dir) end
+            end
+            writefile(DHW.File, s)
+        end
+    end)
+    DHW.Rebuild()
+end
+
+function DHW.Rebuild()
+    if DHW.Folder then DHW.Folder:Destroy() DHW.Folder = nil end
+    DHW.Labels = {}
+    if not DHW.Markers then return end
+    local f = Instance.new("Folder")
+    f.Name = "DHWMarkers"
+    for name, cf in pairs(WaypointsData) do
+        local part = Instance.new("Part")
+        part.Anchored = true
+        part.CanCollide = false
+        part.CanQuery = false
+        part.CanTouch = false
+        part.Transparency = 1
+        part.Size = Vector3.new(0.5, 0.5, 0.5)
+        part.Position = cf.Position + Vector3.new(0, 2, 0)
+        part.Parent = f
+
+        local bb = Instance.new("BillboardGui", part)
+        bb.Adornee = part
+        bb.AlwaysOnTop = true
+        bb.Size = UDim2.new(0, 130, 0, 34)
+        bb.ResetOnSpawn = false
+        local lb = Instance.new("TextLabel", bb)
+        lb.Size = UDim2.new(1, 0, 1, 0)
+        lb.BackgroundTransparency = 1
+        lb.Font = Enum.Font.GothamBold
+        lb.TextSize = 12
+        lb.TextColor3 = (name == "Death Point") and Color3.fromRGB(255, 90, 90) or Color3.fromRGB(80, 220, 120)
+        lb.TextStrokeTransparency = 0.3
+        lb.Text = name
+        DHW.Labels[#DHW.Labels + 1] = {lb, name, part.Position}
+    end
+    f.Parent = workspace
+    DHW.Folder = f
+end
+
+function DHW.Hook(char)
+    DHW.Prev = nil
+    task.spawn(function()
+        local hum = char:WaitForChild("Humanoid", 10)
+        if not hum then return end
+        hum.Died:Connect(function()
+            if not DHW.Death then return end
+            local root = char:FindFirstChild("HumanoidRootPart")
+            local cf = root and root.CFrame
+            if (not cf or cf.Position.Y < workspace.FallenPartsDestroyHeight + 50) and DHW.Safe then
+                cf = DHW.Safe
+            end
+            if cf then
+                WaypointsData["Death Point"] = cf
+                PopulateWaypointList(WaypointSearch.Text)
+            end
+        end)
+    end)
+end
+
+-- every frame: remember the spot before a teleport (any source), keep the marker distances fresh
+function DHW.Step(dt)
+    local char = Player.Character
+    local hum = char and char:FindFirstChildOfClass("Humanoid")
+    local root = char and char:FindFirstChild("HumanoidRootPart")
+    if not (hum and root) then
+        DHW.Prev = nil
+        return
+    end
+    if hum.Health > 0 then
+        local pos = root.Position
+        if DHW.Prev then
+            local lim = 25 + root.AssemblyLinearVelocity.Magnitude * dt * 2 + 100 * dt
+            if (pos - DHW.Prev.Position).Magnitude > lim then
+                DHW.Back = DHW.Prev
+            end
+        end
+        DHW.Prev = root.CFrame
+        if hum.FloorMaterial ~= Enum.Material.Air then DHW.Safe = root.CFrame end
+    end
+
+    DHW.T = DHW.T + dt
+    if DHW.T >= 0.25 and DHW.Labels then
+        DHW.T = 0
+        for _, e in ipairs(DHW.Labels) do
+            if e[1].Parent then
+                e[1].Text = e[2] .. "\n" .. math.floor((e[3] - root.Position).Magnitude) .. " studs"
+            end
+        end
+    end
+end
+
+function DHW.GoBack()
+    local char = Player.Character
+    local root = char and char:FindFirstChild("HumanoidRootPart")
+    if not (root and DHW.Back) then
+        DHW.BackBtn.Text = "No spot yet"
+        task.delay(1.2, function() DHW.BackBtn.Text = "Back" end)
+        return
+    end
+    local target = DHW.Back
+    DHW.Back = root.CFrame
+    pcall(function()
+        Player:RequestStreamAroundAsync(target.Position, 5)
+    end)
+    root.CFrame = target
+    root.AssemblyLinearVelocity = Vector3.zero
+    DHW.Prev = target
+end
+
+function DHW.Build()
+    local row = Instance.new("Frame", WaypointsContent)
+    row.Size = UDim2.new(1, -20, 0, 32)
+    row.Position = UDim2.new(0, 10, 0, 85)
+    row.BackgroundTransparency = 1
+
+    local function mk(i, text, color)
+        local b = Instance.new("TextButton", row)
+        b.Size = UDim2.new(1/3, -4, 1, 0)
+        b.Position = UDim2.new((i - 1) / 3, (i - 1) * 2, 0, 0)
+        b.BackgroundColor3 = color
+        b.Text = text
+        b.Font = Enum.Font.GothamBold
+        b.TextSize = 11
+        b.TextColor3 = Color3.new(1, 1, 1)
+        Instance.new("UICorner", b).CornerRadius = UDim.new(0, 8)
+        return b
+    end
+    local on, off = Color3.fromRGB(30, 150, 60), Color3.fromRGB(110, 40, 40)
+
+    DHW.BackBtn = mk(1, "Back", Color3.fromRGB(30, 120, 200))
+    DHW.BackBtn.MouseButton1Click:Connect(DHW.GoBack)
+
+    local mb = mk(2, "Markers: ON", on)
+    mb.MouseButton1Click:Connect(function()
+        DHW.Markers = not DHW.Markers
+        mb.Text = DHW.Markers and "Markers: ON" or "Markers: OFF"
+        mb.BackgroundColor3 = DHW.Markers and on or off
+        DHW.Rebuild()
+    end)
+
+    local db = mk(3, "Death Point: OFF", off)
+    db.MouseButton1Click:Connect(function()
+        DHW.Death = not DHW.Death
+        db.Text = DHW.Death and "Death Point: ON" or "Death Point: OFF"
+        db.BackgroundColor3 = DHW.Death and on or off
+    end)
+end
+pcall(DHW.Build)
+
+DHW.Load()
+DHW.Rebuild()
+DHW.Conn = RunService.Heartbeat:Connect(function(dt) pcall(DHW.Step, dt) end)
+if Player.Character then DHW.Hook(Player.Character) end
+Player.CharacterAdded:Connect(DHW.Hook)
+ScreenGui.Destroying:Connect(function()
+    if DHW.Conn then DHW.Conn:Disconnect() end
+    if DHW.Folder then DHW.Folder:Destroy() end
 end)
 
 WaypointSearch:GetPropertyChangedSignal("Text"):Connect(function()
@@ -9515,7 +10075,7 @@ local function PopulateBringPlayerList(list, search)
     search = search and search:lower() or ""
     
     -- Loop semua player
-    for _, player in ipairs(Players:GetPlayers()) do
+    for _, player in ipairs(DHSortPlayers(Players:GetPlayers())) do
         if player ~= Player then
             local pName = player.Name:lower()
             local dName = player.DisplayName:lower()
@@ -11510,6 +12070,356 @@ LeaveBtn.MouseButton1Click:Connect(function()
 end)
 
 -- ================================================
+-- 12. SERVER BROWSER + FIND MAP (look for servers and maps by hand)
+-- ================================================
+DHJ = {Sort = 1, SBusy = false, MBusy = false}
+DHJ.SortNames = {"Fewest", "Most", "Best ping"}
+
+-- plain GET: HttpGet first, then the executor request function
+function DHJ.Get(url)
+    local ok, res = pcall(function() return game:HttpGet(url) end)
+    if ok and type(res) == "string" and res ~= "" then return res end
+    local req = (syn and syn.request) or (http and http.request) or http_request or request
+    if req then
+        local ok2, r = pcall(function() return req({Url = url, Method = "GET"}) end)
+        if ok2 and type(r) == "table" and type(r.Body) == "string" and (r.StatusCode == nil or r.StatusCode == 200) then
+            return r.Body
+        end
+    end
+    return nil
+end
+
+function DHJ.Json(url)
+    local body = DHJ.Get(url)
+    if not body then return nil end
+    local ok, data = pcall(function() return game:GetService("HttpService"):JSONDecode(body) end)
+    if ok and type(data) == "table" then return data end
+    return nil
+end
+
+function DHJ.Btn(parent, text, color, size, pos)
+    local b = Instance.new("TextButton", parent)
+    b.Size = size
+    b.Position = pos
+    b.BackgroundColor3 = color
+    b.Text = text
+    b.Font = Enum.Font.GothamBold
+    b.TextSize = 12
+    b.TextColor3 = Color3.new(1,1,1)
+    Instance.new("UICorner", b).CornerRadius = UDim.new(0, 6)
+    return b
+end
+
+function DHJ.Box(parent, hint, pos, size)
+    local t = Instance.new("TextBox", parent)
+    t.Size = size
+    t.Position = pos
+    t.BackgroundColor3 = Color3.fromRGB(35,35,35)
+    t.PlaceholderText = hint
+    t.PlaceholderColor3 = Color3.fromRGB(120,120,120)
+    t.Text = ""
+    t.ClearTextOnFocus = false
+    t.TextColor3 = Color3.new(1,1,1)
+    t.Font = Enum.Font.Gotham
+    t.TextSize = 13
+    t.ClipsDescendants = true
+    Instance.new("UICorner", t).CornerRadius = UDim.new(0, 6)
+    return t
+end
+
+function DHJ.Panel(title, y, h)
+    local f = Instance.new("Frame", JoinerScroll)
+    f.Size = UDim2.new(1, 0, 0, h)
+    f.Position = UDim2.new(0, 0, 0, y)
+    f.BackgroundColor3 = Color3.fromRGB(25,25,25)
+    f.ClipsDescendants = true
+    Instance.new("UICorner", f).CornerRadius = UDim.new(0, 8)
+
+    local t = Instance.new("TextLabel", f)
+    t.Size = UDim2.new(1, -20, 0, 30)
+    t.Position = UDim2.new(0, 10, 0, 5)
+    t.BackgroundTransparency = 1
+    t.Text = title
+    t.Font = Enum.Font.GothamBold
+    t.TextSize = 16
+    t.TextColor3 = Color3.fromRGB(200, 200, 200)
+    t.TextXAlignment = Enum.TextXAlignment.Left
+    return f
+end
+
+function DHJ.Status(parent, y)
+    local s = Instance.new("TextLabel", parent)
+    s.Size = UDim2.new(1, -20, 0, 18)
+    s.Position = UDim2.new(0, 10, 0, y)
+    s.BackgroundTransparency = 1
+    s.Text = ""
+    s.Font = Enum.Font.Gotham
+    s.TextSize = 11
+    s.TextColor3 = Color3.fromRGB(170, 170, 170)
+    s.TextXAlignment = Enum.TextXAlignment.Left
+    s.TextTruncate = Enum.TextTruncate.AtEnd
+    return s
+end
+
+function DHJ.List(parent, y, h)
+    local l = Instance.new("ScrollingFrame", parent)
+    l.Size = UDim2.new(1, -20, 0, h)
+    l.Position = UDim2.new(0, 10, 0, y)
+    l.BackgroundColor3 = Color3.fromRGB(35,35,35)
+    l.BorderSizePixel = 0
+    l.ScrollBarThickness = 2
+    l.CanvasSize = UDim2.new(0, 0, 0, 0)
+    l.AutomaticCanvasSize = Enum.AutomaticSize.Y
+    Instance.new("UICorner", l).CornerRadius = UDim.new(0, 6)
+    local lay = Instance.new("UIListLayout", l)
+    lay.Padding = UDim.new(0, 3)
+    Instance.new("UIPadding", l).PaddingTop = UDim.new(0, 3)
+    return l
+end
+
+function DHJ.Clear(list)
+    for _, c in ipairs(list:GetChildren()) do
+        if c:IsA("Frame") then c:Destroy() end
+    end
+end
+
+-- one list row: a text and up to three small buttons, buttons = {{"Text", Color3, function}, ...}
+function DHJ.Row(list, text, buttons)
+    local r = Instance.new("Frame", list)
+    r.Size = UDim2.new(1, -8, 0, 32)
+    r.BackgroundColor3 = Color3.fromRGB(45,45,45)
+    r.BorderSizePixel = 0
+    Instance.new("UICorner", r).CornerRadius = UDim.new(0, 5)
+
+    local n = #buttons
+    local l = Instance.new("TextLabel", r)
+    l.Size = UDim2.new(1, -(n * 58 + 8), 1, 0)
+    l.Position = UDim2.new(0, 8, 0, 0)
+    l.BackgroundTransparency = 1
+    l.Text = text
+    l.Font = Enum.Font.Gotham
+    l.TextSize = 12
+    l.TextColor3 = Color3.new(1,1,1)
+    l.TextXAlignment = Enum.TextXAlignment.Left
+    l.TextTruncate = Enum.TextTruncate.AtEnd
+
+    for i, b in ipairs(buttons) do
+        local btn = Instance.new("TextButton", r)
+        btn.Size = UDim2.new(0, 54, 0, 24)
+        btn.Position = UDim2.new(1, -(n - i + 1) * 58, 0.5, -12)
+        btn.BackgroundColor3 = b[2]
+        btn.Text = b[1]
+        btn.Font = Enum.Font.GothamBold
+        btn.TextSize = 11
+        btn.TextColor3 = Color3.new(1,1,1)
+        Instance.new("UICorner", btn).CornerRadius = UDim.new(0, 5)
+        btn.MouseButton1Click:Connect(b[3])
+    end
+end
+
+function DHJ.Count(n)
+    n = tonumber(n)
+    if not n then return "?" end
+    if n >= 1000 then return string.format("%.1fk", n / 1000) end
+    return tostring(n)
+end
+
+-- ---------- servers ----------
+function DHJ.LoadServers()
+    if DHJ.SBusy then return end
+    DHJ.SBusy = true
+    DHJ.SStatus.Text = "Loading servers..."
+    task.spawn(function()
+        pcall(function()
+            local placeId = tonumber(DHJ.PlaceBox.Text) or game.PlaceId
+            local order = (DHJ.Sort == 2) and "Desc" or "Asc"
+            local data = DHJ.Json("https://games.roblox.com/v1/games/" .. placeId .. "/servers/Public?sortOrder=" .. order .. "&limit=100")
+            if not (data and type(data.data) == "table") then
+                DHJ.SStatus.Text = "Could not load servers, try again"
+                return
+            end
+            local list = {}
+            for _, s in ipairs(data.data) do
+                -- full servers cannot be joined, so they are left out
+                if s.id and s.playing and s.maxPlayers and s.playing < s.maxPlayers then
+                    list[#list + 1] = s
+                end
+            end
+            if DHJ.Sort == 1 then
+                table.sort(list, function(a, b) return a.playing < b.playing end)
+            elseif DHJ.Sort == 2 then
+                table.sort(list, function(a, b) return a.playing > b.playing end)
+            else
+                table.sort(list, function(a, b) return (a.ping or 9999) < (b.ping or 9999) end)
+            end
+
+            DHJ.Clear(DHJ.SList)
+            for _, s in ipairs(list) do
+                local text = string.format("%d/%d   %s   %s", s.playing, s.maxPlayers,
+                    s.ping and (math.floor(s.ping) .. " ms") or "- ms", string.sub(s.id, 1, 8))
+                if s.id == game.JobId then text = text .. "  (this)" end
+                local id = s.id
+                DHJ.Row(DHJ.SList, text, {
+                    {"Copy", Color3.fromRGB(45, 90, 160), function()
+                        if setclipboard then pcall(setclipboard, id) end
+                    end},
+                    {"Join", Color3.fromRGB(40, 170, 80), function()
+                        ShowConfirmPopup("Join this server?", Color3.fromRGB(30, 170, 60), function()
+                            pcall(function()
+                                game:GetService("TeleportService"):TeleportToPlaceInstance(placeId, id, Player)
+                            end)
+                        end)
+                    end},
+                })
+            end
+            DHJ.SStatus.Text = (#list == 0) and "No open servers found" or ("Found " .. #list .. " open servers")
+        end)
+        DHJ.SBusy = false
+    end)
+end
+
+-- ---------- maps ----------
+function DHJ.FindMaps(q)
+    local HS = game:GetService("HttpService")
+    local out, ids, meta = {}, {}, {}
+
+    if q:match("^%d+$") then
+        -- a number is taken as a place id
+        return {{name = "Place ID " .. q, place = tonumber(q)}}
+    end
+
+    local data = DHJ.Json("https://apis.roblox.com/search-api/omni-search?verticalType=Game&searchQuery="
+        .. HS:UrlEncode(q) .. "&pageType=all&sessionId=" .. HS:GenerateGUID(false))
+    if data and type(data.searchResults) == "table" then
+        for _, g in ipairs(data.searchResults) do
+            if type(g.contents) == "table" and (g.contentGroupType == nil or g.contentGroupType == "Game") then
+                for _, c in ipairs(g.contents) do
+                    local uid = tonumber(c.universeId or c.contentId)
+                    if uid and not meta[uid] and #ids < 20 then
+                        ids[#ids + 1] = uid
+                        meta[uid] = {name = c.name, playing = tonumber(c.playerCount), place = tonumber(c.rootPlaceId)}
+                    end
+                end
+            end
+        end
+    end
+
+    if #ids > 0 then
+        -- the search gives universes, this turns them into places to join
+        local det = DHJ.Json("https://games.roblox.com/v1/games?universeIds=" .. table.concat(ids, ","))
+        local byId = {}
+        if det and type(det.data) == "table" then
+            for _, d in ipairs(det.data) do
+                byId[tonumber(d.id)] = d
+            end
+        end
+        for _, uid in ipairs(ids) do
+            local d, m = byId[uid], meta[uid]
+            local place = (d and tonumber(d.rootPlaceId)) or m.place
+            if place then
+                out[#out + 1] = {
+                    name = (d and d.name) or m.name or "Unknown",
+                    place = place,
+                    playing = (d and tonumber(d.playing)) or m.playing or 0,
+                }
+            end
+        end
+    end
+
+    if #out == 0 then
+        -- older search endpoint as a fallback
+        local old = DHJ.Json("https://games.roblox.com/v1/games/list?model.keyword=" .. HS:UrlEncode(q)
+            .. "&model.startRows=0&model.maxRows=20")
+        if old and type(old.games) == "table" then
+            for _, g in ipairs(old.games) do
+                local place = tonumber(g.placeId)
+                if place then
+                    out[#out + 1] = {name = g.name or "Unknown", place = place, playing = tonumber(g.playerCount) or 0}
+                end
+            end
+        end
+    end
+
+    table.sort(out, function(a, b) return (a.playing or 0) > (b.playing or 0) end)
+    return out
+end
+
+function DHJ.SearchMaps()
+    if DHJ.MBusy then return end
+    local q = DHJ.MapBox.Text:gsub("^%s+", ""):gsub("%s+$", "")
+    if q == "" then
+        DHJ.MStatus.Text = "Type a map name first"
+        return
+    end
+    DHJ.MBusy = true
+    DHJ.MStatus.Text = "Searching..."
+    task.spawn(function()
+        pcall(function()
+            local ok, res = pcall(DHJ.FindMaps, q)
+            DHJ.Clear(DHJ.MList)
+            if not ok or type(res) ~= "table" then
+                DHJ.MStatus.Text = "Could not search, try again"
+                return
+            end
+            if #res == 0 then
+                DHJ.MStatus.Text = "No maps found"
+                return
+            end
+            for _, m in ipairs(res) do
+                local text = m.name
+                if m.playing then text = text .. "   " .. DHJ.Count(m.playing) .. " playing" end
+                DHJ.Row(DHJ.MList, text, {
+                    {"Servers", Color3.fromRGB(45, 90, 160), function()
+                        -- show the servers of this map in the Server Browser above
+                        DHJ.PlaceBox.Text = tostring(m.place)
+                        JoinerScroll.CanvasPosition = Vector2.new(0, DHJ.ServerPanel.Position.Y.Offset)
+                        DHJ.LoadServers()
+                    end},
+                    {"Join", Color3.fromRGB(40, 170, 80), function()
+                        ShowConfirmPopup("Join " .. m.name .. "?", Color3.fromRGB(30, 170, 60), function()
+                            pcall(function()
+                                game:GetService("TeleportService"):Teleport(m.place, Player)
+                            end)
+                        end)
+                    end},
+                })
+            end
+            DHJ.MStatus.Text = "Found " .. #res .. " maps"
+        end)
+        DHJ.MBusy = false
+    end)
+end
+
+function DHJ.Build()
+    -- server browser
+    local sp = DHJ.Panel("SERVER BROWSER", 955, 320)
+    DHJ.ServerPanel = sp
+    DHJ.PlaceBox = DHJ.Box(sp, "Place ID (empty = this map)", UDim2.new(0, 10, 0, 40), UDim2.new(1, -20, 0, 32))
+    DHJ.SortBtn = DHJ.Btn(sp, "Sort: Fewest", Color3.fromRGB(45, 90, 160), UDim2.new(0.5, -15, 0, 32), UDim2.new(0, 10, 0, 78))
+    local load = DHJ.Btn(sp, "Load Servers", Color3.fromRGB(40, 170, 80), UDim2.new(0.5, -15, 0, 32), UDim2.new(0.5, 5, 0, 78))
+    DHJ.SStatus = DHJ.Status(sp, 114)
+    DHJ.SList = DHJ.List(sp, 136, 174)
+
+    -- find map
+    local mp = DHJ.Panel("FIND MAP", 1285, 320)
+    DHJ.MapBox = DHJ.Box(mp, "Map name or place ID", UDim2.new(0, 10, 0, 40), UDim2.new(1, -112, 0, 32))
+    local search = DHJ.Btn(mp, "Search", Color3.fromRGB(40, 170, 80), UDim2.new(0, 92, 0, 32), UDim2.new(1, -102, 0, 40))
+    DHJ.MStatus = DHJ.Status(mp, 78)
+    DHJ.MList = DHJ.List(mp, 100, 210)
+
+    DHJ.SortBtn.MouseButton1Click:Connect(function()
+        DHJ.Sort = DHJ.Sort % #DHJ.SortNames + 1
+        DHJ.SortBtn.Text = "Sort: " .. DHJ.SortNames[DHJ.Sort]
+    end)
+    load.MouseButton1Click:Connect(DHJ.LoadServers)
+    search.MouseButton1Click:Connect(DHJ.SearchMaps)
+    DHJ.MapBox.FocusLost:Connect(function(enter)
+        if enter then DHJ.SearchMaps() end
+    end)
+end
+pcall(DHJ.Build)
+
+-- ================================================
 -- TAB TROLL (TOUCH FLING)
 -- ================================================
 
@@ -11866,6 +12776,7 @@ local function RefreshFlingPlayerList()
     PlayerCheckboxes = {}
 
     local PlayerList = Players:GetPlayers()
+    DHSortPlayers(PlayerList, true)
     table.sort(PlayerList, function(a, b) return a.Name:lower() < b.Name:lower() end)
 
     for _, player in ipairs(PlayerList) do
@@ -18128,11 +19039,95 @@ function DHMods.NoclipSet(on)
 end
 
 -- ---------- Wall Walk: walk on walls and ceilings like a spider ----------
+-- walk / idle animations for wall mode: the Humanoid is switched off there, so we play the character's own animations
+function DHMods.WwAnimStop()
+    local ww = DHMods.Ww
+    if not ww then return end
+    if ww.Tracks then
+        for _, t in pairs(ww.Tracks) do
+            if t then pcall(function() t:Stop(0.15) end) end
+        end
+    end
+    ww.Tracks = nil
+    ww.TrackHum = nil
+    ww.Cur = nil
+end
+
+function DHMods.WwAnim(hum, moving, speed)
+    local ww = DHMods.Ww
+    if not ww.Tracks or ww.TrackHum ~= hum then
+        DHMods.WwAnimStop()
+        local animate = hum.Parent and hum.Parent:FindFirstChild("Animate")
+        local animator = hum:FindFirstChildOfClass("Animator")
+        if not (animate and animator) then return end
+        local function Load(folder, child)
+            local fo = animate:FindFirstChild(folder)
+            local a = fo and (fo:FindFirstChild(child) or fo:FindFirstChildOfClass("Animation"))
+            if not a then return nil end
+            local ok, t = pcall(function() return animator:LoadAnimation(a) end)
+            if not ok or not t then return nil end
+            t.Priority = Enum.AnimationPriority.Action
+            t.Looped = true
+            return t
+        end
+        ww.Tracks = {walk = Load("walk", "WalkAnim"), idle = Load("idle", "Animation1")}
+        ww.TrackHum = hum
+    end
+    local tr = ww.Tracks
+    if not tr then return end
+    local want = moving and tr.walk or tr.idle
+    if want ~= ww.Cur then
+        if ww.Cur then ww.Cur:Stop(0.15) end
+        if want then want:Play(0.15) end
+        ww.Cur = want
+    end
+    if moving and tr.walk then tr.walk:AdjustSpeed(math.clamp(speed / 16, 0.3, 3)) end
+end
+
+-- a force that cancels gravity while we hang on a wall, so the body does not sag between frames
+function DHMods.WwForceSet(root)
+    local ww = DHMods.Ww
+    if ww.Force then ww.Force:Destroy() ww.Force = nil end
+    if ww.Att then ww.Att:Destroy() ww.Att = nil end
+    if not root then return end
+    local att = Instance.new("Attachment")
+    att.Name = "DHWwAtt"
+    att.Parent = root
+    local vf = Instance.new("VectorForce")
+    vf.Name = "DHWwForce"
+    vf.Attachment0 = att
+    vf.RelativeTo = Enum.ActuatorRelativeTo.World
+    vf.ApplyAtCenterOfMass = true
+    vf.Force = Vector3.zero
+    vf.Parent = root
+    ww.Att = att
+    ww.Force = vf
+end
+
+-- raw stick / keys input (x = right, z = back), it does not depend on where the camera is rolled to
+function DHMods.WwInput()
+    if DHMods.WwCtl == nil then
+        DHMods.WwCtl = false
+        pcall(function()
+            local ps = Player:FindFirstChild("PlayerScripts")
+            local pm = ps and ps:FindFirstChild("PlayerModule")
+            if pm then DHMods.WwCtl = require(pm):GetControls() end
+        end)
+    end
+    if DHMods.WwCtl then
+        local ok, v = pcall(function() return DHMods.WwCtl:GetMoveVector() end)
+        if ok and typeof(v) == "Vector3" then return -v.Z, v.X end
+    end
+    return nil, nil
+end
+
 function DHMods.WwExit(hum, root, onFloor)
     local ww = DHMods.Ww
     if not ww or not ww.Active then return end
     ww.Active = false
     DHMods.WwActive = false
+    DHMods.WwAnimStop()
+    DHMods.WwForceSet(nil)
     if root and root.Parent then
         local look = ww.Fwd or root.CFrame.LookVector
         look = Vector3.new(look.X, 0, look.Z)
@@ -18159,17 +19154,20 @@ function DHMods.WwStep(ww, dt, rp)
     if not cam then return end
     rp.FilterDescendantsInstances = {char}
 
-    -- what the player pushes (forward f, right r), rebuilt from MoveDirection which is camera relative
+    -- what the player pushes (forward f, right r)
     local look = cam.CFrame.LookVector
     local flatLook = Vector3.new(look.X, 0, look.Z)
     if flatLook.Magnitude < 0.01 then flatLook = Vector3.new(0, 0, -1) end
     flatLook = flatLook.Unit
     local flatRight = Vector3.new(-flatLook.Z, 0, flatLook.X)
-    local md = hum.MoveDirection
-    local f, r = 0, 0
-    if md.Magnitude > 0.1 then
-        f = md:Dot(flatLook)
-        r = md:Dot(flatRight)
+    local f, r = DHMods.WwInput()
+    if not f then
+        f, r = 0, 0
+        local md = hum.MoveDirection
+        if md.Magnitude > 0.1 then
+            f = md:Dot(flatLook)
+            r = md:Dot(flatRight)
+        end
     end
 
     if not ww.Active then
@@ -18182,11 +19180,14 @@ function DHMods.WwStep(ww, dt, rp)
         if hit and hit.Normal.Y < 0.7 then
             ww.Active = true
             DHMods.WwActive = true
-            ww.Up = hit.Normal
+            ww.Up = root.CFrame.UpVector
             ww.Target = hit.Normal
             ww.Fwd = dir
+            ww.Vel = Vector3.zero
             ww.Lost = 0
+            ww.Born = tick()
             hum.PlatformStand = true
+            DHMods.WwForceSet(root)
         end
         return
     end
@@ -18206,34 +19207,57 @@ function DHMods.WwStep(ww, dt, rp)
     tf = tf.Unit
     local tr = tf:Cross(up)
     local dir = tf * f + tr * r
-    local moving = dir.Magnitude > 0.1
+    local mag = math.min(dir.Magnitude, 1)
+    local moving = mag > 0.1
     if moving then
         dir = dir.Unit
-        ww.Fwd = dir
         ww.Dir = dir
+        -- turn the body smoothly towards where we walk
+        local nf = (ww.Fwd or dir):Lerp(dir, math.clamp(dt * 14, 0, 1))
+        if nf.Magnitude < 0.05 then nf = dir end
+        ww.Fwd = nf.Unit
     else
         ww.Dir = Vector3.zero
     end
 
-    -- find the surface: ahead (inner corner), under the feet, or around an edge (outer corner)
+    -- feel the surface with many rays and average the normals: centre, a ring around the feet, and one ahead
     local pos = root.Position
-    local target, hitPos = nil, nil
+    local base = (ww.Fwd or tf)
+    base = base - up * base:Dot(up)
+    if base.Magnitude < 0.01 then base = tf end
+    base = base.Unit
+    local side = up:Cross(base)
+    local sum = Vector3.zero
+    local hits = 0
+    local bestGap, bestN = nil, nil
+    local function Take(h, w, useGap)
+        sum = sum + h.Normal * w
+        hits = hits + 1
+        if not useGap then return end
+        -- how far we are from this surface (straight distance to its plane)
+        local gap = (pos - h.Position):Dot(h.Normal)
+        if not bestGap or gap < bestGap then
+            bestGap = gap
+            bestN = h.Normal
+        end
+    end
+    local hc = workspace:Raycast(pos, -up * 6, rp)
+    if hc then Take(hc, 2, true) end
+    for i = 0, 11 do
+        local ang = i * (math.pi / 6)
+        local rad = base * math.cos(ang) + side * math.sin(ang)
+        -- start outside the feet and aim down and inwards, this also catches the side of an edge we walk over
+        local h = workspace:Raycast(pos + rad * 3, (-up * 3 - rad * 1.3).Unit * 12, rp)
+        if h then Take(h, 0.5 + 0.5 * math.max(0, rad:Dot(base))) end
+    end
     if moving then
-        local h = workspace:Raycast(pos, dir * 3.2, rp)
-        if h and h.Normal:Dot(up) < 0.9 then target, hitPos = h.Normal, h.Position end
-    end
-    if not target then
-        local h = workspace:Raycast(pos, -up * 5, rp)
-        if h then target, hitPos = h.Normal, h.Position end
-    end
-    if not target and moving then
-        local h = workspace:Raycast(pos + dir * 3, (-dir - up) * 3.5, rp)
-        if h then target, hitPos = h.Normal, h.Position end
+        local h = workspace:Raycast(pos, dir * 5, rp)
+        if h and h.Normal:Dot(up) < 0.9 then Take(h, 10, true) end
     end
 
-    if target then
+    if hits > 0 then
         ww.Lost = 0
-        ww.Target = target
+        if sum.Magnitude > 0.01 then ww.Target = sum.Unit end
     else
         ww.Lost = ww.Lost + dt
         if ww.Lost > 0.3 then
@@ -18244,9 +19268,12 @@ function DHMods.WwStep(ww, dt, rp)
 
     local tn = ww.Target or up
     -- back on normal ground: hand control back to the normal walking
-    if tn.Y > 0.85 and up.Y > 0.85 then
-        DHMods.WwExit(hum, root, true)
-        return
+    if tn.Y > 0.85 and up.Y > 0.85 and tick() - ww.Born > 0.3 then
+        local g = workspace:Raycast(pos, Vector3.new(0, -4.5, 0), rp)
+        if g and g.Normal.Y > 0.7 then
+            DHMods.WwExit(hum, root, true)
+            return
+        end
     end
 
     up = up:Lerp(tn, math.clamp(dt * 12, 0, 1))
@@ -18260,11 +19287,18 @@ function DHMods.WwStep(ww, dt, rp)
     fwd = fwd.Unit
     root.CFrame = CFrame.fromMatrix(pos, fwd:Cross(up), up, -fwd)
 
-    -- no gravity here: we set the speed ourselves and hold the body 3 studs off the surface
+    -- speed up and slow down smoothly, and hold the body 3 studs off the nearest surface
+    ww.Vel = (ww.Vel or Vector3.zero):Lerp(moving and dir * (hum.WalkSpeed * mag) or Vector3.zero, math.clamp(dt * 10, 0, 1))
     local hold = -6
-    if target then hold = math.clamp((3 - (pos - hitPos):Dot(tn)) * 12, -25, 25) end
-    root.AssemblyLinearVelocity = (moving and dir * hum.WalkSpeed or Vector3.zero) + tn * hold
+    local hn = tn
+    if bestGap then
+        hold = math.clamp((3 - bestGap) * 12, -25, 25)
+        hn = bestN
+    end
+    root.AssemblyLinearVelocity = ww.Vel + hn * hold
     root.AssemblyAngularVelocity = Vector3.zero
+    if ww.Force then ww.Force.Force = Vector3.new(0, workspace.Gravity * root.AssemblyMass, 0) end
+    pcall(DHMods.WwAnim, hum, moving, hum.WalkSpeed * mag)
 end
 
 function DHMods.WallWalkSet(on)
@@ -18285,9 +19319,11 @@ function DHMods.WallWalkSet(on)
     end
     ww.Active = false
     DHMods.WwActive = false
+    DHMods.WwCtl = nil
     ww.Up = Vector3.new(0, 1, 0)
     ww.Lost = 0
     ww.Cool = 0
+    ww.Born = 0
     local rp = RaycastParams.new()
     rp.FilterType = Enum.RaycastFilterType.Exclude
     rp.RespectCanCollide = true
@@ -18307,6 +19343,39 @@ function DHMods.WallWalkSet(on)
 
     ww.Conn = RunService.Heartbeat:Connect(function(dt)
         pcall(DHMods.WwStep, ww, dt, rp)
+    end)
+end
+
+-- optional: roll the camera with the wall, so a ceiling looks like a floor (screen up = the surface "up")
+function DHMods.WwCamStep(dt)
+    local ww = DHMods.Ww
+    local cam = workspace.CurrentCamera
+    if not (ww and cam) then return end
+    local y = Vector3.new(0, 1, 0)
+    local want = (ww.Active and ww.Up) or y
+    local cu = (ww.CamUp or y):Lerp(want, math.clamp(dt * 6, 0, 1))
+    if cu.Magnitude < 0.05 then cu = want end
+    cu = cu.Unit
+    ww.CamUp = cu
+    if (cu - y).Magnitude < 0.02 then return end
+    local cf = cam.CFrame
+    local l = cf.LookVector
+    local p = cu - l * cu:Dot(l)
+    -- looking straight along the surface normal has no clear roll, so fade the roll out there
+    local k = math.clamp(p.Magnitude / 0.5, 0, 1)
+    if k <= 0.01 then return end
+    local u = cf.UpVector:Lerp(p.Unit, k)
+    if u.Magnitude < 0.05 then return end
+    cam.CFrame = CFrame.lookAt(cf.Position, cf.Position + l, u.Unit)
+end
+
+function DHMods.WwCamSet(on)
+    pcall(function() RunService:UnbindFromRenderStep("DHWwCam") end)
+    DHMods.Ww = DHMods.Ww or {}
+    DHMods.Ww.CamUp = nil
+    if not on then return end
+    RunService:BindToRenderStep("DHWwCam", Enum.RenderPriority.Camera.Value + 1, function(dt)
+        pcall(DHMods.WwCamStep, dt)
     end)
 end
 
@@ -18418,6 +19487,7 @@ end
     DHMods.AddToggle("Speed Glitch", "Normal speed on the ground, faster only while in the air", DHMods.SpeedGlitchSet)
     DHMods.AddToggle("Double Jump", "One extra jump in the air, refilled when you land", DHMods.DoubleJumpSet)
     DHMods.AddToggle("Wall Walk", "Walk into a wall to climb walls and ceilings like a spider, jump to let go", DHMods.WallWalkSet)
+    DHMods.AddToggle("Wall Walk Camera", "Rolls the camera with the wall so ceilings look like floors (beta)", DHMods.WwCamSet)
     DHMods.AddToggle("Noclip", "Walk through walls and objects", DHMods.NoclipSet)
 
     ScreenGui.Destroying:Connect(function()
@@ -19433,6 +20503,65 @@ function BuildModsPart6()
 end
 
 pcall(BuildModsPart6)
+
+-- MODS TAB (part 7): Click Teleport
+-- ================================================
+
+-- ---------- Click Teleport: tap (phone) or click (PC) the world to teleport there ----------
+DHMods.Ct = {}
+
+function DHMods.CtGo(sp)
+    local cam = workspace.CurrentCamera
+    local char = Player.Character
+    local hum = char and char:FindFirstChildOfClass("Humanoid")
+    local root = char and char:FindFirstChild("HumanoidRootPart")
+    if not (cam and hum and root) or hum.Health <= 0 then return end
+    local ray = cam:ScreenPointToRay(sp.X, sp.Y)
+    local rp = RaycastParams.new()
+    rp.FilterType = Enum.RaycastFilterType.Exclude
+    rp.FilterDescendantsInstances = {char}
+    rp.RespectCanCollide = true
+    local hit = workspace:Raycast(ray.Origin, ray.Direction * 2000, rp)
+    if not hit then return end
+    local n = hit.Normal
+    local h = hum.HipHeight + root.Size.Y / 2
+    -- stand on top of the spot, and a little away from a wall
+    local pos = hit.Position + Vector3.new(n.X, 0, n.Z) * 2 + Vector3.new(0, h + 0.5, 0)
+    root.CFrame = CFrame.new(pos) * root.CFrame.Rotation
+    root.AssemblyLinearVelocity = Vector3.zero
+end
+
+function DHMods.CtSet(on)
+    local ct = DHMods.Ct
+    if ct.Tap then
+        ct.Tap:Disconnect()
+        ct.Tap = nil
+    end
+    if ct.Click then
+        ct.Click:Disconnect()
+        ct.Click = nil
+    end
+    if not on then return end
+
+    ct.Tap = UIS.TouchTapInWorld:Connect(function(pos, processed)
+        if processed then return end
+        pcall(DHMods.CtGo, pos)
+    end)
+    ct.Click = UIS.InputBegan:Connect(function(input, gp)
+        if gp then return end
+        if input.UserInputType == Enum.UserInputType.MouseButton1 then
+            pcall(DHMods.CtGo, input.Position)
+        end
+    end)
+end
+
+function BuildModsPart7()
+    if not DHMods.Scroll then return end
+    DHMods.Header("TELEPORT")
+    DHMods.AddToggle("Click Teleport", "Tap or click the world to teleport there", DHMods.CtSet)
+end
+
+pcall(BuildModsPart7)
 
 CheckLoadingHalt()
 SetLoadProgress(78)
@@ -21922,7 +23051,7 @@ VersionText = Instance.new("TextLabel", VersionFrame)
 VersionText.Size = UDim2.new(1, -20, 1, 0)
 VersionText.Position = UDim2.new(0, 10, 0, 0)
 VersionText.BackgroundTransparency = 1
-VersionText.Text = "Version: V1.0 (Alpha Version)"
+VersionText.Text = "Version: Under construction (Not yet published)"
 VersionText.Font = Enum.Font.GothamBold
 VersionText.TextSize = 18
 VersionText.TextColor3 = Color3.fromRGB(80, 200, 80)
@@ -22659,21 +23788,21 @@ DHChangelogTags = {
 }
 
 DHChangelog = {
-    {id = 6, date = "2026-10-18", title = "What's New", items = {
-        {"Added", "Mods tab: Wall Walk, walk into a wall to climb walls and ceilings like a spider, jump to let go."},
-        {"Added", "Mods tab: Fast Respawn (beta), tries to skip the wait after you die."},
-        {"Fixed", "Delete GUI now fully switches off protections, WalkSpeed, JumpPower and music."},
+    {id = 10, date = "2026-10-19", title = "What's New", items = {
+        {"Added", "Waypoint tab: waypoints are saved in the Waypoint folder, one file per map, so they stay after you rejoin."},
+        {"Added", "Waypoint tab: Back button, returns you to the spot you were at before your last teleport."},
+        {"Added", "Waypoint tab: Death Point, the place where you died is saved as a waypoint automatically."},
+        {"Added", "Waypoint tab: Markers, show the name and distance of every waypoint in the world."},
+        {"Changed", "All player lists are now in alphabetical order (A to Z), names that start with a number come last."},
     }},
-    {id = 5, date = "2026-10-17", title = "What's New", items = {
-        {"Added", "Music tab: a seek bar shows the time and can be dragged. Stop now pauses, and Play turns into Resume."},
-        {"Added", "Music tab: Search Music finds songs in the Roblox audio library by name, then puts the ID in the box or saves it."},
-        {"Fixed", "Music tab: the R button now resets the volume to 50%, as its label says."},
-        {"Fixed", "Editor console: print no longer pauses scripts, it scrolls to the newest line, wraps long lines and shows warnings and syntax errors."},
+    {id = 9, date = "2026-10-18", title = "What's New", items = {
+        {"Added", "Joiner tab: Server Browser, load the public servers of this map (or any place ID), sort them and join one by hand."},
+        {"Added", "Joiner tab: Find Map, search maps by name and join one directly or open its servers."},
     }},
-    {id = 4, date = "2026-10-17", title = "What's New", items = {
-        {"Added", "Mods tab: Speed Glitch (normal speed on the ground, faster in the air, with an Air Speed slider)."},
-        {"Added", "Mods tab: Double Jump, one extra jump in the air."},
-        {"Added", "Player tab: Anti Ragdoll in the Protection System, so being hit or thrown no longer leaves you limp."},
+    {id = 8, date = "2026-10-18", title = "What's New", items = {
+        {"Added", "Player tab: Anti Kick in the Protection System, blocks kicks that game scripts send on your side (not server kicks)."},
+        {"Added", "Player tab: Follow Player, pick a player from the list and stay inside their body."},
+        {"Added", "Mods tab: Click Teleport, tap or click the world to teleport there."},
     }},
 }
 
