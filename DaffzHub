@@ -6294,7 +6294,7 @@ function DHAR.Start()
     if DHAR.Conn then return end
     DHAR.Conn = RunService.Heartbeat:Connect(function()
         if not protections.antiRagdoll then return end
-        if DHMods and DHMods.WwActive then return end
+        if DHMods and (DHMods.WwActive or DHMods.FlyActive) then return end
         local char = Player.Character
         local hum = char and char:FindFirstChildOfClass("Humanoid")
         if not hum or hum.Health <= 0 then return end
@@ -20563,6 +20563,146 @@ end
 
 pcall(BuildModsPart7)
 
+-- ================================================
+-- MODS TAB (part 8): Fly (flies where the camera looks, hovers when you let go)
+-- ================================================
+DHFly = {On = false, Speed = 60, Vel = Vector3.zero}
+
+-- takes the character off the ground: body movers, no walking pose
+function DHFly.Attach(char, hum, root)
+    DHFly.Root = root
+    DHFly.Hum = hum
+    DHFly.Vel = Vector3.zero
+
+    local bv = Instance.new("BodyVelocity")
+    bv.Name = "DH_FlyV"
+    bv.MaxForce = Vector3.new(9e9, 9e9, 9e9)
+    bv.Velocity = Vector3.zero
+    bv.Parent = root
+    DHFly.BV = bv
+
+    local bg = Instance.new("BodyGyro")
+    bg.Name = "DH_FlyG"
+    bg.MaxTorque = Vector3.new(9e9, 9e9, 9e9)
+    bg.P = 2e4
+    bg.D = 1e3
+    bg.CFrame = root.CFrame
+    bg.Parent = root
+    DHFly.BG = bg
+
+    hum.PlatformStand = true
+    DHMods.FlyActive = true
+
+    local an = char:FindFirstChild("Animate")
+    if an and an:IsA("LocalScript") and not an.Disabled then
+        an.Disabled = true
+        DHFly.Anim = an
+    end
+    for _, t in ipairs(hum:GetPlayingAnimationTracks()) do
+        pcall(function() t:AdjustSpeed(0) end)
+    end
+end
+
+-- gives everything back; alive = false when the character is already gone
+function DHFly.Detach(alive)
+    if DHFly.BV then DHFly.BV:Destroy() DHFly.BV = nil end
+    if DHFly.BG then DHFly.BG:Destroy() DHFly.BG = nil end
+    if DHFly.Anim then
+        if DHFly.Anim.Parent then DHFly.Anim.Disabled = false end
+        DHFly.Anim = nil
+    end
+    local hum = DHFly.Hum
+    if alive and hum and hum.Parent then
+        hum.PlatformStand = false
+        pcall(function() hum:ChangeState(Enum.HumanoidStateType.Freefall) end)
+    end
+    DHFly.Hum = nil
+    DHFly.Root = nil
+    DHMods.FlyActive = false
+end
+
+function DHFly.Step(dt)
+    local char = Player.Character
+    local hum = char and char:FindFirstChildOfClass("Humanoid")
+    local root = hum and hum.RootPart
+    if not (hum and root) or hum.Health <= 0 then
+        if DHFly.Root then DHFly.Detach(false) end
+        return
+    end
+    -- Wall Walk has its own movement, Fly waits until it is off
+    if DHMods.WwActive then
+        if DHFly.Root then DHFly.Detach(true) end
+        return
+    end
+    if DHFly.Root ~= root then
+        if DHFly.Root then DHFly.Detach(false) end
+        DHFly.Attach(char, hum, root)
+    end
+
+    local cam = workspace.CurrentCamera
+    if not cam then return end
+    local cf = cam.CFrame
+    local look = cf.LookVector
+
+    -- the flat forward of the camera (works even when looking straight up or down)
+    local flat = Vector3.new(look.X, 0, look.Z)
+    if flat.Magnitude < 0.05 then
+        local up = cf.UpVector
+        flat = Vector3.new(up.X, 0, up.Z) * (look.Y < 0 and 1 or -1)
+    end
+    if flat.Magnitude < 0.001 then return end
+    flat = flat.Unit
+    local rightFlat = flat:Cross(Vector3.yAxis)
+
+    -- stick / keys: forward, back, left, right relative to the camera
+    local md = hum.MoveDirection
+    local f = md:Dot(flat)
+    local r = md:Dot(rightFlat)
+    local dir = look * f + cf.RightVector * r
+
+    -- up and down: jump button or Space, Shift or Ctrl, or the Up / Down hold buttons of the Float row
+    local v = DHMods.FloatDir or 0
+    if not UIS:GetFocusedTextBox() then
+        if UIS:IsKeyDown(Enum.KeyCode.Space) or hum.Jump then v = 1 end
+        if UIS:IsKeyDown(Enum.KeyCode.LeftControl) or UIS:IsKeyDown(Enum.KeyCode.LeftShift) then v = -1 end
+    end
+    dir = dir + Vector3.new(0, v, 0)
+    if dir.Magnitude > 1 then dir = dir.Unit end
+
+    local target = dir * DHFly.Speed
+    DHFly.Vel = DHFly.Vel:Lerp(target, math.min(1, dt * 12))
+    if target.Magnitude < 0.01 and DHFly.Vel.Magnitude < 0.5 then
+        DHFly.Vel = Vector3.zero
+    end
+    DHFly.BV.Velocity = DHFly.Vel
+
+    -- like the sample: the body follows the camera (turn, up and down) and leans forward more the faster you fly
+    local ratio = math.min(1, DHFly.Vel.Magnitude / math.max(1, DHFly.Speed))
+    DHFly.BG.CFrame = cf.Rotation * CFrame.Angles(-math.rad(math.clamp(f, -1, 1) * 50 * ratio), 0, 0)
+end
+
+function DHFly.Set(on)
+    if DHFly.Conn then
+        DHFly.Conn:Disconnect()
+        DHFly.Conn = nil
+    end
+    DHFly.Detach(true)
+    DHFly.On = on and true or false
+    if not on then return end
+    DHFly.Conn = RunService.RenderStepped:Connect(function(dt)
+        pcall(DHFly.Step, dt)
+    end)
+end
+
+function BuildModsPart8()
+    if not DHMods.Scroll then return end
+    DHMods.Header("FLY")
+    DHMods.AddToggle("Fly", "Fly where the camera looks, stay still in the air when you let go", DHFly.Set)
+    DHMods.AddSlider("Fly Speed", 10, 300, 60, 5, "%.0f", function(v) DHFly.Speed = v end)
+end
+
+pcall(BuildModsPart8)
+
 CheckLoadingHalt()
 SetLoadProgress(78)
 
@@ -23788,6 +23928,9 @@ DHChangelogTags = {
 }
 
 DHChangelog = {
+    {id = 11, date = "2026-10-20", title = "What's New", items = {
+        {"Added", "Mods tab: Fly, fly where the camera looks and stay still in the air when you let go, with a Fly Speed slider."},
+    }},
     {id = 10, date = "2026-10-19", title = "What's New", items = {
         {"Added", "Waypoint tab: waypoints are saved in the Waypoint folder, one file per map, so they stay after you rejoin."},
         {"Added", "Waypoint tab: Back button, returns you to the spot you were at before your last teleport."},
@@ -23798,11 +23941,6 @@ DHChangelog = {
     {id = 9, date = "2026-10-18", title = "What's New", items = {
         {"Added", "Joiner tab: Server Browser, load the public servers of this map (or any place ID), sort them and join one by hand."},
         {"Added", "Joiner tab: Find Map, search maps by name and join one directly or open its servers."},
-    }},
-    {id = 8, date = "2026-10-18", title = "What's New", items = {
-        {"Added", "Player tab: Anti Kick in the Protection System, blocks kicks that game scripts send on your side (not server kicks)."},
-        {"Added", "Player tab: Follow Player, pick a player from the list and stay inside their body."},
-        {"Added", "Mods tab: Click Teleport, tap or click the world to teleport there."},
     }},
 }
 
