@@ -19985,7 +19985,7 @@ pcall(BuildModsPart4)
 -- ================================================
 -- MODS TAB (part 5): Aimbot
 -- ================================================
-DHMods.Ab = {Size = 150, Smooth = 30, Team = false, Wall = false, Hold = false, Held = false, On = false, Part = "Head"}
+DHMods.Ab = {Size = 150, Smooth = 30, Team = false, Wall = false, Hold = false, Held = false, On = false, Part = "Closest"}
 DHMods.AbConns = {}
 
 -- Kill Check (always on): skips dead, dying, removed or downed players
@@ -20019,9 +20019,9 @@ function DHMods.AbParts(ch)
 end
 
 -- Hitbox (client side). Modes: Box (extra welded part), Torso (real torso part), Root (HumanoidRootPart, like common hitbox scripts).
--- Follows Team Check and Target Team. The original values live on the part itself (attributes),
+-- Works on every team (it ignores Team Check and Target Team). The original values live on the part itself (attributes),
 -- so turning it off or changing the mode always puts everything back.
-DHMods.Hit = {On = false, Size = 8, Mode = "Box", Token = 0}
+DHMods.Hit = {On = false, Size = 8, Mode = "Root", Token = 0}
 
 function DHMods.HitPart(ch, mode)
     if mode == "Root" then
@@ -20086,8 +20086,6 @@ function DHMods.HitStep()
         if root and pl ~= Player then
             local hum = ch:FindFirstChildOfClass("Humanoid")
             local skip = (not hum) or hum.Health <= 0
-                or (ab.Team and pl.Team ~= nil and pl.Team == Player.Team)
-                or DHMods.AbTeamSkip(pl)
             if skip then
                 DHMods.HitClear(ch)
             elseif h.Mode == "Box" then
@@ -20324,8 +20322,8 @@ function BuildModsPart5()
         DHMods.AbHoldUI()
     end)
     DHMods.Header("HITBOX")
-    DHMods.AddCycle("Hitbox Mode", "Tap to change: Box, Torso or Root (Root works like common hitbox scripts)", {"Box", "Torso", "Root"}, 1, function(v) DHMods.Hit.Mode = v; DHMods.HitRestoreAll() end)
-    DHMods.AddToggle("Hitbox", "Big see-through box on other players (client side; follows Team Check and Target Team)", DHMods.HitSet)
+    DHMods.AddCycle("Hitbox Mode", "Tap to change: Box, Torso or Root (Root works like common hitbox scripts)", {"Box", "Torso", "Root"}, 3, function(v) DHMods.Hit.Mode = v; DHMods.HitRestoreAll() end)
+    DHMods.AddToggle("Hitbox", "Big see-through box on all other players, every team (client side)", DHMods.HitSet)
     DHMods.AddSlider("Hitbox Size", 2, 25, 8, 1, "%.0f", function(v) DHMods.Hit.Size = v end)
     ScreenGui.Destroying:Connect(function() DHMods.HitSet(false) end)
 end
@@ -23930,6 +23928,8 @@ DHChangelogTags = {
 DHChangelog = {
     {id = 11, date = "2026-10-20", title = "What's New", items = {
         {"Added", "Mods tab: Fly, fly where the camera looks and stay still in the air when you let go, with a Fly Speed slider."},
+        {"Changed", "Hitbox now works on every team, it no longer follows Team Check or Target Team."},
+        {"Changed", "New defaults: Hitbox Mode is Root, and Target Part (Aimbot and Silent Aim) is Closest."},
     }},
     {id = 10, date = "2026-10-19", title = "What's New", items = {
         {"Added", "Waypoint tab: waypoints are saved in the Waypoint folder, one file per map, so they stay after you rejoin."},
