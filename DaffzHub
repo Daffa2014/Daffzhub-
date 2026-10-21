@@ -13108,6 +13108,531 @@ end)
 RefreshFlingPlayerList()
 UpdateFlingStatus()
 
+-- ================================================
+-- TROLL EXTRAS: Spin, Orbit Player, Click Fling, Lag Switch
+-- ================================================
+DHT = {
+    Spin = {On = false, Speed = 5},
+    Orb = {Target = nil, Conn = nil, A = 0, Dist = 12, Speed = 2, Following = false},
+    Cf = {On = false},
+    Lag = {Secs = 5, Token = 0},
+}
+DHT.OffCol = Color3.fromRGB(70, 45, 45)
+DHT.OnCol = Color3.fromRGB(35, 160, 90)
+
+function DHT.Section(y, h, title, color)
+    local sec = Instance.new("Frame", TrollScroll)
+    sec.Size = UDim2.new(1, 0, 0, h)
+    sec.Position = UDim2.new(0, 0, 0, y)
+    sec.BackgroundColor3 = Color3.fromRGB(25, 25, 25)
+    sec.ClipsDescendants = true
+    Instance.new("UICorner", sec).CornerRadius = UDim.new(0, 8)
+
+    local t = Instance.new("TextLabel", sec)
+    t.Size = UDim2.new(1, -20, 0, 30)
+    t.Position = UDim2.new(0, 10, 0, 5)
+    t.BackgroundTransparency = 1
+    t.Text = title
+    t.Font = Enum.Font.GothamBold
+    t.TextSize = 16
+    t.TextColor3 = color
+    t.TextXAlignment = Enum.TextXAlignment.Left
+    return sec
+end
+
+function DHT.Btn(parent, pos, size, text, color)
+    local b = Instance.new("TextButton", parent)
+    b.Position = pos
+    b.Size = size
+    b.BackgroundColor3 = color
+    b.Text = text
+    b.Font = Enum.Font.GothamBold
+    b.TextSize = 13
+    b.TextColor3 = Color3.new(1, 1, 1)
+    Instance.new("UICorner", b).CornerRadius = UDim.new(0, 6)
+    return b
+end
+
+function DHT.Note(parent, y, text)
+    local l = Instance.new("TextLabel", parent)
+    l.Position = UDim2.new(0, 10, 0, y)
+    l.Size = UDim2.new(1, -20, 0, 30)
+    l.BackgroundTransparency = 1
+    l.Text = text
+    l.Font = Enum.Font.Gotham
+    l.TextSize = 11
+    l.TextColor3 = Color3.fromRGB(150, 150, 150)
+    l.TextXAlignment = Enum.TextXAlignment.Left
+    l.TextYAlignment = Enum.TextYAlignment.Top
+    l.TextWrapped = true
+    return l
+end
+
+-- ON / OFF button like the other Troll buttons; onChange(on) runs on every press
+function DHT.Toggle(parent, y, label, onChange)
+    local b = DHT.Btn(parent, UDim2.new(0, 10, 0, y), UDim2.new(1, -20, 0, 35), label .. " | OFF", DHT.OffCol)
+    local api = {On = false}
+    function api.Set(on)
+        api.On = on and true or false
+        b.Text = label .. " | " .. (api.On and "ON" or "OFF")
+        b.BackgroundColor3 = api.On and DHT.OnCol or DHT.OffCol
+        pcall(onChange, api.On)
+    end
+    b.MouseButton1Click:Connect(function() api.Set(not api.On) end)
+    DHT.Offs = DHT.Offs or {}
+    DHT.Offs[#DHT.Offs + 1] = function() if api.On then api.Set(false) end end
+    return api
+end
+
+function DHT.Slider(parent, y, title, min, max, default, step, fmt, onChange)
+    local row = Instance.new("Frame", parent)
+    row.Size = UDim2.new(1, -20, 0, 58)
+    row.Position = UDim2.new(0, 10, 0, y)
+    row.BackgroundTransparency = 1
+
+    local nm = Instance.new("TextLabel", row)
+    nm.Size = UDim2.new(1, -70, 0, 18)
+    nm.BackgroundTransparency = 1
+    nm.Text = title
+    nm.Font = Enum.Font.GothamBold
+    nm.TextSize = 12
+    nm.TextColor3 = Color3.new(1, 1, 1)
+    nm.TextXAlignment = Enum.TextXAlignment.Left
+
+    local val = Instance.new("TextLabel", row)
+    val.Size = UDim2.new(0, 60, 0, 18)
+    val.Position = UDim2.new(1, -60, 0, 0)
+    val.BackgroundTransparency = 1
+    val.Font = Enum.Font.GothamBold
+    val.TextSize = 12
+    val.TextColor3 = Color3.fromRGB(100, 200, 255)
+    val.TextXAlignment = Enum.TextXAlignment.Right
+
+    local bar = Instance.new("Frame", row)
+    bar.Size = UDim2.new(1, -8, 0, 8)
+    bar.Position = UDim2.new(0, 4, 0, 34)
+    bar.BackgroundColor3 = Color3.fromRGB(50, 50, 50)
+    bar.BorderSizePixel = 0
+    Instance.new("UICorner", bar).CornerRadius = UDim.new(0, 4)
+
+    local fill = Instance.new("Frame", bar)
+    fill.Size = UDim2.new(0, 0, 1, 0)
+    fill.BackgroundColor3 = Color3.fromRGB(35, 160, 90)
+    fill.BorderSizePixel = 0
+    Instance.new("UICorner", fill).CornerRadius = UDim.new(0, 4)
+
+    local knob = Instance.new("Frame", bar)
+    knob.Size = UDim2.new(0, 16, 0, 16)
+    knob.AnchorPoint = Vector2.new(0.5, 0.5)
+    knob.BackgroundColor3 = Color3.new(1, 1, 1)
+    knob.BorderSizePixel = 0
+    Instance.new("UICorner", knob).CornerRadius = UDim.new(0, 8)
+
+    -- a wide invisible area so the bar is easy to hit with a thumb
+    local hit = Instance.new("TextButton", row)
+    hit.Size = UDim2.new(1, 0, 0, 30)
+    hit.Position = UDim2.new(0, 0, 0, 22)
+    hit.BackgroundTransparency = 1
+    hit.Text = ""
+
+    local dragging = false
+    local function Apply(r)
+        r = math.clamp(r, 0, 1)
+        local v = min + (max - min) * r
+        v = math.floor(v / step + 0.5) * step
+        r = (v - min) / (max - min)
+        fill.Size = UDim2.new(r, 0, 1, 0)
+        knob.Position = UDim2.new(r, 0, 0.5, 0)
+        val.Text = string.format(fmt, v)
+        pcall(onChange, v)
+    end
+    local function FromInput(input)
+        Apply((input.Position.X - bar.AbsolutePosition.X) / math.max(1, bar.AbsoluteSize.X))
+    end
+    hit.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+            dragging = true
+            TrollScroll.ScrollingEnabled = false
+            FromInput(input)
+        end
+    end)
+    UIS.InputChanged:Connect(function(input)
+        if dragging and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
+            FromInput(input)
+        end
+    end)
+    UIS.InputEnded:Connect(function(input)
+        if dragging and (input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch) then
+            dragging = false
+            TrollScroll.ScrollingEnabled = true
+        end
+    end)
+    Apply((default - min) / (max - min))
+end
+
+-- ---------- Spin ----------
+function DHT.SpinStep(dt)
+    local sp = DHT.Spin
+    if DHMods and (DHMods.WwActive or DHMods.FlyActive) then return end
+    local char = Player.Character
+    local hum = char and char:FindFirstChildOfClass("Humanoid")
+    local root = hum and hum.RootPart
+    if not (hum and root) or hum.Health <= 0 then return end
+    if hum.AutoRotate then
+        sp.AutoRot = true
+        hum.AutoRotate = false
+    end
+    root.CFrame = root.CFrame * CFrame.Angles(0, sp.Speed * 2 * math.pi * math.min(dt, 0.1), 0)
+end
+
+function DHT.SpinSet(on)
+    local sp = DHT.Spin
+    if sp.Conn then
+        sp.Conn:Disconnect()
+        sp.Conn = nil
+    end
+    local char = Player.Character
+    local hum = char and char:FindFirstChildOfClass("Humanoid")
+    if hum and sp.AutoRot then hum.AutoRotate = true end
+    sp.AutoRot = false
+    sp.On = on and true or false
+    if not on then return end
+    sp.Conn = RunService.Heartbeat:Connect(function(dt)
+        pcall(DHT.SpinStep, dt)
+    end)
+end
+
+-- ---------- Orbit Player ----------
+function DHT.OrbHint(text)
+    local s = DHT.OrbSearch
+    if not s then return end
+    s.PlaceholderText = text
+    task.delay(1.5, function()
+        if s.Parent then s.PlaceholderText = "Search player..." end
+    end)
+end
+
+function DHT.OrbFilter()
+    if not DHT.OrbList then return end
+    local q = DHT.OrbSearch.Text:lower()
+    for _, c in ipairs(DHT.OrbList:GetChildren()) do
+        if c:IsA("TextButton") then
+            c.Visible = q == "" or c.Text:lower():find(q, 1, true) ~= nil
+        end
+    end
+end
+
+function DHT.OrbFill()
+    if not DHT.OrbList then return end
+    for _, c in ipairs(DHT.OrbList:GetChildren()) do
+        if c:IsA("TextButton") then c:Destroy() end
+    end
+    for _, p in ipairs(DHSortPlayers(Players:GetPlayers())) do
+        if p ~= Player then
+            local b = Instance.new("TextButton", DHT.OrbList)
+            b.Size = UDim2.new(1, -10, 0, 25)
+            b.Text = p.DisplayName .. " (@" .. p.Name .. ")"
+            b.Font = Enum.Font.Gotham
+            b.TextSize = 12
+            b.TextTruncate = Enum.TextTruncate.AtEnd
+            b.TextColor3 = Color3.new(1, 1, 1)
+            b.BackgroundColor3 = (DHT.Orb.Target == p) and Color3.fromRGB(40, 100, 180) or Color3.fromRGB(45, 45, 45)
+            Instance.new("UICorner", b).CornerRadius = UDim.new(0, 4)
+            b.MouseButton1Click:Connect(function()
+                DHT.Orb.Target = p
+                for _, o in ipairs(DHT.OrbList:GetChildren()) do
+                    if o:IsA("TextButton") then o.BackgroundColor3 = Color3.fromRGB(45, 45, 45) end
+                end
+                b.BackgroundColor3 = Color3.fromRGB(40, 100, 180)
+            end)
+        end
+    end
+    DHT.OrbFilter()
+end
+
+function DHT.OrbRestore()
+    local ob = DHT.Orb
+    if ob.Orig then
+        for part, v in pairs(ob.Orig) do
+            if part.Parent then part.CanCollide = v end
+        end
+    end
+    ob.Orig = nil
+    ob.Parts = nil
+    ob.PartsChar = nil
+end
+
+function DHT.OrbSetBtn()
+    if not DHT.OrbBtn then return end
+    DHT.OrbBtn.Text = DHT.Orb.Following and "Stop" or "Orbit"
+    DHT.OrbBtn.BackgroundColor3 = DHT.Orb.Following and Color3.fromRGB(180, 40, 40) or Color3.fromRGB(40, 140, 200)
+end
+
+function DHT.OrbStep(dt)
+    local ob = DHT.Orb
+    local tp = ob.Target
+    if not tp or not tp.Parent then
+        DHT.OrbSet(false)
+        DHT.OrbHint("Target left the server")
+        return
+    end
+    if DHMods and DHMods.WwActive then return end
+
+    local tchar = tp.Character
+    local troot = tchar and (tchar:FindFirstChild("HumanoidRootPart") or tchar.PrimaryPart)
+    local char = Player.Character
+    local root = char and char:FindFirstChild("HumanoidRootPart")
+    if not (troot and root) then return end
+
+    -- our own parts must not push the player we circle
+    if ob.PartsChar ~= char then
+        ob.PartsChar = char
+        ob.Parts = {}
+        for _, d in ipairs(char:GetDescendants()) do
+            if d:IsA("BasePart") then ob.Parts[#ob.Parts + 1] = d end
+        end
+    end
+    ob.Orig = ob.Orig or {}
+    for _, p in ipairs(ob.Parts) do
+        if p.Parent then
+            if ob.Orig[p] == nil then ob.Orig[p] = p.CanCollide end
+            p.CanCollide = false
+        end
+    end
+
+    ob.A = ob.A + ob.Speed * math.min(dt, 0.1)
+    local c = troot.Position
+    local pos = c + Vector3.new(math.cos(ob.A) * ob.Dist, 0, math.sin(ob.A) * ob.Dist)
+    root.CFrame = CFrame.lookAt(pos, c)
+    root.AssemblyLinearVelocity = Vector3.zero
+    root.AssemblyAngularVelocity = Vector3.zero
+end
+
+function DHT.OrbSet(on)
+    local ob = DHT.Orb
+    if ob.Conn then
+        ob.Conn:Disconnect()
+        ob.Conn = nil
+    end
+    DHT.OrbRestore()
+    ob.Following = on and true or false
+    DHT.OrbSetBtn()
+    if not on then return end
+
+    local ok, ev = pcall(function() return RunService.PreSimulation end)
+    if not (ok and ev) then ev = RunService.Stepped end
+    ob.Conn = ev:Connect(function(a, b)
+        -- PreSimulation gives (dt), Stepped gives (time, dt)
+        pcall(DHT.OrbStep, b or a)
+    end)
+end
+
+-- ---------- Click Fling: tap a player in the world, the same fling as Fling Player ----------
+function DHT.CfSay(text)
+    if DHT.CfNote then DHT.CfNote.Text = text end
+end
+
+function DHT.CfTarget(sp)
+    local cam = workspace.CurrentCamera
+    if not cam then return nil end
+    -- touch / mouse positions are viewport coordinates, so use ViewportPointToRay
+    local ray = cam:ViewportPointToRay(sp.X, sp.Y)
+    local rp = RaycastParams.new()
+    rp.FilterType = Enum.RaycastFilterType.Exclude
+    rp.FilterDescendantsInstances = {Player.Character}
+    local hit = workspace:Raycast(ray.Origin, ray.Direction * 2000, rp)
+    local inst = hit and hit.Instance
+    while inst and inst ~= workspace do
+        local pl = Players:GetPlayerFromCharacter(inst)
+        if pl then
+            if pl ~= Player then return pl end
+            break
+        end
+        inst = inst.Parent
+    end
+
+    -- forgiving pick: the closest player on screen to the tap (works from far away)
+    local best, bestD = nil, 70
+    for _, p in ipairs(Players:GetPlayers()) do
+        if p ~= Player then
+            local ch = p.Character
+            local r = ch and (ch:FindFirstChild("HumanoidRootPart") or ch.PrimaryPart)
+            if r then
+                local v, onScreen = cam:WorldToViewportPoint(r.Position)
+                if onScreen and v.Z > 0 then
+                    local d = (Vector2.new(v.X, v.Y) - Vector2.new(sp.X, sp.Y)).Magnitude
+                    if d < bestD then
+                        best, bestD = p, d
+                    end
+                end
+            end
+        end
+    end
+    return best
+end
+
+function DHT.CfGo(sp)
+    if FlingActive then return end
+    local pl = DHT.CfTarget(sp)
+    if not pl then
+        DHT.CfSay("No player there")
+        task.delay(1, function()
+            if DHT.Cf.On and not FlingActive then DHT.CfSay("Tap a player in the world to fling them") end
+        end)
+        return
+    end
+    local ch = pl.Character
+    local hm = ch and ch:FindFirstChildOfClass("Humanoid")
+    if not hm or hm.Health <= 0 then return end
+    FlingActive = true
+    DHT.CfSay("Flinging " .. pl.DisplayName .. "...")
+    FlingStatus.Text = "Click Fling: " .. pl.Name
+    task.spawn(function()
+        pcall(SkidFling, pl)
+        FlingActive = false
+        pcall(UpdateFlingStatus)
+        DHT.CfSay("Tap a player in the world to fling them")
+    end)
+end
+
+function DHT.CfSet(on)
+    local cf = DHT.Cf
+    if cf.Tap then
+        cf.Tap:Disconnect()
+        cf.Tap = nil
+    end
+    if cf.Click then
+        cf.Click:Disconnect()
+        cf.Click = nil
+    end
+    cf.On = on and true or false
+    DHT.CfSay(on and "Tap a player in the world to fling them" or "Turn on, then tap a player in the world")
+    if not on then return end
+
+    cf.Tap = UIS.TouchTapInWorld:Connect(function(pos, processed)
+        if processed then return end
+        pcall(DHT.CfGo, pos)
+    end)
+    cf.Click = UIS.InputBegan:Connect(function(input, gp)
+        if gp then return end
+        if input.UserInputType == Enum.UserInputType.MouseButton1 then
+            pcall(DHT.CfGo, input.Position)
+        end
+    end)
+end
+
+-- ---------- Lag Switch: holds back your outgoing data, others see you frozen ----------
+function DHT.LagLimit(v)
+    return pcall(function()
+        game:GetService("NetworkClient"):SetOutgoingKBPSLimit(v)
+    end)
+end
+
+function DHT.LagRelease()
+    if not DHT.LagLimit(math.huge) then DHT.LagLimit(2 ^ 30) end
+end
+
+function DHT.LagSet(on)
+    local lg = DHT.Lag
+    lg.Token = lg.Token + 1
+    local my = lg.Token
+    if on then
+        if not DHT.LagLimit(1) then
+            task.defer(function()
+                if DHT.LagApi then DHT.LagApi.Set(false) end
+                DHT.LagNote.Text = "Not supported by your executor"
+            end)
+            return
+        end
+        DHT.LagNote.Text = "Lag is ON, it releases by itself after " .. lg.Secs .. " seconds"
+        task.delay(lg.Secs, function()
+            if lg.Token == my and DHT.LagApi and DHT.LagApi.On then
+                DHT.LagApi.Set(false)
+            end
+        end)
+    else
+        DHT.LagRelease()
+        DHT.LagNote.Text = "Others see you frozen while it is ON. Too long can disconnect you."
+    end
+end
+
+function DHT.Build()
+    -- SPIN
+    local sec = DHT.Section(900, 150, "SPIN", Color3.fromRGB(255, 170, 60))
+    DHT.SpinApi = DHT.Toggle(sec, 40, "Spin", DHT.SpinSet)
+    DHT.Slider(sec, 82, "Spin Speed (turns per second)", 1, 30, 5, 1, "%.0f", function(v) DHT.Spin.Speed = v end)
+
+    -- ORBIT PLAYER
+    sec = DHT.Section(1060, 330, "ORBIT PLAYER", Color3.fromRGB(80, 200, 255))
+    local search = Instance.new("TextBox", sec)
+    search.Size = UDim2.new(1, -20, 0, 30)
+    search.Position = UDim2.new(0, 10, 0, 38)
+    search.BackgroundColor3 = Color3.fromRGB(35, 35, 35)
+    search.PlaceholderText = "Search player..."
+    search.Text = ""
+    search.TextColor3 = Color3.new(1, 1, 1)
+    search.Font = Enum.Font.Gotham
+    search.TextSize = 13
+    search.ClipsDescendants = true
+    Instance.new("UICorner", search).CornerRadius = UDim.new(0, 6)
+    DHT.OrbSearch = search
+
+    local list = Instance.new("ScrollingFrame", sec)
+    list.Size = UDim2.new(1, -20, 0, 80)
+    list.Position = UDim2.new(0, 10, 0, 72)
+    list.BackgroundColor3 = Color3.fromRGB(35, 35, 35)
+    list.ScrollBarThickness = 1
+    list.CanvasSize = UDim2.new(0, 0, 0, 0)
+    list.ClipsDescendants = true
+    Instance.new("UICorner", list).CornerRadius = UDim.new(0, 6)
+    local layout = Instance.new("UIListLayout", list)
+    layout.Padding = UDim.new(0, 2)
+    layout:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function()
+        list.CanvasSize = UDim2.new(0, 0, 0, layout.AbsoluteContentSize.Y)
+    end)
+    DHT.OrbList = list
+
+    DHT.Slider(sec, 158, "Distance", 3, 40, 12, 1, "%.0f", function(v) DHT.Orb.Dist = v end)
+    DHT.Slider(sec, 216, "Speed", 0.5, 10, 2, 0.5, "%.1f", function(v) DHT.Orb.Speed = v end)
+
+    local refresh = DHT.Btn(sec, UDim2.new(0, 10, 0, 284), UDim2.new(0.48, -5, 0, 32), "Refresh List", Color3.fromRGB(100, 100, 100))
+    DHT.OrbBtn = DHT.Btn(sec, UDim2.new(0.52, 5, 0, 284), UDim2.new(0.48, -5, 0, 32), "Orbit", Color3.fromRGB(40, 140, 200))
+    refresh.MouseButton1Click:Connect(DHT.OrbFill)
+    DHT.OrbBtn.MouseButton1Click:Connect(function()
+        if DHT.Orb.Following then
+            DHT.OrbSet(false)
+            return
+        end
+        if not (DHT.Orb.Target and DHT.Orb.Target.Parent) then
+            DHT.OrbHint("Select a player first!")
+            return
+        end
+        DHT.OrbSet(true)
+    end)
+    search:GetPropertyChangedSignal("Text"):Connect(DHT.OrbFilter)
+    Players.PlayerAdded:Connect(DHT.OrbFill)
+    Players.PlayerRemoving:Connect(function() task.defer(DHT.OrbFill) end)
+    DHT.OrbFill()
+
+    -- CLICK FLING
+    sec = DHT.Section(1400, 115, "CLICK FLING", Color3.fromRGB(255, 100, 100))
+    DHT.CfApi = DHT.Toggle(sec, 40, "Click Fling", DHT.CfSet)
+    DHT.CfNote = DHT.Note(sec, 80, "Turn on, then tap a player in the world")
+
+    -- LAG SWITCH
+    sec = DHT.Section(1525, 185, "LAG SWITCH", Color3.fromRGB(255, 220, 80))
+    DHT.LagApi = DHT.Toggle(sec, 40, "Lag Switch", DHT.LagSet)
+    DHT.Slider(sec, 82, "Lag Time (seconds, then it releases)", 1, 15, 5, 1, "%.0f", function(v) DHT.Lag.Secs = v end)
+    DHT.LagNote = DHT.Note(sec, 146, "Others see you frozen while it is ON. Too long can disconnect you.")
+end
+
+pcall(DHT.Build)
+
+ScreenGui.Destroying:Connect(function()
+    for _, f in ipairs(DHT.Offs or {}) do pcall(f) end
+    pcall(DHT.OrbSet, false)
+end)
+
 end
 
 -- ================================================
@@ -18975,21 +19500,43 @@ function DHMods.FloatSet(on)
             platY = root.Position.Y - hh - root.Size.Y / 2 - 0.5
             DHMods.FloatBase = platY
         end
+        local hh = hum.HipHeight
+        if hum.RigType == Enum.HumanoidRigType.R6 then hh = 2 end
+        local feetY = root.Position.Y - hh - root.Size.Y / 2
         local dir = DHMods.FloatDir or 0
-        platY = platY + dir * 14 * dt
-        if DHMods.FloatBase and platY > DHMods.FloatBase + 300 then
-            platY = DHMods.FloatBase + 300
-        end
-        if dir < 0 then
-            -- going down: stop at the real ground so the pad never sinks into the floor
-            local rp = RaycastParams.new()
-            rp.FilterType = Enum.RaycastFilterType.Exclude
-            rp.FilterDescendantsInstances = {char, part}
-            rp.RespectCanCollide = true
-            local hit = workspace:Raycast(root.Position, Vector3.new(0, -600, 0), rp)
-            if hit then
-                local minY = hit.Position.Y - 0.5
-                if platY < minY then platY = minY end
+        if DHMods.FlyActive then
+            -- Fly: the pad stays right under your feet (no collision while flying), so it is there when you stop
+            platY = feetY - 0.6
+            DHMods.FloatBase = platY
+            part.CanCollide = false
+        else
+            part.CanCollide = true
+            platY = platY + dir * 14 * dt
+            if DHMods.FloatBase and platY > DHMods.FloatBase + 300 then
+                platY = DHMods.FloatBase + 300
+            end
+            if dir < 0 then
+                -- going down: stop at the real ground so the pad never sinks into the floor
+                local rp = RaycastParams.new()
+                rp.FilterType = Enum.RaycastFilterType.Exclude
+                rp.FilterDescendantsInstances = {char, part}
+                rp.RespectCanCollide = true
+                local hit = workspace:Raycast(root.Position, Vector3.new(0, -600, 0), rp)
+                if hit then
+                    local minY = hit.Position.Y - 0.5
+                    if platY < minY then platY = minY end
+                end
+            end
+            local top = platY + 0.5
+            if feetY < top - 6 then
+                -- far below the pad (fell, teleported, noclip): the pad comes to you
+                platY = feetY - 0.5
+                DHMods.FloatBase = platY
+            elseif feetY < top - 0.05 and DHMods.NcConn and root.AssemblyLinearVelocity.Y <= 0.5 then
+                -- Noclip lets your body fall through the pad, so stand on it by hand
+                root.CFrame = root.CFrame + Vector3.new(0, top - feetY, 0)
+                local v = root.AssemblyLinearVelocity
+                root.AssemblyLinearVelocity = Vector3.new(v.X, 0, v.Z)
             end
         end
         part.CFrame = CFrame.new(root.Position.X, platY, root.Position.Z)
@@ -19456,7 +20003,7 @@ end
     if not DHMods.Scroll then return end
     DHMods.Header("MOVEMENT")
 
-    DHMods.AddToggle("Float", "Stand on a neon green pad in the air", DHMods.FloatSet)
+    DHMods.AddToggle("Float", "Stand on a neon green pad in the air, follows you while flying", DHMods.FloatSet)
 
     -- hold to go up / down while Float is ON
     DHMods.N = DHMods.N + 1
@@ -20019,9 +20566,9 @@ function DHMods.AbParts(ch)
 end
 
 -- Hitbox (client side). Modes: Box (extra welded part), Torso (real torso part), Root (HumanoidRootPart, like common hitbox scripts).
--- Works on every team (it ignores Team Check and Target Team). The original values live on the part itself (attributes),
+-- Has its own Team Check and Target Team (separate from the Aimbot ones). The original values live on the part itself (attributes),
 -- so turning it off or changing the mode always puts everything back.
-DHMods.Hit = {On = false, Size = 8, Mode = "Root", Token = 0}
+DHMods.Hit = {On = false, Size = 8, Mode = "Root", Token = 0, Team = false, TeamPick = "All"}
 
 function DHMods.HitPart(ch, mode)
     if mode == "Root" then
@@ -20076,6 +20623,16 @@ function DHMods.HitTarget(ch)
     return nil
 end
 
+-- Hitbox has its own team filter (Team Check and Hitbox Target Team), separate from the Aimbot ones
+function DHMods.HitTeamSkip(pl)
+    local h = DHMods.Hit
+    if h.Team and pl.Team ~= nil and pl.Team == Player.Team then return true end
+    local pick = h.TeamPick
+    if not pick or pick == "All" then return false end
+    if not game:GetService("Teams"):FindFirstChild(pick) then return false end
+    return pl.Team == nil or pl.Team.Name ~= pick
+end
+
 function DHMods.HitStep()
     local h = DHMods.Hit
     local ab = DHMods.Ab
@@ -20085,7 +20642,7 @@ function DHMods.HitStep()
         local root = ch and ch:FindFirstChild("HumanoidRootPart")
         if root and pl ~= Player then
             local hum = ch:FindFirstChildOfClass("Humanoid")
-            local skip = (not hum) or hum.Health <= 0
+            local skip = (not hum) or hum.Health <= 0 or DHMods.HitTeamSkip(pl)
             if skip then
                 DHMods.HitClear(ch)
             elseif h.Mode == "Box" then
@@ -20300,7 +20857,7 @@ function BuildModsPart5()
     DHMods.AbApi = DHMods.AddToggle("Aimbot", "Aims your camera at the nearest head inside the circle", DHMods.AbSet)
     DHMods.AddSlider("Circle Size", 60, 500, 150, 10, "%.0f", function(v) DHMods.Ab.Size = v end)
     DHMods.AddSlider("Smoothness", 0, 95, 30, 5, "%.0f", function(v) DHMods.Ab.Smooth = v end)
-    DHMods.AddCycle("Target Part", "Tap to change: Head, Body or Closest", {"Head", "Body", "Closest"}, 1, function(v) DHMods.Ab.Part = v end)
+    DHMods.AddCycle("Target Part", "Tap to change: Head, Body or Closest", {"Head", "Body", "Closest"}, 3, function(v) DHMods.Ab.Part = v end)
     DHMods.AddToggle("Team Check", "Ignores players on your team", function(on) DHMods.Ab.Team = on end)
     DHMods.TeamOpts = {"All"}
     local function RebuildTeams()
@@ -20323,8 +20880,10 @@ function BuildModsPart5()
     end)
     DHMods.Header("HITBOX")
     DHMods.AddCycle("Hitbox Mode", "Tap to change: Box, Torso or Root (Root works like common hitbox scripts)", {"Box", "Torso", "Root"}, 3, function(v) DHMods.Hit.Mode = v; DHMods.HitRestoreAll() end)
-    DHMods.AddToggle("Hitbox", "Big see-through box on all other players, every team (client side)", DHMods.HitSet)
+    DHMods.AddToggle("Hitbox", "Big see-through box on other players (client side; has its own Team Check and Target Team)", DHMods.HitSet)
     DHMods.AddSlider("Hitbox Size", 2, 25, 8, 1, "%.0f", function(v) DHMods.Hit.Size = v end)
+    DHMods.AddToggle("Hitbox Team Check", "Ignores players on your team", function(on) DHMods.Hit.Team = on end)
+    DHMods.AddCycle("Hitbox Target Team", "Tap to pick the only team to enlarge (All = everyone)", DHMods.TeamOpts, 1, function(v) DHMods.Hit.TeamPick = v end)
     ScreenGui.Destroying:Connect(function() DHMods.HitSet(false) end)
 end
 
@@ -20636,6 +21195,13 @@ function DHFly.Step(dt)
         if DHFly.Root then DHFly.Detach(false) end
         DHFly.Attach(char, hum, root)
     end
+    
+    -- some maps delete body movers or reset PlatformStand: put them back instead of falling
+    if not (DHFly.BV and DHFly.BV.Parent == root and DHFly.BG and DHFly.BG.Parent == root) then
+        DHFly.Detach(false)
+        DHFly.Attach(char, hum, root)
+    end
+    if not hum.PlatformStand then hum.PlatformStand = true end
 
     local cam = workspace.CurrentCamera
     if not cam then return end
@@ -23287,6 +23853,7 @@ featureItems = {
     "   • Touch Fling & Fling specific players",
     "   • Select / deselect all targets",
     "   • Desync with Speed & TP Spawn",
+    "   • Spin, Orbit Player, Click Fling & Lag Switch",
     "   • Anti Admin Abuse: Unfreeze / Un-Ice & Un-Jail",
     "",
     "🎭 EMOTE TAB",
@@ -23926,10 +24493,17 @@ DHChangelogTags = {
 }
 
 DHChangelog = {
+    {id = 12, date = "2026-10-21", title = "What's New", items = {
+        {"Added", "Troll tab: Spin, spin your character around, with a speed slider."},
+        {"Added", "Troll tab: Orbit Player, circle around a player from the list, with distance and speed sliders."},
+        {"Added", "Troll tab: Click Fling, tap a player in the world to fling them."},
+        {"Added", "Troll tab: Lag Switch, holds back your outgoing data for a few seconds, then releases by itself (needs executor support)."},
+    }},
     {id = 11, date = "2026-10-20", title = "What's New", items = {
         {"Added", "Mods tab: Fly, fly where the camera looks and stay still in the air when you let go, with a Fly Speed slider."},
-        {"Changed", "Hitbox now works on every team, it no longer follows Team Check or Target Team."},
+        {"Changed", "Hitbox has its own Team Check and Target Team options, separate from the Aimbot ones."},
         {"Changed", "New defaults: Hitbox Mode is Root, and Target Part (Aimbot and Silent Aim) is Closest."},
+        {"Fixed", "Float pad now follows you while you fly, and when you are below it (Noclip stands you on it)."},
     }},
     {id = 10, date = "2026-10-19", title = "What's New", items = {
         {"Added", "Waypoint tab: waypoints are saved in the Waypoint folder, one file per map, so they stay after you rejoin."},
@@ -23937,10 +24511,6 @@ DHChangelog = {
         {"Added", "Waypoint tab: Death Point, the place where you died is saved as a waypoint automatically."},
         {"Added", "Waypoint tab: Markers, show the name and distance of every waypoint in the world."},
         {"Changed", "All player lists are now in alphabetical order (A to Z), names that start with a number come last."},
-    }},
-    {id = 9, date = "2026-10-18", title = "What's New", items = {
-        {"Added", "Joiner tab: Server Browser, load the public servers of this map (or any place ID), sort them and join one by hand."},
-        {"Added", "Joiner tab: Find Map, search maps by name and join one directly or open its servers."},
     }},
 }
 
