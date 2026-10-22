@@ -21484,6 +21484,16 @@ function DHInv.Step()
     if cam and cam.CameraSubject ~= gh then cam.CameraSubject = gh end
 
     gh.WalkSpeed = DHInv.Speed
+    -- Shiftlock (or any script that turns AutoRotate off): the ghost faces where the camera looks
+    local locked = hum.AutoRotate == false or UIS.MouseBehavior == Enum.MouseBehavior.LockCenter
+    gh.AutoRotate = not locked
+    if locked and cam then
+        local look = cam.CFrame.LookVector
+        local flat = Vector3.new(look.X, 0, look.Z)
+        if flat.Magnitude > 0.01 then
+            gr.CFrame = CFrame.lookAt(gr.Position, gr.Position + flat)
+        end
+    end
     gh:Move(hum.MoveDirection, false)
     if hum.Jump then gh.Jump = true end
     if gr.Position.Y < workspace.FallenPartsDestroyHeight + 50 and DHInv.Start then
@@ -21553,18 +21563,27 @@ function DHInv.Exit()
         DHInv.JumpConn:Disconnect()
         DHInv.JumpConn = nil
     end
-    -- each step is protected on its own, so the ghost and camera are always cleaned up
+    -- the body stays anchored while it travels back, so it cannot fall before the ground is ready
     pcall(function()
-        local rr = char and char:FindFirstChild("HumanoidRootPart")
-        if rr then rr.Anchored = false end
         if cf then
             if DHSafeState and DHSafeState() then
                 DHSafeSetReturn(cf)
                 ToggleSafeZone()
-            elseif char and rr then
+            elseif char then
                 char:PivotTo(cf)
             end
         end
+    end)
+    pcall(function()
+        task.wait(0.15)
+        local rr = char and char:FindFirstChild("HumanoidRootPart")
+        local hum = char and char:FindFirstChildOfClass("Humanoid")
+        if rr then
+            rr.AssemblyLinearVelocity = Vector3.zero
+            rr.AssemblyAngularVelocity = Vector3.zero
+            rr.Anchored = false
+        end
+        if hum then hum:ChangeState(Enum.HumanoidStateType.Landed) end
     end)
     DHInv.Cleanup()
 end
