@@ -24894,7 +24894,7 @@ function DHWhatsNew()
     Line("What's New:", 18, Color3.new(1, 1, 1), Enum.Font.GothamBold)
 
     for idx, entry in ipairs(DHChangelog) do
-        local head = "Update " .. tostring(entry.id) .. "  (" .. Esc(tostring(entry.date)) .. ")"
+        local head = "Update " .. string.char(64 + idx) .. "  (" .. Esc(tostring(entry.date)) .. ")"
         if idx == 1 then head = head .. '  <font color="#50C86E">NEW</font>' end
         Line(head, 14, gold, Enum.Font.GothamBold)
         -- plain text notes (no category) come first
