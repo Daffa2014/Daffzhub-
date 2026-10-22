@@ -4055,6 +4055,35 @@ function DHMusic.Build()
 end
 pcall(DHMusic.Build)
 
+-- Loop: small button on top of the seek bar, repeats the track
+DHMusic.Loop = false
+function DHMusic.BuildLoop()
+    local sec = DHMusic.Bar and DHMusic.Bar.Parent
+    if not sec then return end
+
+    local btn = Instance.new("TextButton", sec)
+    btn.Size = UDim2.new(0, 84, 0, 18)
+    btn.Position = UDim2.new(0.5, -42, 0, 1)
+    btn.Font = Enum.Font.GothamBold
+    btn.TextSize = 11
+    btn.TextColor3 = Color3.new(1, 1, 1)
+    Instance.new("UICorner", btn).CornerRadius = UDim.new(0, 5)
+
+    local function Show()
+        btn.Text = DHMusic.Loop and "Loop: ON" or "Loop: OFF"
+        btn.BackgroundColor3 = DHMusic.Loop and Color3.fromRGB(35, 160, 90) or Color3.fromRGB(60, 60, 60)
+    end
+    Show()
+    btn.MouseButton1Click:Connect(function()
+        DHMusic.Loop = not DHMusic.Loop
+        Show()
+        if CurrentSound and CurrentSound.Parent then
+            CurrentSound.Looped = DHMusic.Loop
+        end
+    end)
+end
+pcall(DHMusic.BuildLoop)
+
 MusicBox:GetPropertyChangedSignal("Text"):Connect(DHMusic.SetPlayText)
 
 -- Play button (becomes Resume while paused on the same ID)
@@ -4076,6 +4105,7 @@ PlayBtn.MouseButton1Click:Connect(function()
         CurrentSound.SoundId = "rbxassetid://" .. id
         CurrentSound.Volume = currentVolume / 10
         CurrentSound:SetAttribute("DH_Music", true) -- so "No Audio" does not mute the hub music
+        CurrentSound.Looped = DHMusic.Loop == true
         CurrentSound.Parent = workspace
         DHMusic.Id = id
         DHMusic.Paused = false
@@ -4567,6 +4597,8 @@ local safeZoneActive = false
 local safeZonePlatform = nil
 local safeZoneReturnCF = nil
 local SAFEZONE_POSITION = Vector3.new(0, 10000, 0)
+function DHSafeState() return safeZoneActive end
+function DHSafeSetReturn(cf) safeZoneReturnCF = cf end
 
 function ToggleSafeZone()
     local char = Player.Character
@@ -4626,20 +4658,22 @@ function ToggleSafeZone()
         TPSafeZoneBtn.BackgroundColor3 = Color3.fromRGB(230, 140, 30)
     else
         -- TELEPORT BACK ke posisi asal
-        if safeZoneReturnCF then
+        -- keep our own copy: the monitor below may clear safeZoneReturnCF once we leave the zone
+        local retCF = safeZoneReturnCF
+        if retCF then
             pcall(function()
-                Player:RequestStreamAroundAsync(safeZoneReturnCF.Position, 5)
+                Player:RequestStreamAroundAsync(retCF.Position, 5)
             end)
 
             for i = 1, 8 do
                 pcall(function()
-                    char:PivotTo(safeZoneReturnCF)
+                    char:PivotTo(retCF)
                 end)
                 task.wait(0.15)
 
                 local root = char:FindFirstChild("HumanoidRootPart")
                 if root then
-                    local dist = (root.Position - safeZoneReturnCF.Position).Magnitude
+                    local dist = (root.Position - retCF.Position).Magnitude
                     if dist < 10 then
                         break
                     end
@@ -13243,7 +13277,7 @@ function DHT.Slider(parent, y, title, min, max, default, step, fmt, onChange)
         r = (v - min) / (max - min)
         fill.Size = UDim2.new(r, 0, 1, 0)
         knob.Position = UDim2.new(r, 0, 0.5, 0)
-        val.Text = string.format(fmt, v)
+        val.Text = type(fmt) == "function" and fmt(v) or string.format(fmt, v)
         pcall(onChange, v)
     end
     local function FromInput(input)
@@ -13276,13 +13310,29 @@ function DHT.SpinStep(dt)
     if DHMods and (DHMods.WwActive or DHMods.FlyActive) then return end
     local char = Player.Character
     local hum = char and char:FindFirstChildOfClass("Humanoid")
-    local root = hum and hum.RootPart
+    local root = char and (char:FindFirstChild("HumanoidRootPart") or (hum and hum.RootPart))
     if not (hum and root) or hum.Health <= 0 then return end
+    -- new character after a respawn: forget the old AutoRotate memory
+    if sp.Char ~= char then
+        sp.Char = char
+        sp.AutoRot = false
+    end
     if hum.AutoRotate then
         sp.AutoRot = true
         hum.AutoRotate = false
     end
     root.CFrame = root.CFrame * CFrame.Angles(0, sp.Speed * 2 * math.pi * math.min(dt, 0.1), 0)
+end
+
+function DHT.SpinConnect()
+    local sp = DHT.Spin
+    if sp.Conn then
+        sp.Conn:Disconnect()
+        sp.Conn = nil
+    end
+    sp.Conn = RunService.Heartbeat:Connect(function(dt)
+        pcall(DHT.SpinStep, dt)
+    end)
 end
 
 function DHT.SpinSet(on)
@@ -13291,14 +13341,25 @@ function DHT.SpinSet(on)
         sp.Conn:Disconnect()
         sp.Conn = nil
     end
+    if sp.CharConn then
+        sp.CharConn:Disconnect()
+        sp.CharConn = nil
+    end
     local char = Player.Character
     local hum = char and char:FindFirstChildOfClass("Humanoid")
     if hum and sp.AutoRot then hum.AutoRotate = true end
     sp.AutoRot = false
+    sp.Char = nil
     sp.On = on and true or false
     if not on then return end
-    sp.Conn = RunService.Heartbeat:Connect(function(dt)
-        pcall(DHT.SpinStep, dt)
+    DHT.SpinConnect()
+    -- after a respawn: start again on the new character
+    sp.CharConn = Player.CharacterAdded:Connect(function()
+        sp.Char = nil
+        sp.AutoRot = false
+        task.defer(function()
+            if sp.On then DHT.SpinConnect() end
+        end)
     end)
 end
 
@@ -13544,6 +13605,10 @@ function DHT.LagSet(on)
             end)
             return
         end
+        if lg.Secs <= 0 then
+            DHT.LagNote.Text = "Hold mode: lag stays ON until you turn it off"
+            return
+        end
         DHT.LagNote.Text = "Lag is ON, it releases by itself after " .. lg.Secs .. " seconds"
         task.delay(lg.Secs, function()
             if lg.Token == my and DHT.LagApi and DHT.LagApi.On then
@@ -13622,7 +13687,7 @@ function DHT.Build()
     -- LAG SWITCH
     sec = DHT.Section(1525, 185, "LAG SWITCH", Color3.fromRGB(255, 220, 80))
     DHT.LagApi = DHT.Toggle(sec, 40, "Lag Switch", DHT.LagSet)
-    DHT.Slider(sec, 82, "Lag Time (seconds, then it releases)", 1, 15, 5, 1, "%.0f", function(v) DHT.Lag.Secs = v end)
+    DHT.Slider(sec, 82, "Lag Time (seconds, 0 = Hold)", 0, 15, 5, 1, function(v) return v == 0 and "Hold" or string.format("%.0f", v) end, function(v) DHT.Lag.Secs = v end)
     DHT.LagNote = DHT.Note(sec, 146, "Others see you frozen while it is ON. Too long can disconnect you.")
 end
 
@@ -21267,6 +21332,272 @@ end
 
 pcall(BuildModsPart8)
 
+-- ================================================
+-- MODS TAB (part 9): Invisible, your body waits in the Safe Zone, you control a ghost
+-- ================================================
+DHInv = {Want = false, Active = false, Busy = false, Speed = 16, Tracks = {}}
+
+function DHInv.Hint(text)
+    local d = DHInv.Api and DHInv.Api.Desc
+    if not d then return end
+    local old = "Your body waits in the Safe Zone, you control a ghost"
+    d.Text = text
+    task.delay(2.5, function()
+        if d.Parent then d.Text = old end
+    end)
+end
+
+function DHInv.MakeGhost(char, cf)
+    char.Archivable = true
+    local ok, ghost = pcall(function() return char:Clone() end)
+    if not ok or not ghost then return nil end
+    ghost.Name = "DaffzGhost"
+    for _, d in ipairs(ghost:GetDescendants()) do
+        if d:IsA("LuaSourceContainer") or d:IsA("Sound") then
+            d:Destroy()
+        elseif d:IsA("BasePart") then
+            if d.Name ~= "HumanoidRootPart" then
+                d.Transparency = 0.45
+                d.Material = Enum.Material.ForceField
+                d.Color = Color3.fromRGB(150, 220, 255)
+            end
+            d.CanTouch = false
+        elseif d:IsA("Decal") then
+            d.Transparency = 0.5
+        end
+    end
+    local gh = ghost:FindFirstChildOfClass("Humanoid")
+    local gr = ghost:FindFirstChild("HumanoidRootPart")
+    if not (gh and gr) then
+        ghost:Destroy()
+        return nil
+    end
+    gh.DisplayDistanceType = Enum.HumanoidDisplayDistanceType.None
+    gh.HealthDisplayType = Enum.HumanoidHealthDisplayType.AlwaysOff
+    ghost.Parent = workspace
+    ghost:PivotTo(cf)
+    return ghost, gh, gr
+end
+
+function DHInv.LoadAnims(char, gh)
+    DHInv.Tracks = {}
+    DHInv.Cur = nil
+    local an = char:FindFirstChild("Animate")
+    if not an then return end
+    local animator = gh:FindFirstChildOfClass("Animator")
+    if not animator then animator = Instance.new("Animator", gh) end
+    local function Load(key, a, b, looped)
+        local ok, id = pcall(function() return an[a][b].AnimationId end)
+        if not ok or not id or id == "" then return end
+        local anim = Instance.new("Animation")
+        anim.AnimationId = id
+        local ok2, tr = pcall(function() return animator:LoadAnimation(anim) end)
+        if ok2 and tr then
+            tr.Looped = looped
+            DHInv.Tracks[key] = tr
+        end
+    end
+    Load("idle", "idle", "Animation1", true)
+    Load("walk", "walk", "WalkAnim", true)
+    Load("jump", "jump", "JumpAnim", false)
+    Load("fall", "fall", "FallAnim", true)
+end
+
+function DHInv.AnimStep()
+    local gh, gr = DHInv.GHum, DHInv.GRoot
+    local air = gh.FloorMaterial == Enum.Material.Air
+    local moving = gh.MoveDirection.Magnitude > 0.1
+    local state
+    if air then
+        state = gr.AssemblyLinearVelocity.Y > 1 and "jump" or "fall"
+    else
+        state = moving and "walk" or "idle"
+    end
+    if state ~= DHInv.Cur then
+        local old = DHInv.Tracks[DHInv.Cur]
+        if old then old:Stop(0.15) end
+        local new = DHInv.Tracks[state]
+        if new then new:Play(0.15) end
+        DHInv.Cur = state
+    end
+    if state == "walk" and DHInv.Tracks.walk then
+        DHInv.Tracks.walk:AdjustSpeed(math.max(0.3, gh.WalkSpeed / 16))
+    end
+end
+
+function DHInv.Cleanup()
+    if DHInv.Conn then
+        DHInv.Conn:Disconnect()
+        DHInv.Conn = nil
+    end
+    if DHInv.JumpConn then
+        DHInv.JumpConn:Disconnect()
+        DHInv.JumpConn = nil
+    end
+    for _, tr in pairs(DHInv.Tracks) do
+        pcall(function() tr:Stop(0) end)
+    end
+    DHInv.Tracks = {}
+    DHInv.Cur = nil
+    if DHInv.Ghost then
+        pcall(function() DHInv.Ghost:Destroy() end)
+        DHInv.Ghost = nil
+    end
+    -- also remove any ghost left behind by an earlier run
+    for _, g in ipairs(workspace:GetChildren()) do
+        if g.Name == "DaffzGhost" then pcall(function() g:Destroy() end) end
+    end
+    DHInv.GHum, DHInv.GRoot = nil, nil
+    DHInv.Active = false
+    -- camera always goes back to your own character
+    pcall(function()
+        local cam = workspace.CurrentCamera
+        local ch = Player.Character
+        local h = ch and ch:FindFirstChildOfClass("Humanoid")
+        if cam and h then
+            cam.CameraType = Enum.CameraType.Custom
+            cam.CameraSubject = h
+        end
+    end)
+end
+
+function DHInv.Step()
+    local char, hum = DHInv.Char, DHInv.RHum
+    local gh, gr = DHInv.GHum, DHInv.GRoot
+    -- real body died or was replaced: just clean up (the game puts the camera back)
+    if Player.Character ~= char or not hum or not hum.Parent or hum.Health <= 0 or not (gh and gh.Parent and gr and gr.Parent) then
+        DHInv.Cleanup()
+        DHInv.Want = false
+        if DHInv.Api then task.defer(function() DHInv.Api.Set(false) end) end
+        return
+    end
+    -- Safe Zone was turned off by hand in the Player tab: end Invisible too
+    if DHSafeState and not DHSafeState() then
+        DHInv.Want = false
+        if DHInv.Api then task.defer(function() DHInv.Api.Set(false) end) end
+        return
+    end
+
+    local rr = char:FindFirstChild("HumanoidRootPart")
+    if rr and not rr.Anchored then rr.Anchored = true end
+    local cam = workspace.CurrentCamera
+    if cam and cam.CameraSubject ~= gh then cam.CameraSubject = gh end
+
+    gh.WalkSpeed = DHInv.Speed
+    gh:Move(hum.MoveDirection, false)
+    if hum.Jump then gh.Jump = true end
+    if gr.Position.Y < workspace.FallenPartsDestroyHeight + 50 and DHInv.Start then
+        gr.CFrame = DHInv.Start
+        gr.AssemblyLinearVelocity = Vector3.zero
+    end
+    DHInv.AnimStep()
+end
+
+function DHInv.Enter()
+    if DHSafeState and DHSafeState() then
+        DHInv.Hint("Turn off Safe Zone first")
+        return false
+    end
+    if DHMods.FlyActive or DHMods.WwActive then
+        DHInv.Hint("Turn off Fly / Wall Walk first")
+        return false
+    end
+    local char = Player.Character
+    local hum = char and char:FindFirstChildOfClass("Humanoid")
+    local root = hum and hum.RootPart
+    if not (hum and root) or hum.Health <= 0 then
+        DHInv.Hint("No character")
+        return false
+    end
+    local cf = root.CFrame
+    local ghost, gh, gr = DHInv.MakeGhost(char, cf)
+    if not ghost then
+        DHInv.Hint("Could not make the ghost")
+        return false
+    end
+    DHInv.LoadAnims(char, gh)
+
+    -- send the real body to the Safe Zone (same as the Player tab button)
+    DHSafeSetReturn(cf)
+    ToggleSafeZone()
+    if not DHSafeState() then
+        ghost:Destroy()
+        DHInv.Hint("Safe Zone failed")
+        return false
+    end
+    local rr = char:FindFirstChild("HumanoidRootPart")
+    if rr then rr.Anchored = true end
+
+    DHInv.Char, DHInv.RHum = char, hum
+    DHInv.Ghost, DHInv.GHum, DHInv.GRoot = ghost, gh, gr
+    DHInv.Start = cf
+    DHInv.JumpConn = UIS.JumpRequest:Connect(function()
+        if DHInv.GHum then DHInv.GHum.Jump = true end
+    end)
+    DHInv.Conn = RunService.Heartbeat:Connect(function()
+        pcall(DHInv.Step)
+    end)
+    DHInv.Active = true
+    return true
+end
+
+function DHInv.Exit()
+    local gr = DHInv.GRoot
+    local cf = (gr and gr.Parent) and gr.CFrame or DHInv.Start
+    local char = DHInv.Char
+    if DHInv.Conn then
+        DHInv.Conn:Disconnect()
+        DHInv.Conn = nil
+    end
+    if DHInv.JumpConn then
+        DHInv.JumpConn:Disconnect()
+        DHInv.JumpConn = nil
+    end
+    -- each step is protected on its own, so the ghost and camera are always cleaned up
+    pcall(function()
+        local rr = char and char:FindFirstChild("HumanoidRootPart")
+        if rr then rr.Anchored = false end
+        if cf then
+            if DHSafeState and DHSafeState() then
+                DHSafeSetReturn(cf)
+                ToggleSafeZone()
+            elseif char and rr then
+                char:PivotTo(cf)
+            end
+        end
+    end)
+    DHInv.Cleanup()
+end
+
+function DHInv.Set(on)
+    DHInv.Want = on and true or false
+    if DHInv.Busy then return end
+    DHInv.Busy = true
+    task.spawn(function()
+        while DHInv.Want ~= DHInv.Active do
+            if DHInv.Want then
+                if not DHInv.Enter() then
+                    DHInv.Want = false
+                    if DHInv.Api then task.defer(function() DHInv.Api.Set(false) end) end
+                end
+            else
+                pcall(DHInv.Exit)
+                DHInv.Active = false
+            end
+        end
+        DHInv.Busy = false
+    end)
+end
+
+function BuildModsPart9()
+    if not DHMods.Scroll then return end
+    DHMods.Header("INVISIBLE")
+    DHInv.Api = DHMods.AddToggle("Invisible", "Your body waits in the Safe Zone, you control a ghost", DHInv.Set)
+    DHMods.AddSlider("Ghost Speed", 8, 100, 16, 2, "%.0f", function(v) DHInv.Speed = v end)
+end
+
+pcall(BuildModsPart9)
+
 CheckLoadingHalt()
 SetLoadProgress(78)
 
@@ -23816,6 +24147,7 @@ featureItems = {
     "   • Audio ID player with volume control, seek bar and search",
     "   • Saved music list (search, rename, auto execute)",
     "   • YouTube music player",
+    "   • Loop button (repeat the current track)",
     "",
     "👤 PLAYER TAB",
     "   • WalkSpeed & JumpPower modifier",
@@ -23897,6 +24229,8 @@ featureItems = {
     "   • Silent Aim (redirects shots, uses circle settings)",
     "   • Target Team: aim at one chosen team",
     "   • Hitbox (Box, Torso or Root) with size slider",
+    "   • Fly (camera direction, speed slider)",
+    "   • Invisible (ghost): your body waits in the Safe Zone",
     "",
     "⚙️ SETTING TAB",
     "   • Instant Prompt toggle",
@@ -24481,8 +24815,8 @@ end)
 task.wait(1)
 
 -- ================================================
--- WHAT'S NEW: a small popup, shown once for every new entry in the changelog
--- To announce an update: add a new entry on TOP of DHChangelog with the next id.
+-- WHAT'S NEW: a card in the Credit tab (under Version) that lists the latest entries of the changelog
+-- To announce an update: add a new entry on TOP of DHChangelog with the next id and remove the oldest (keep 3)..
 -- ================================================
 -- Each item is {"Category", "text"}. Categories: Added, Changed, Fixed, Removed (each has its own color).
 DHChangelogTags = {
@@ -24493,97 +24827,40 @@ DHChangelogTags = {
 }
 
 DHChangelog = {
-    {id = 12, date = "2026-10-21", title = "What's New", items = {
-        {"Added", "Troll tab: Spin, spin your character around, with a speed slider."},
-        {"Added", "Troll tab: Orbit Player, circle around a player from the list, with distance and speed sliders."},
-        {"Added", "Troll tab: Click Fling, tap a player in the world to fling them."},
-        {"Added", "Troll tab: Lag Switch, holds back your outgoing data for a few seconds, then releases by itself (needs executor support)."},
+    {id = 15, date = "2026-10-22", title = "What's New", items = {
+        {"Changed", "What's New is now a list in the Credit tab (under Version) instead of a popup."},
+        {"Fixed", "Invisible: turning it off now always removes the ghost and puts the camera back on you."},
+        {"Fixed", "Safe Zone: no more error when teleporting back."},
     }},
-    {id = 11, date = "2026-10-20", title = "What's New", items = {
-        {"Added", "Mods tab: Fly, fly where the camera looks and stay still in the air when you let go, with a Fly Speed slider."},
-        {"Changed", "Hitbox has its own Team Check and Target Team options, separate from the Aimbot ones."},
-        {"Changed", "New defaults: Hitbox Mode is Root, and Target Part (Aimbot and Silent Aim) is Closest."},
-        {"Fixed", "Float pad now follows you while you fly, and when you are below it (Noclip stands you on it)."},
+    {id = 14, date = "2026-10-21", title = "What's New", items = {
+        {"Added", "Mods tab: Invisible, your body waits in the Safe Zone and you control a ghost where you were, with a Ghost Speed slider."},
+        {"Added", "Music tab: Loop button, repeats the track you are playing."},
     }},
-    {id = 10, date = "2026-10-19", title = "What's New", items = {
-        {"Added", "Waypoint tab: waypoints are saved in the Waypoint folder, one file per map, so they stay after you rejoin."},
-        {"Added", "Waypoint tab: Back button, returns you to the spot you were at before your last teleport."},
-        {"Added", "Waypoint tab: Death Point, the place where you died is saved as a waypoint automatically."},
-        {"Added", "Waypoint tab: Markers, show the name and distance of every waypoint in the world."},
-        {"Changed", "All player lists are now in alphabetical order (A to Z), names that start with a number come last."},
+    {id = 13, date = "2026-10-21", title = "What's New", items = {
+        {"Added", "Troll tab: Lag Switch has a Hold mode, set Lag Time to 0 and it stays on until you turn it off."},
+        {"Fixed", "Troll tab: Click Fling is easier to aim, tap near a player (even far away) and it picks them."},
     }},
 }
 
 function DHWhatsNew()
-    local latest = DHChangelog[1]
-    if not latest then return end
+    if not CreditScroll then return end
+    local old = CreditScroll:FindFirstChild("DH_WhatsNew")
+    if old then old:Destroy() end
 
-    local HttpService = game:GetService("HttpService")
-    local path = "Daffzhub_file/seen_version.json"
-    local seen = 0
-    pcall(function()
-        if isfile and isfile(path) then
-            seen = tonumber(HttpService:JSONDecode(readfile(path)).id) or 0
-        end
-    end)
-    if seen >= latest.id then return end
-
-    local pop = Instance.new("Frame", ScreenGui)
-    pop.Name = "DH_WhatsNew"
-    pop.AnchorPoint = Vector2.new(0.5, 0.5)
-    pop.Position = UDim2.new(0.5, 0, 0.5, 0)
-    pop.Size = UDim2.new(0, 300, 0, 0)
-    pop.AutomaticSize = Enum.AutomaticSize.Y
-    pop.BackgroundColor3 = Color3.fromRGB(25, 25, 25)
-    pop.Active = true
-    pop.ZIndex = 200
-    Instance.new("UICorner", pop).CornerRadius = UDim.new(0, 12)
-    local stroke = Instance.new("UIStroke", pop)
-    stroke.Color = Color3.fromRGB(255, 200, 0)
-    stroke.Thickness = 1.5
-
-    local pad = Instance.new("UIPadding", pop)
-    pad.PaddingTop = UDim.new(0, 12)
+    local card = Instance.new("Frame", CreditScroll)
+    card.Name = "DH_WhatsNew"
+    card.Size = UDim2.new(1, 0, 0, 0)
+    card.AutomaticSize = Enum.AutomaticSize.Y
+    card.BackgroundColor3 = Color3.fromRGB(25, 25, 25)
+    Instance.new("UICorner", card).CornerRadius = UDim.new(0, 8)
+    local pad = Instance.new("UIPadding", card)
+    pad.PaddingTop = UDim.new(0, 10)
     pad.PaddingBottom = UDim.new(0, 12)
-    pad.PaddingLeft = UDim.new(0, 14)
-    pad.PaddingRight = UDim.new(0, 14)
-    local lay = Instance.new("UIListLayout", pop)
-    lay.Padding = UDim.new(0, 6)
+    pad.PaddingLeft = UDim.new(0, 12)
+    pad.PaddingRight = UDim.new(0, 12)
+    local lay = Instance.new("UIListLayout", card)
+    lay.Padding = UDim.new(0, 5)
     lay.SortOrder = Enum.SortOrder.LayoutOrder
-
-    local function Line(text, size, color, font, order, parent)
-        local l = Instance.new("TextLabel", parent or pop)
-        l.LayoutOrder = order
-        l.Size = UDim2.new(1, 0, 0, 0)
-        l.AutomaticSize = Enum.AutomaticSize.Y
-        l.BackgroundTransparency = 1
-        l.Text = text
-        l.Font = font
-        l.TextSize = size
-        l.TextColor3 = color
-        l.TextWrapped = true
-        l.TextXAlignment = Enum.TextXAlignment.Left
-        l.ZIndex = 201
-        return l
-    end
-
-    Line(latest.title .. "  (" .. latest.date .. ")", 17, Color3.fromRGB(255, 200, 0), Enum.Font.GothamBold, 0)
-    -- the notes sit in a small scroll area, so a long list never runs off the screen
-    local scroll = Instance.new("ScrollingFrame", pop)
-    scroll.LayoutOrder = 1
-    scroll.Size = UDim2.new(1, 0, 0, 60)
-    scroll.BackgroundTransparency = 1
-    scroll.BorderSizePixel = 0
-    scroll.ScrollBarThickness = 3
-    scroll.CanvasSize = UDim2.new(0, 0, 0, 0)
-    scroll.AutomaticCanvasSize = Enum.AutomaticSize.Y
-    scroll.ZIndex = 201
-    local slay = Instance.new("UIListLayout", scroll)
-    slay.Padding = UDim.new(0, 6)
-    slay.SortOrder = Enum.SortOrder.LayoutOrder
-    slay:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function()
-        scroll.Size = UDim2.new(1, 0, 0, math.min(slay.AbsoluteContentSize.Y, 240))
-    end)
 
     local function Esc(s)
         s = s:gsub("&", "&amp;")
@@ -24594,52 +24871,58 @@ function DHWhatsNew()
     local function Hex(c)
         return string.format("#%02X%02X%02X", math.floor(c.R * 255 + 0.5), math.floor(c.G * 255 + 0.5), math.floor(c.B * 255 + 0.5))
     end
+    local order = 0
+    local function Line(text, size, color, font)
+        order = order + 1
+        local l = Instance.new("TextLabel", card)
+        l.LayoutOrder = order
+        l.Size = UDim2.new(1, 0, 0, 0)
+        l.AutomaticSize = Enum.AutomaticSize.Y
+        l.BackgroundTransparency = 1
+        l.RichText = true
+        l.Text = text
+        l.Font = font
+        l.TextSize = size
+        l.TextColor3 = color
+        l.TextWrapped = true
+        l.TextXAlignment = Enum.TextXAlignment.Left
+        return l
+    end
 
     local gray = Color3.fromRGB(215, 215, 215)
-    local order = 1
-    -- plain text notes (no category) come first
-    for _, it in ipairs(latest.items) do
-        if type(it) == "string" then
-            Line("•  " .. it, 12, gray, Enum.Font.Gotham, order, scroll)
-            order = order + 1
+    local gold = Color3.fromRGB(255, 200, 0)
+    Line("What's New:", 18, Color3.new(1, 1, 1), Enum.Font.GothamBold)
+
+    for idx, entry in ipairs(DHChangelog) do
+        local head = "Update " .. tostring(entry.id) .. "  (" .. Esc(tostring(entry.date)) .. ")"
+        if idx == 1 then head = head .. '  <font color="#50C86E">NEW</font>' end
+        Line(head, 14, gold, Enum.Font.GothamBold)
+        -- plain text notes (no category) come first
+        for _, it in ipairs(entry.items) do
+            if type(it) == "string" then
+                Line("•  " .. Esc(it), 12, gray, Enum.Font.Gotham)
+            end
         end
-    end
-    -- then one colored group per category
-    for _, tg in ipairs(DHChangelogTags) do
-        local first = true
-        for _, it in ipairs(latest.items) do
-            if type(it) == "table" and it[1] == tg.key then
-                if first then
-                    first = false
-                    Line("●  " .. tg.key, 13, tg.color, Enum.Font.GothamBold, order, scroll)
-                    order = order + 1
+        -- then one colored line per item, in the order of the categories
+        for _, tg in ipairs(DHChangelogTags) do
+            for _, it in ipairs(entry.items) do
+                if type(it) == "table" and it[1] == tg.key then
+                    Line('<font color="' .. Hex(tg.color) .. '">●  ' .. tg.key .. ":</font>  " .. Esc(tostring(it[2])), 12, gray, Enum.Font.Gotham)
                 end
-                local l = Line("", 12, gray, Enum.Font.Gotham, order, scroll)
-                l.RichText = true
-                l.Text = '<font color="' .. Hex(tg.color) .. '">•</font>  ' .. Esc(tostring(it[2]))
-                order = order + 1
             end
         end
     end
 
-    local ok = Instance.new("TextButton", pop)
-    ok.LayoutOrder = 100
-    ok.Size = UDim2.new(1, 0, 0, 34)
-    ok.BackgroundColor3 = Color3.fromRGB(40, 170, 80)
-    ok.Text = "Got it"
-    ok.Font = Enum.Font.GothamBold
-    ok.TextSize = 14
-    ok.TextColor3 = Color3.new(1, 1, 1)
-    ok.ZIndex = 201
-    Instance.new("UICorner", ok).CornerRadius = UDim.new(0, 8)
-
-    ok.MouseButton1Click:Connect(function()
-        pcall(function()
-            if makefolder and isfolder and not isfolder("Daffzhub_file") then makefolder("Daffzhub_file") end
-            if writefile then writefile(path, HttpService:JSONEncode({id = latest.id})) end
-        end)
-        pop:Destroy()
-    end)
+    -- put the card right under the Version row, above "Content Inside Hub"
+    local n, after = 0, nil
+    for _, c in ipairs(CreditScroll:GetChildren()) do
+        if c:IsA("GuiObject") and c ~= card then
+            n = n + 10
+            c.LayoutOrder = n
+            if c == VersionFrame then after = n end
+        end
+    end
+    card.LayoutOrder = (after or n) + 5
 end
 
 task.spawn(function()
