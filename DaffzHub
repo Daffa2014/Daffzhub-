@@ -189,6 +189,10 @@ LogService.MessageOut:Connect(function(message, messageType)
     or string.find(message, "ShowScriptTab", 1, true)
     or string.find(message, "HideAllContent", 1, true)
 
+        -- Roblox prints WrapDeformer errors for layered clothing (also inside our preview): not a hub error
+        if string.find(message, "WrapDefomer", 1, true) or string.find(message, "SkinningTransfer", 1, true) then
+            isDaffzHubError = nil
+        end
         if isDaffzHubError and not loadingHalted then
             loadingHalted = true
             ShowErrorIndicator()
@@ -3246,6 +3250,180 @@ PlayerList.AutomaticCanvasSize = Enum.AutomaticSize.Y
 PlayerListLayout = Instance.new("UIListLayout", PlayerList)
 PlayerListLayout.Padding = UDim.new(0, 6)
 
+-- ---------- 3D PREVIEW (tap "3D" on a player above) ----------
+DHPv = {Yaw = 180, Pitch = 6, Dist = 7, Center = Vector3.new(0, 3, 0), Token = 0}
+
+function DHPv.Say(text)
+    if DHPv.Label then DHPv.Label.Text = text end
+end
+
+function DHPv.Cam()
+    local cam = DHPv.Camera
+    if not cam then return end
+    local rot = CFrame.Angles(0, math.rad(DHPv.Yaw), 0) * CFrame.Angles(math.rad(DHPv.Pitch), 0, 0)
+    cam.CFrame = CFrame.new(DHPv.Center + rot * Vector3.new(0, 0, DHPv.Dist), DHPv.Center)
+end
+
+function DHPv.Fit()
+    local model = DHPv.Model
+    if model then
+        local ok, cf, size = pcall(function() return model:GetBoundingBox() end)
+        if ok and cf then
+            DHPv.Center = cf.Position
+            DHPv.Dist = math.clamp(math.max(size.Y, size.X) * 1.7, 5, 30)
+        else
+            DHPv.Center = Vector3.new(0, 1, 0)
+            DHPv.Dist = 8
+        end
+    end
+    DHPv.Yaw = 180
+    DHPv.Pitch = 6
+    DHPv.Cam()
+end
+
+function DHPv.Show(model)
+    local vp = DHPv.View
+    if not vp then return end
+    if DHPv.Model then pcall(function() DHPv.Model:Destroy() end) DHPv.Model = nil end
+    if DHPv.World then pcall(function() DHPv.World:Destroy() end) DHPv.World = nil end
+    -- the world model keeps the joints working, so the body stays in one piece
+    local world = Instance.new("WorldModel")
+    world.Parent = vp
+    DHPv.World = world
+    for _, d in ipairs(model:GetDescendants()) do
+        if d:IsA("BaseScript") or d:IsA("Sound") then pcall(function() d:Destroy() end) end
+    end
+    -- layered clothing makes Roblox print "WrapDeformer" errors inside a viewport, so it is left out
+    for _, c in ipairs(model:GetChildren()) do
+        if c:IsA("Accessory") and c:FindFirstChildWhichIsA("WrapLayer", true) then pcall(function() c:Destroy() end) end
+    end
+    pcall(function()
+        local h = model:FindFirstChildOfClass("Humanoid")
+        if h then h.DisplayDistanceType = Enum.HumanoidDisplayDistanceType.None end
+    end)
+    model.Parent = world
+    local root = model:FindFirstChild("HumanoidRootPart")
+    if root then
+        root.Anchored = true
+        root.CFrame = CFrame.new(0, 0, 0)
+    else
+        for _, d in ipairs(model:GetDescendants()) do
+            if d:IsA("BasePart") then d.Anchored = true end
+        end
+    end
+    DHPv.Model = model
+    if DHPv.Camera then DHPv.Camera.FieldOfView = 40 end
+    DHPv.Fit()
+end
+
+-- p: a Player
+function DHPv.Load(p)
+    DHPv.Token = DHPv.Token + 1
+    local token = DHPv.Token
+    DHPv.Say("Loading " .. p.DisplayName .. "...")
+    task.spawn(function()
+        local ok, m = pcall(function() return Players:CreateHumanoidModelFromUserId(p.UserId) end)
+        if token ~= DHPv.Token then return end
+        if not (ok and m) then
+            DHPv.Say("Could not load the preview")
+            return
+        end
+        DHPv.Show(m)
+        DHPv.Say("Preview: " .. p.DisplayName .. " (@" .. p.Name .. ")")
+    end)
+end
+
+function DHPv.Build()
+    CreateSectionLabel("3D PREVIEW")
+    local box = Instance.new("Frame", InfoScroll)
+    box.Size = UDim2.new(1, 0, 0, 262)
+    box.BackgroundColor3 = Color3.fromRGB(25, 25, 25)
+    box.BorderSizePixel = 0
+    Instance.new("UICorner", box).CornerRadius = UDim.new(0, 8)
+
+    local vp = Instance.new("ViewportFrame", box)
+    vp.Position = UDim2.new(0, 8, 0, 8)
+    vp.Size = UDim2.new(1, -16, 0, 214)
+    vp.BackgroundColor3 = Color3.fromRGB(15, 15, 20)
+    vp.Ambient = Color3.fromRGB(190, 190, 190)
+    vp.LightColor = Color3.fromRGB(255, 255, 255)
+    vp.LightDirection = Vector3.new(-1, -1, -1)
+    Instance.new("UICorner", vp).CornerRadius = UDim.new(0, 6)
+    local cam = Instance.new("Camera", vp)
+    vp.CurrentCamera = cam
+    DHPv.View = vp
+    DHPv.Camera = cam
+    DHPv.Cam()
+
+    -- drag to rotate (mouse wheel zooms)
+    local drag = Instance.new("TextButton", vp)
+    drag.Size = UDim2.new(1, 0, 1, 0)
+    drag.BackgroundTransparency = 1
+    drag.Text = ""
+    drag.AutoButtonColor = false
+    drag.ZIndex = 5
+    local dragging = false
+    drag.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.Touch or input.UserInputType == Enum.UserInputType.MouseButton1 then
+            dragging = true
+            InfoScroll.ScrollingEnabled = false
+        end
+    end)
+    drag.InputEnded:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.Touch or input.UserInputType == Enum.UserInputType.MouseButton1 then
+            dragging = false
+            InfoScroll.ScrollingEnabled = true
+        end
+    end)
+    drag.InputChanged:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseWheel then
+            DHPv.Dist = math.clamp(DHPv.Dist - input.Position.Z * 0.8, 2, 40)
+            DHPv.Cam()
+        elseif dragging and (input.UserInputType == Enum.UserInputType.Touch or input.UserInputType == Enum.UserInputType.MouseMovement) then
+            DHPv.Yaw = (DHPv.Yaw - input.Delta.X * 0.6) % 360
+            DHPv.Pitch = math.clamp(DHPv.Pitch + input.Delta.Y * 0.4, -60, 70)
+            DHPv.Cam()
+        end
+    end)
+
+    local function mini(y, text, fn)
+        local b = Instance.new("TextButton", box)
+        b.Position = UDim2.new(1, -46, 0, y)
+        b.Size = UDim2.new(0, 30, 0, 28)
+        b.BackgroundColor3 = Color3.new(0, 0, 0)
+        b.BackgroundTransparency = 0.4
+        b.Text = text
+        b.Font = Enum.Font.GothamBold
+        b.TextSize = 14
+        b.TextColor3 = Color3.new(1, 1, 1)
+        b.ZIndex = 8
+        Instance.new("UICorner", b).CornerRadius = UDim.new(0, 6)
+        b.MouseButton1Click:Connect(fn)
+    end
+    mini(14, "+", function()
+        DHPv.Dist = math.clamp(DHPv.Dist * 0.85, 2, 40)
+        DHPv.Cam()
+    end)
+    mini(46, "-", function()
+        DHPv.Dist = math.clamp(DHPv.Dist / 0.85, 2, 40)
+        DHPv.Cam()
+    end)
+    mini(78, "R", function() DHPv.Fit() end)
+
+    DHPv.Label = Instance.new("TextLabel", box)
+    DHPv.Label.Position = UDim2.new(0, 10, 0, 228)
+    DHPv.Label.Size = UDim2.new(1, -20, 0, 26)
+    DHPv.Label.BackgroundTransparency = 1
+    DHPv.Label.Text = "Tap 3D on a player in the list above. Drag to rotate, +/- to zoom."
+    DHPv.Label.Font = Enum.Font.Gotham
+    DHPv.Label.TextSize = 11
+    DHPv.Label.TextColor3 = Color3.fromRGB(170, 170, 170)
+    DHPv.Label.TextXAlignment = Enum.TextXAlignment.Left
+    DHPv.Label.TextWrapped = true
+end
+
+pcall(DHPv.Build)
+
 local ServerStartTime = os.time()
 
 -- ================================================
@@ -3375,7 +3553,8 @@ local function updatePlayerList(search)
             avatarText.TextColor3 = Color3.new(1, 1, 1)
 
             local displayLabel = Instance.new("TextLabel", item)
-            displayLabel.Size = UDim2.new(1, -80, 0, 20)
+            displayLabel.Size = UDim2.new(1, -150, 0, 20)
+            displayLabel.TextTruncate = Enum.TextTruncate.AtEnd
             displayLabel.Position = UDim2.new(0, 40, 0, 3)
             displayLabel.BackgroundTransparency = 1
             displayLabel.Text = p.DisplayName
@@ -3385,7 +3564,8 @@ local function updatePlayerList(search)
             displayLabel.TextXAlignment = Enum.TextXAlignment.Left
 
             local nameLabel = Instance.new("TextLabel", item)
-            nameLabel.Size = UDim2.new(1, -80, 0, 15)
+            nameLabel.Size = UDim2.new(1, -150, 0, 15)
+            nameLabel.TextTruncate = Enum.TextTruncate.AtEnd
             nameLabel.Position = UDim2.new(0, 40, 0, 23)
             nameLabel.BackgroundTransparency = 1
             nameLabel.Text = "@" .. p.Name
@@ -3410,11 +3590,25 @@ local function updatePlayerList(search)
                     setclipboard(p.Name)
                 end
             end)
+            
+            local viewBtn = Instance.new("TextButton", item)
+            viewBtn.Size = UDim2.new(0, 36, 0, 28)
+            viewBtn.Position = UDim2.new(1, -100, 0.5, 0)
+            viewBtn.AnchorPoint = Vector2.new(1, 0.5)
+            viewBtn.BackgroundColor3 = Color3.fromRGB(40, 140, 200)
+            viewBtn.Text = "3D"
+            viewBtn.Font = Enum.Font.GothamBold
+            viewBtn.TextSize = 12
+            viewBtn.TextColor3 = Color3.new(1, 1, 1)
+            Instance.new("UICorner", viewBtn).CornerRadius = UDim.new(0, 4)
+            viewBtn.MouseButton1Click:Connect(function()
+                pcall(DHPv.Load, p)
+            end)
 
             if p == Player then
                 local youLabel = Instance.new("TextLabel", item)
                 youLabel.Size = UDim2.new(0, 35, 0, 18)
-                youLabel.Position = UDim2.new(1, -100, 0.5, -9)
+                youLabel.Position = UDim2.new(1, -142, 0.5, -9)
                 youLabel.BackgroundTransparency = 1
                 youLabel.Text = "YOU"
                 youLabel.Font = Enum.Font.GothamBold
@@ -6883,6 +7077,40 @@ Player.CharacterAdded:Connect(function(char)
     end
     applyJumpSettings()
 end)
+
+-- Jump button settings are saved in Daffzhub_file/Setting/JumpButton.json, so they stay after you rejoin
+DHJump = {Path = "Daffzhub_file/Setting/JumpButton.json", Token = 0}
+
+function DHJump.Load()
+    pcall(function()
+        if not (isfile and readfile and isfile(DHJump.Path)) then return end
+        local data = game:GetService("HttpService"):JSONDecode(readfile(DHJump.Path))
+        local ranges = {JumpSize = {50, 200}, JumpPosX = {-250, 200}, JumpPosY = {-300, 200}}
+        for key, r in pairs(ranges) do
+            local v = tonumber(data[key])
+            if v then Player:SetAttribute(key, math.clamp(math.floor(v), r[1], r[2])) end
+        end
+    end)
+end
+
+function DHJump.Save()
+    DHJump.Token = DHJump.Token + 1
+    local my = DHJump.Token
+    -- wait a moment so dragging a slider writes the file only once
+    task.delay(0.6, function()
+        if my ~= DHJump.Token then return end
+        pcall(function()
+            if not (writefile and makefolder and isfolder) then return end
+            if not isfolder("Daffzhub_file") then makefolder("Daffzhub_file") end
+            if not isfolder("Daffzhub_file/Setting") then makefolder("Daffzhub_file/Setting") end
+            writefile(DHJump.Path, game:GetService("HttpService"):JSONEncode({
+                JumpSize = Player:GetAttribute("JumpSize"),
+                JumpPosX = Player:GetAttribute("JumpPosX"),
+                JumpPosY = Player:GetAttribute("JumpPosY"),
+            }))
+        end)
+    end)
+end
 
 local function getJumpAttr(name, default)
     if Player:GetAttribute(name) == nil then
@@ -15923,16 +16151,6 @@ function BuildVisualFoundation()
     title.TextColor3 = Color3.fromRGB(100, 200, 255)
     title.TextXAlignment = Enum.TextXAlignment.Left
 
-    local badge = Instance.new("TextLabel", VisualContent)
-    badge.Size = UDim2.new(0, 52, 0, 18)
-    badge.Position = UDim2.new(0, 86, 0, 14)
-    badge.BackgroundColor3 = Color3.fromRGB(255, 170, 0)
-    badge.Text = "ALPHA"
-    badge.Font = Enum.Font.GothamBold
-    badge.TextSize = 11
-    badge.TextColor3 = Color3.fromRGB(30, 30, 30)
-    Instance.new("UICorner", badge).CornerRadius = UDim.new(1, 0)
-
     -- scrolling list of containers
     VisualScroll = Instance.new("ScrollingFrame", VisualContent)
     VisualScroll.Position = UDim2.new(0, 0, 0, 44)
@@ -21665,7 +21883,7 @@ SettingScroll.AutomaticCanvasSize = Enum.AutomaticSize.Y
 -- 4. SETTINGS CONTAINER (1 KONTAINER)
 -- ================================================
 SettingsContainer = Instance.new("Frame", SettingScroll)
-SettingsContainer.Size = UDim2.new(1, 0, 0, 755)
+SettingsContainer.Size = UDim2.new(1, 0, 0, 1000)
 SettingsContainer.BackgroundColor3 = Color3.fromRGB(25,25,25)
 SettingsContainer.ClipsDescendants = true
 Instance.new("UICorner", SettingsContainer).CornerRadius = UDim.new(0, 8)
@@ -21927,12 +22145,193 @@ JumpRefreshBtn.MouseButton1Click:Connect(function()
     applyJumpSettings()
 end)
 
+-- ---------- Jump presets: named saves you can use again (kept in Daffzhub_file/Setting/JumpPresets.json) ----------
+DHJump.PresetPath = "Daffzhub_file/Setting/JumpPresets.json"
+DHJump.Presets = {}
+
+function DHJump.PresetsLoad()
+    DHJump.Presets = {}
+    pcall(function()
+        if not (isfile and readfile and isfile(DHJump.PresetPath)) then return end
+        local data = game:GetService("HttpService"):JSONDecode(readfile(DHJump.PresetPath))
+        for _, p in ipairs(data) do
+            if type(p) == "table" and type(p.name) == "string" then
+                DHJump.Presets[#DHJump.Presets + 1] = {
+                    name = p.name,
+                    size = tonumber(p.size) or 75,
+                    x = tonumber(p.x) or 28,
+                    y = tonumber(p.y) or 22,
+                }
+            end
+        end
+    end)
+end
+
+function DHJump.PresetsSave()
+    pcall(function()
+        if not (writefile and makefolder and isfolder) then return end
+        if not isfolder("Daffzhub_file") then makefolder("Daffzhub_file") end
+        if not isfolder("Daffzhub_file/Setting") then makefolder("Daffzhub_file/Setting") end
+        writefile(DHJump.PresetPath, game:GetService("HttpService"):JSONEncode(DHJump.Presets))
+    end)
+end
+
+-- use a saved preset: moves the three sliders (which also applies and saves the current values)
+function DHJump.PresetUse(p)
+    updateSize(p.size)
+    updatePosX(p.x)
+    updatePosY(p.y)
+end
+
+function DHJump.PresetsFill()
+    local list = DHJump.PresetList
+    if not list then return end
+    for _, c in ipairs(list:GetChildren()) do
+        if c:IsA("Frame") then c:Destroy() end
+    end
+    for i, p in ipairs(DHJump.Presets) do
+        local row = Instance.new("Frame", list)
+        row.Size = UDim2.new(1, -8, 0, 30)
+        row.LayoutOrder = i
+        row.BackgroundColor3 = Color3.fromRGB(45, 45, 45)
+        Instance.new("UICorner", row).CornerRadius = UDim.new(0, 6)
+
+        local nm = Instance.new("TextLabel", row)
+        nm.Size = UDim2.new(1, -100, 1, 0)
+        nm.Position = UDim2.new(0, 8, 0, 0)
+        nm.BackgroundTransparency = 1
+        nm.Text = p.name .. "  (" .. p.size .. "%, " .. p.x .. ", " .. p.y .. ")"
+        nm.Font = Enum.Font.Gotham
+        nm.TextSize = 11
+        nm.TextColor3 = Color3.new(1, 1, 1)
+        nm.TextXAlignment = Enum.TextXAlignment.Left
+        nm.TextTruncate = Enum.TextTruncate.AtEnd
+
+        local use = Instance.new("TextButton", row)
+        use.Size = UDim2.new(0, 46, 0, 22)
+        use.Position = UDim2.new(1, -90, 0.5, -11)
+        use.BackgroundColor3 = Color3.fromRGB(40, 140, 200)
+        use.Text = "Use"
+        use.Font = Enum.Font.GothamBold
+        use.TextSize = 11
+        use.TextColor3 = Color3.new(1, 1, 1)
+        Instance.new("UICorner", use).CornerRadius = UDim.new(0, 5)
+        use.MouseButton1Click:Connect(function() DHJump.PresetUse(p) end)
+
+        local del = Instance.new("TextButton", row)
+        del.Size = UDim2.new(0, 34, 0, 22)
+        del.Position = UDim2.new(1, -40, 0.5, -11)
+        del.BackgroundColor3 = Color3.fromRGB(180, 60, 60)
+        del.Text = "X"
+        del.Font = Enum.Font.GothamBold
+        del.TextSize = 11
+        del.TextColor3 = Color3.new(1, 1, 1)
+        Instance.new("UICorner", del).CornerRadius = UDim.new(0, 5)
+        del.MouseButton1Click:Connect(function()
+            ShowConfirmPopup("Delete preset " .. p.name .. "?", Color3.fromRGB(180, 60, 60), function()
+                for k, q in ipairs(DHJump.Presets) do
+                    if q == p then
+                        table.remove(DHJump.Presets, k)
+                        break
+                    end
+                end
+                DHJump.PresetsSave()
+                DHJump.PresetsFill()
+            end)
+        end)
+    end
+end
+
+function DHJump.BuildPresets()
+    local sec = Instance.new("Frame", SettingsContainer)
+    sec.Size = UDim2.new(1, -20, 0, 235)
+    sec.Position = UDim2.new(0, 10, 0, 385)
+    sec.BackgroundColor3 = Color3.fromRGB(35, 35, 35)
+    Instance.new("UICorner", sec).CornerRadius = UDim.new(0, 8)
+
+    local hd = Instance.new("TextLabel", sec)
+    hd.Size = UDim2.new(1, -10, 0, 30)
+    hd.Position = UDim2.new(0, 10, 0, 5)
+    hd.BackgroundTransparency = 1
+    hd.Text = "Saved Jump Settings"
+    hd.Font = Enum.Font.GothamBold
+    hd.TextSize = 14
+    hd.TextColor3 = Color3.fromRGB(100, 200, 255)
+    hd.TextXAlignment = Enum.TextXAlignment.Left
+
+    local box = Instance.new("TextBox", sec)
+    box.Size = UDim2.new(1, -110, 0, 30)
+    box.Position = UDim2.new(0, 10, 0, 38)
+    box.BackgroundColor3 = Color3.fromRGB(25, 25, 25)
+    box.PlaceholderText = "Name (optional)..."
+    box.Text = ""
+    box.Font = Enum.Font.Gotham
+    box.TextSize = 12
+    box.TextColor3 = Color3.new(1, 1, 1)
+    box.ClearTextOnFocus = false
+    box.ClipsDescendants = true
+    Instance.new("UICorner", box).CornerRadius = UDim.new(0, 6)
+
+    local save = Instance.new("TextButton", sec)
+    save.Size = UDim2.new(0, 90, 0, 30)
+    save.Position = UDim2.new(1, -100, 0, 38)
+    save.BackgroundColor3 = Color3.fromRGB(30, 180, 30)
+    save.Text = "Save"
+    save.Font = Enum.Font.GothamBold
+    save.TextSize = 13
+    save.TextColor3 = Color3.new(1, 1, 1)
+    Instance.new("UICorner", save).CornerRadius = UDim.new(0, 6)
+
+    local list = Instance.new("ScrollingFrame", sec)
+    list.Size = UDim2.new(1, -20, 0, 150)
+    list.Position = UDim2.new(0, 10, 0, 76)
+    list.BackgroundColor3 = Color3.fromRGB(25, 25, 25)
+    list.ScrollBarThickness = 2
+    list.CanvasSize = UDim2.new(0, 0, 0, 0)
+    list.AutomaticCanvasSize = Enum.AutomaticSize.Y
+    list.ClipsDescendants = true
+    Instance.new("UICorner", list).CornerRadius = UDim.new(0, 6)
+    local lay = Instance.new("UIListLayout", list)
+    lay.Padding = UDim.new(0, 4)
+    lay.SortOrder = Enum.SortOrder.LayoutOrder
+    DHJump.PresetList = list
+
+    save.MouseButton1Click:Connect(function()
+        local name = box.Text:gsub("^%s+", ""):gsub("%s+$", "")
+        if name == "" then name = "Jump " .. (#DHJump.Presets + 1) end
+        name = name:sub(1, 24)
+        local p = {
+            name = name,
+            size = Player:GetAttribute("JumpSize") or 75,
+            x = Player:GetAttribute("JumpPosX") or 28,
+            y = Player:GetAttribute("JumpPosY") or 22,
+        }
+        local found = false
+        for i, q in ipairs(DHJump.Presets) do
+            if q.name == name then
+                DHJump.Presets[i] = p
+                found = true
+                break
+            end
+        end
+        if not found then DHJump.Presets[#DHJump.Presets + 1] = p end
+        box.Text = ""
+        DHJump.PresetsSave()
+        DHJump.PresetsFill()
+    end)
+
+    DHJump.PresetsFill()
+end
+
+DHJump.PresetsLoad()
+pcall(DHJump.BuildPresets)
+
 -- ================================================
 -- SENSITIVITY SECTION
 -- ================================================
 SensiSection = Instance.new("Frame", SettingsContainer)
 SensiSection.Size = UDim2.new(1, -20, 0, 110)
-SensiSection.Position = UDim2.new(0, 10, 0, 385)
+SensiSection.Position = UDim2.new(0, 10, 0, 630)
 SensiSection.BackgroundColor3 = Color3.fromRGB(35,35,35)
 Instance.new("UICorner", SensiSection).CornerRadius = UDim.new(0, 8)
 
@@ -22065,7 +22464,7 @@ end)
 -- ================================================
 local CamModeSection = Instance.new("Frame", SettingsContainer)
 CamModeSection.Size = UDim2.new(1, -20, 0, 237)
-CamModeSection.Position = UDim2.new(0, 10, 0, 505)
+CamModeSection.Position = UDim2.new(0, 10, 0, 750)
 CamModeSection.BackgroundColor3 = Color3.fromRGB(35,35,35)
 Instance.new("UICorner", CamModeSection).CornerRadius = UDim.new(0, 8)
 
@@ -22244,7 +22643,7 @@ function BuildOtherSettings()
 
     -- Container (same look as SettingsContainer, placed right under it)
     OtherContainer = Instance.new("Frame", SettingScroll)
-    OtherContainer.Position = UDim2.new(0, 0, 0, 765) -- SettingsContainer is 755 tall
+    OtherContainer.Position = UDim2.new(0, 0, 0, 1010) -- SettingsContainer is 1000 tall
     OtherContainer.Size = UDim2.new(1, 0, 0, TOP + 10)
     OtherContainer.BackgroundColor3 = Color3.fromRGB(25,25,25)
     OtherContainer.ClipsDescendants = true
@@ -24846,18 +25245,17 @@ DHChangelogTags = {
 }
 
 DHChangelog = {
+    {id = 17, date = "2026-10-24", title = "What's New", items = {
+        {"Added", "Setting tab: Saved Jump Settings, save your Jump Button size and position under a name, then pick one from the list to use it again."},
+    }},
+    {id = 16, date = "2026-10-24", title = "What's New", items = {
+        {"Added", "Setting tab: Jump Button settings (size and position) are now saved in the Setting folder and stay after you rejoin."},
+        {"Removed", "Visual tab: the Alpha badge next to the title."},
+    }},
     {id = 15, date = "2026-10-22", title = "What's New", items = {
         {"Changed", "What's New is now a list in the Credit tab (under Version) instead of a popup."},
         {"Fixed", "Invisible: turning it off now always removes the ghost and puts the camera back on you."},
         {"Fixed", "Safe Zone: no more error when teleporting back."},
-    }},
-    {id = 14, date = "2026-10-21", title = "What's New", items = {
-        {"Added", "Mods tab: Invisible, your body waits in the Safe Zone and you control a ghost where you were, with a Ghost Speed slider."},
-        {"Added", "Music tab: Loop button, repeats the track you are playing."},
-    }},
-    {id = 13, date = "2026-10-21", title = "What's New", items = {
-        {"Added", "Troll tab: Lag Switch has a Hold mode, set Lag Time to 0 and it stays on until you turn it off."},
-        {"Fixed", "Troll tab: Click Fling is easier to aim, tap near a player (even far away) and it picks them."},
     }},
 }
 
