@@ -9703,6 +9703,91 @@ ReportScroll.ClipsDescendants = true
 ReportLayout = Instance.new("UIListLayout", ReportScroll)
 ReportLayout.Padding = UDim.new(0, 10)
 
+-- Report texts: {player}, {details} and {when} are filled from the Report Details boxes at the top of the Report tab
+DHRep = {Player = "", Detail = "", When = "", Cards = {}}
+
+function DHRep.End(s)
+    if string.find(s, "[%.%!%?]$") then return s end
+    return s .. "."
+end
+
+-- full = true adds the Details / When parts (used when copying); the cards only show the short text
+function DHRep.Compose(t, full)
+    local p = DHRep.Player ~= "" and DHRep.Player or "this player"
+    local d, w = "", ""
+    if full and DHRep.Detail ~= "" then d = " Details: " .. DHRep.End(DHRep.Detail) end
+    if full and DHRep.When ~= "" then w = " When / where: " .. DHRep.End(DHRep.When) end
+    local out = string.gsub(t, "{player}", function() return p end)
+    out = string.gsub(out, "{details}", function() return d end)
+    out = string.gsub(out, "{when}", function() return w end)
+    return string.upper(string.sub(out, 1, 1)) .. string.sub(out, 2)
+end
+
+function DHRep.Refresh()
+    for _, c in ipairs(DHRep.Cards) do
+        if c[1].Parent then c[1].Text = DHRep.Compose(c[2], false) end
+    end
+end
+
+function DHRep.Build()
+    if not (ReportScroll and ReportLayout) then return end
+    ReportLayout.SortOrder = Enum.SortOrder.LayoutOrder
+
+    local box = Instance.new("Frame", ReportScroll)
+    box.Name = "ReportDetails"
+    box.LayoutOrder = 0
+    box.Size = UDim2.new(1, 0, 0, 160)
+    box.BackgroundColor3 = Color3.fromRGB(25, 25, 25)
+    Instance.new("UICorner", box).CornerRadius = UDim.new(0, 8)
+
+    local title = Instance.new("TextLabel", box)
+    title.Size = UDim2.new(1, -20, 0, 18)
+    title.Position = UDim2.new(0, 10, 0, 6)
+    title.BackgroundTransparency = 1
+    title.Text = "REPORT DETAILS (added to the text you copy)"
+    title.Font = Enum.Font.GothamBold
+    title.TextSize = 12
+    title.TextColor3 = Color3.fromRGB(0, 200, 255)
+    title.TextXAlignment = Enum.TextXAlignment.Left
+
+    local function Field(y, hint, key, maxLen)
+        local tb = Instance.new("TextBox", box)
+        tb.Size = UDim2.new(1, -20, 0, 28)
+        tb.Position = UDim2.new(0, 10, 0, y)
+        tb.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
+        tb.PlaceholderText = hint
+        tb.Text = ""
+        tb.ClearTextOnFocus = false
+        tb.Font = Enum.Font.Gotham
+        tb.TextSize = 12
+        tb.TextColor3 = Color3.new(1, 1, 1)
+        tb.TextXAlignment = Enum.TextXAlignment.Left
+        tb.TextTruncate = Enum.TextTruncate.AtEnd
+        Instance.new("UICorner", tb).CornerRadius = UDim.new(0, 6)
+        Instance.new("UIPadding", tb).PaddingLeft = UDim.new(0, 8)
+        tb:GetPropertyChangedSignal("Text"):Connect(function()
+            local s = string.match(tb.Text, "^%s*(.-)%s*$")
+            DHRep[key] = string.sub(s, 1, maxLen)
+            DHRep.Refresh()
+        end)
+    end
+    Field(28, "Username of the player (example: Builderman)", "Player", 40)
+    Field(60, "What exactly happened? (short)", "Detail", 100)
+    Field(92, "When / where? (example: in chat, 03:20 in this game)", "When", 60)
+
+    local note = Instance.new("TextLabel", box)
+    note.Size = UDim2.new(1, -20, 0, 32)
+    note.Position = UDim2.new(0, 10, 0, 124)
+    note.BackgroundTransparency = 1
+    note.Text = "Only report things that really happened, and keep a screenshot or video as proof. False reports can get your own account punished."
+    note.Font = Enum.Font.Gotham
+    note.TextSize = 11
+    note.TextWrapped = true
+    note.TextColor3 = Color3.fromRGB(255, 200, 60)
+    note.TextXAlignment = Enum.TextXAlignment.Left
+    note.TextYAlignment = Enum.TextYAlignment.Top
+end
+pcall(DHRep.Build)
 ReportData = {
     {
         category = "CHEATING",
@@ -9711,37 +9796,37 @@ ReportData = {
         reports = {
             {
                 name = "Illegal Script Usage",
-                text = "This player is utilizing unauthorized third-party scripts or software to manipulate game mechanics, gaining unfair advantages over other players and violating platform integrity policies.",
+                text = "{player} is using an exploit script to gain an unfair advantage in this game.{details}{when}",
                 severityColor = Color3.fromRGB(80, 200, 80),
                 severityText = "MILD"
             },
             {
                 name = "Illegal Movement Modification",
-                text = "The reported user is exploiting movement systems through external tools, enabling unauthorized mobility modifications that disrupt fair and balanced gameplay for all participants.",
+                text = "{player} is using speed, fly, noclip or teleport exploits to move in ways the game does not allow.{details}{when}",
                 severityColor = Color3.fromRGB(80, 200, 80),
                 severityText = "MILD"
             },
             {
                 name = "Game System Exploitation",
-                text = "This player is actively exploiting unintended game mechanics or bugs to gain advantages, causing significant damage to gameplay balance and undermining fair progression systems.",
+                text = "{player} is abusing a bug or exploit in this game to get items, currency or progress unfairly.{details}{when}",
                 severityColor = Color3.fromRGB(255, 200, 60),
                 severityText = "MODERATE"
             },
             {
                 name = "Game Environment Sabotage",
-                text = "The reported player is deliberately destroying or manipulating game environments using exploits, rendering areas unplayable and creating a frustrating experience for other users.",
+                text = "{player} is using exploits to destroy or move parts of the map, which makes the game unplayable for others.{details}{when}",
                 severityColor = Color3.fromRGB(255, 200, 60),
                 severityText = "MODERATE"
             },
             {
                 name = "Player Activity Disruption",
-                text = "This user is employing cheats or exploits to systematically interfere with other players legitimate gameplay sessions, causing repeated disruptions and negatively impacting the overall experience.",
+                text = "{player} is using exploits to interfere with other players, such as flinging, killing or trapping them again and again.{details}{when}",
                 severityColor = Color3.fromRGB(255, 80, 80),
                 severityText = "SEVERE"
             },
             {
                 name = "Aimbot / Wallhack Usage",
-                text = "The reported player is using aim-assistance software or vision-penetrating exploits, providing a significant and unfair combat advantage that completely undermines competitive integrity.",
+                text = "{player} is using an aimbot or wallhack: they aim through walls and hit targets with inhuman accuracy.{details}{when}",
                 severityColor = Color3.fromRGB(255, 80, 80),
                 severityText = "SEVERE"
             },
@@ -9754,37 +9839,37 @@ ReportData = {
         reports = {
             {
                 name = "Mild Mockery",
-                text = "This player has been observed making light mocking remarks toward others, which while seemingly minor, contributes to a negative and unwelcoming community atmosphere.",
+                text = "{player} keeps mocking other players and making fun of them.{details}{when}",
                 severityColor = Color3.fromRGB(80, 200, 80),
                 severityText = "MILD"
             },
             {
                 name = "Social Exclusion",
-                text = "The reported user is deliberately excluding specific players from group activities or conversations, causing emotional discomfort and fostering a sense of isolation within the community.",
+                text = "{player} is deliberately excluding other players from the group and pushing others to do the same.{details}{when}",
                 severityColor = Color3.fromRGB(80, 200, 80),
                 severityText = "MILD"
             },
             {
                 name = "Repeated Intimidation",
-                text = "This player is repeatedly targeting an individual with intimidating behavior and negative comments, creating a hostile environment that discourages normal and comfortable participation.",
+                text = "{player} repeatedly intimidates another player and keeps targeting them after being asked to stop.{details}{when}",
                 severityColor = Color3.fromRGB(255, 200, 60),
                 severityText = "MODERATE"
             },
             {
                 name = "Verbal Insult",
-                text = "The reported user is directing demeaning and personally insulting comments at specific players, constituting clear verbal abuse that violates community conduct standards.",
+                text = "{player} is directing personal insults at specific players.{details}{when}",
                 severityColor = Color3.fromRGB(255, 200, 60),
                 severityText = "MODERATE"
             },
             {
                 name = "Racial / Religious Discrimination",
-                text = "This player is engaging in racially or religiously discriminatory behavior, using slurs and derogatory language that promotes hatred and violates anti-discrimination policies.",
+                text = "{player} used slurs or discriminatory language about race or religion.{details}{when}",
                 severityColor = Color3.fromRGB(255, 80, 80),
                 severityText = "SEVERE"
             },
             {
                 name = "Threats and Verbal Violence",
-                text = "The reported player is issuing direct threats and engaging in severe verbal aggression against other users, creating an unsafe and deeply hostile environment that demands immediate moderation action.",
+                text = "{player} is threatening other players with violence or harm.{details}{when}",
                 severityColor = Color3.fromRGB(255, 80, 80),
                 severityText = "SEVERE"
             },
@@ -9797,37 +9882,37 @@ ReportData = {
         reports = {
             {
                 name = "Mild Romantic Roleplay",
-                text = "This player is engaging in mild romantic roleplay interactions that, while not explicitly inappropriate, may create uncomfortable situations particularly for younger members of the community.",
+                text = "{player} is doing romantic roleplay (dating, couples) in this game.{details}{when}",
                 severityColor = Color3.fromRGB(80, 200, 80),
                 severityText = "MILD"
             },
             {
                 name = "Inappropriate Flirting",
-                text = "The reported user is directing unwanted flirtatious or suggestive comments toward other players, creating uncomfortable interactions that violate respectful communication standards.",
+                text = "{player} keeps sending unwanted flirty or suggestive messages to other players.{details}{when}",
                 severityColor = Color3.fromRGB(80, 200, 80),
                 severityText = "MILD"
             },
             {
                 name = "Implicit Sexual Roleplay",
-                text = "This player is participating in implicitly sexual roleplay scenarios, using suggestive language and actions that are inappropriate for a platform accessible to users of all ages.",
+                text = "{player} is doing sexually suggestive roleplay using suggestive words and actions.{details}{when}",
                 severityColor = Color3.fromRGB(255, 200, 60),
                 severityText = "MODERATE"
             },
             {
                 name = "Sexual Content in Chat",
-                text = "The reported user is distributing sexually suggestive content through chat messages, exposing other players including minors to inappropriate material that violates platform content policies.",
+                text = "{player} is sending sexually suggestive messages in public chat.{details}{when}",
                 severityColor = Color3.fromRGB(255, 200, 60),
                 severityText = "MODERATE"
             },
             {
                 name = "Explicit Sexual Roleplay",
-                text = "This player is openly engaging in explicit sexual roleplay, using graphic language and descriptions that severely violate content policies and create an unsafe environment for all users.",
+                text = "{player} is doing explicit sexual roleplay using graphic language.{details}{when}",
                 severityColor = Color3.fromRGB(255, 80, 80),
                 severityText = "SEVERE"
             },
             {
                 name = "Sexual Approach Toward Minors",
-                text = "The reported player is making sexual advances or engaging in inappropriate romantic interactions targeting underage users, constituting a critical safety violation that requires immediate intervention.",
+                text = "{player} is sending sexual or romantic messages to a user who appears to be underage.{details}{when}",
                 severityColor = Color3.fromRGB(255, 80, 80),
                 severityText = "SEVERE"
             },
@@ -9840,37 +9925,37 @@ ReportData = {
         reports = {
             {
                 name = "General Profanity",
-                text = "This player has been using mild profanity in general conversation, which while not severely harmful, contributes to a less respectful and family-friendly community environment.",
+                text = "{player} uses profanity in general chat.{details}{when}",
                 severityColor = Color3.fromRGB(80, 200, 80),
                 severityText = "MILD"
             },
             {
                 name = "Gameplay-Context Swearing",
-                text = "The reported user is using curse words in the context of gameplay frustration, which remains inappropriate regardless of context and violates community communication standards.",
+                text = "{player} swears at the game and at other players during gameplay.{details}{when}",
                 severityColor = Color3.fromRGB(80, 200, 80),
                 severityText = "MILD"
             },
             {
                 name = "Repeated Profanity",
-                text = "This player is repeatedly using profane language throughout their interactions, demonstrating a persistent disregard for community standards and creating an uncomfortable environment for others.",
+                text = "{player} keeps using profane language even after being asked to stop.{details}{when}",
                 severityColor = Color3.fromRGB(255, 200, 60),
                 severityText = "MODERATE"
             },
             {
                 name = "Targeted Vulgar Language",
-                text = "The reported user is directing vulgar and profane language specifically at individual players, escalating beyond general profanity into targeted verbal abuse that demands moderation action.",
+                text = "{player} is directing vulgar language at one specific player.{details}{when}",
                 severityColor = Color3.fromRGB(255, 200, 60),
                 severityText = "MODERATE"
             },
             {
                 name = "Hate-Motivated Profanity",
-                text = "This player is using hate-motivated profanity including slurs targeting race, religion, or identity, representing a severe violation of anti-discrimination and community safety policies.",
+                text = "{player} used profanity that contains slurs about race, religion or identity.{details}{when}",
                 severityColor = Color3.fromRGB(255, 80, 80),
                 severityText = "SEVERE"
             },
             {
                 name = "Profanity Combined With Threats",
-                text = "The reported player is combining extreme profanity with direct threats against other users, creating a hostile and unsafe environment that constitutes a serious violation requiring immediate action.",
+                text = "{player} is combining profanity with threats against other players.{details}{when}",
                 severityColor = Color3.fromRGB(255, 80, 80),
                 severityText = "SEVERE"
             },
@@ -9883,37 +9968,37 @@ ReportData = {
         reports = {
             {
                 name = "Misleading Information",
-                text = "This player is spreading misleading or false information within the community, causing confusion and undermining trust among other users.",
+                text = "{player} is spreading false information to mislead other players.{details}{when}",
                 severityColor = Color3.fromRGB(80, 200, 80),
                 severityText = "MILD"
             },
             {
                 name = "Item Trade Scam",
-                text = "The reported user is deceiving other players during item trades or exchanges, misrepresenting the value or nature of items to gain unfair benefits.",
+                text = "{player} scammed another player in an item trade by misrepresenting the items.{details}{when}",
                 severityColor = Color3.fromRGB(80, 200, 80),
                 severityText = "MILD"
             },
             {
                 name = "Player Impersonation",
-                text = "This player is impersonating another user by mimicking their identity or display name, creating confusion and potentially damaging the reputation of the impersonated individual.",
+                text = "{player} is copying another user's name or look to pretend to be them.{details}{when}",
                 severityColor = Color3.fromRGB(255, 200, 60),
                 severityText = "MODERATE"
             },
             {
                 name = "Fake Giveaway Scam",
-                text = "The reported user is falsely advertising rewards, giveaways, or prizes to deceive other players, exploiting their trust for personal gain without any intention of fulfilling promises.",
+                text = "{player} advertises a fake giveaway or free reward to trick players.{details}{when}",
                 severityColor = Color3.fromRGB(255, 200, 60),
                 severityText = "MODERATE"
             },
             {
                 name = "Staff / Admin Impersonation",
-                text = "This player is impersonating platform staff or administrators, abusing perceived authority to manipulate or deceive other users into compliance or revealing sensitive information.",
+                text = "{player} is pretending to be a Roblox staff member or a game admin.{details}{when}",
                 severityColor = Color3.fromRGB(255, 80, 80),
                 severityText = "SEVERE"
             },
             {
                 name = "Account Scam / Phishing",
-                text = "The reported player is attempting to steal account credentials or personal information through deceptive tactics, posing a serious security threat to other users and the platform.",
+                text = "{player} is trying to steal accounts by asking for passwords or login codes.{details}{when}",
                 severityColor = Color3.fromRGB(255, 80, 80),
                 severityText = "SEVERE"
             },
@@ -9926,37 +10011,37 @@ ReportData = {
         reports = {
             {
                 name = "Sharing Own Personal Info",
-                text = "This player is voluntarily sharing their own personal information in public spaces, which poses a potential safety risk and is discouraged under platform safety guidelines.",
+                text = "{player} is posting their own personal information in public chat.{details}{when}",
                 severityColor = Color3.fromRGB(80, 200, 80),
                 severityText = "MILD"
             },
             {
                 name = "Requesting Personal Info",
-                text = "The reported user is requesting personal information from other players, including real names or locations, in a manner that raises concerns about their intentions and user safety.",
+                text = "{player} keeps asking other players for personal information such as real name, age or location.{details}{when}",
                 severityColor = Color3.fromRGB(80, 200, 80),
                 severityText = "MILD"
             },
             {
                 name = "Unauthorized Info Sharing",
-                text = "This player is sharing another user's personal information without their consent, violating privacy rights and potentially exposing the affected individual to harm.",
+                text = "{player} shared another user's personal information without their consent.{details}{when}",
                 severityColor = Color3.fromRGB(255, 200, 60),
                 severityText = "MODERATE"
             },
             {
                 name = "Partial Doxxing",
-                text = "The reported user is revealing partial personal details of another player such as general location or workplace, constituting a privacy violation that may lead to real-world consequences.",
+                text = "{player} revealed part of another user's personal details, such as their city or school.{details}{when}",
                 severityColor = Color3.fromRGB(255, 200, 60),
                 severityText = "MODERATE"
             },
             {
                 name = "Full Doxxing",
-                text = "This player is publicly exposing comprehensive personal information of another user including full name, address, or contact details, representing a severe privacy violation with potential real-world danger.",
+                text = "{player} posted another user's full name, address or contact details.{details}{when}",
                 severityColor = Color3.fromRGB(255, 80, 80),
                 severityText = "SEVERE"
             },
             {
                 name = "Personal Info-Based Threats",
-                text = "The reported player is using another user's personal information as leverage for threats or blackmail, constituting an extremely serious violation that endangers the safety of the targeted individual.",
+                text = "{player} is using someone's personal information to threaten or blackmail them.{details}{when}",
                 severityColor = Color3.fromRGB(255, 80, 80),
                 severityText = "SEVERE"
             },
@@ -9964,42 +10049,42 @@ ReportData = {
     },
     {
         category = "INAPPROPRIATE USERNAME / DISPLAY NAME",
-        color = Color3.fromRGB(255, 200, 60),
-        severity = "MODERATE",
+        color = Color3.fromRGB(255, 80, 80),
+        severity = "SEVERE",
         reports = {
             {
                 name = "Disrespectful Name",
-                text = "This account's display name contains mildly offensive or inappropriate language that does not fully align with community standards and may create discomfort among other users.",
+                text = "The username or display name of {player} is disrespectful toward others.{details}{when}",
                 severityColor = Color3.fromRGB(80, 200, 80),
                 severityText = "MILD"
             },
             {
                 name = "Name With Adult References",
-                text = "The reported user's display name contains subtle adult references or innuendos that are inappropriate for a platform serving users of all ages.",
+                text = "The username or display name of {player} has adult references.{details}{when}",
                 severityColor = Color3.fromRGB(80, 200, 80),
                 severityText = "MILD"
             },
             {
                 name = "Name Containing Hate Speech",
-                text = "This player's display name contains discriminatory language or hate speech targeting specific groups, violating anti-discrimination policies and creating an unwelcoming environment.",
+                text = "The username or display name of {player} contains hate speech.{details}{when}",
                 severityColor = Color3.fromRGB(255, 200, 60),
                 severityText = "MODERATE"
             },
             {
                 name = "Explicit Sexual Name",
-                text = "The reported account's display name contains explicit sexual references, making the platform uncomfortable and inappropriate for younger audiences and violating content standards.",
+                text = "The username or display name of {player} is sexually explicit.{details}{when}",
                 severityColor = Color3.fromRGB(255, 200, 60),
                 severityText = "MODERATE"
             },
             {
                 name = "Impersonation via Name",
-                text = "This player's display name is designed to impersonate another user or staff member, intentionally creating confusion and potentially damaging the reputation of the impersonated party.",
+                text = "The username or display name of {player} imitates another user or a staff member.{details}{when}",
                 severityColor = Color3.fromRGB(255, 80, 80),
                 severityText = "SEVERE"
             },
             {
                 name = "Name Containing Threats",
-                text = "The reported account's display name contains direct threats or violent language targeting individuals or groups, representing a serious violation that creates fear and hostility within the community.",
+                text = "The username or display name of {player} contains a threat.{details}{when}",
                 severityColor = Color3.fromRGB(255, 80, 80),
                 severityText = "SEVERE"
             },
@@ -10007,42 +10092,42 @@ ReportData = {
     },
     {
         category = "EXTERNAL LINKS",
-        color = Color3.fromRGB(255, 200, 60),
-        severity = "MODERATE",
+        color = Color3.fromRGB(255, 80, 80),
+        severity = "SEVERE",
         reports = {
             {
                 name = "General Link Sharing",
-                text = "This player is sharing external links in public spaces, which while potentially harmless, may redirect users to unverified content outside the platform's safety controls.",
+                text = "{player} is posting links to outside websites in chat.{details}{when}",
                 severityColor = Color3.fromRGB(80, 200, 80),
                 severityText = "MILD"
             },
             {
                 name = "External Service Promotion",
-                text = "The reported user is promoting external services or platforms through unsolicited link sharing, violating promotional guidelines and potentially misleading other users.",
+                text = "{player} is promoting an outside service or server, such as an invite link.{details}{when}",
                 severityColor = Color3.fromRGB(80, 200, 80),
                 severityText = "MILD"
             },
             {
                 name = "Inappropriate Content Link",
-                text = "This player is distributing links leading to inappropriate or adult content, exposing other users including minors to material that violates platform content policies.",
+                text = "{player} shared a link to inappropriate content.{details}{when}",
                 severityColor = Color3.fromRGB(255, 200, 60),
                 severityText = "MODERATE"
             },
             {
                 name = "Deceptive Link",
-                text = "The reported user is sharing deceptive links disguised as legitimate resources, potentially directing users to scam websites designed to steal personal or account information.",
+                text = "{player} shared a deceptive link that is not what it claims to be.{details}{when}",
                 severityColor = Color3.fromRGB(255, 200, 60),
                 severityText = "MODERATE"
             },
             {
                 name = "Malware / Virus Link",
-                text = "This player is distributing links containing malicious software or viruses, posing a direct threat to the security and privacy of other users devices and personal data.",
+                text = "{player} shared a link that looks like it spreads malware or a virus.{details}{when}",
                 severityColor = Color3.fromRGB(255, 80, 80),
                 severityText = "SEVERE"
             },
             {
                 name = "Account Phishing Link",
-                text = "The reported player is sharing phishing links specifically designed to steal account credentials, representing a critical security threat that endangers the accounts of all targeted users.",
+                text = "{player} shared a fake login or phishing link to steal accounts.{details}{when}",
                 severityColor = Color3.fromRGB(255, 80, 80),
                 severityText = "SEVERE"
             },
@@ -10050,42 +10135,42 @@ ReportData = {
     },
     {
         category = "CHAT ABUSE / BULLYING",
-        color = Color3.fromRGB(255, 200, 60),
-        severity = "MODERATE",
+        color = Color3.fromRGB(255, 80, 80),
+        severity = "SEVERE",
         reports = {
             {
                 name = "Rude Comments",
-                text = "This player has been posting rude or disrespectful comments in chat, which while not severely harmful, contributes to a negative and unwelcoming communication environment.",
+                text = "{player} is posting rude comments in chat.{details}{when}",
                 severityColor = Color3.fromRGB(80, 200, 80),
                 severityText = "MILD"
             },
             {
                 name = "Mild Provocation",
-                text = "The reported user is making provocative remarks intended to irritate or upset other players, disrupting peaceful interactions and encouraging conflict within the community.",
+                text = "{player} keeps provoking other players in chat to start arguments.{details}{when}",
                 severityColor = Color3.fromRGB(80, 200, 80),
                 severityText = "MILD"
             },
             {
                 name = "Personal Attack in Chat",
-                text = "This player is directing personally insulting and demeaning messages at specific individuals in chat, constituting targeted verbal harassment that violates community conduct standards.",
+                text = "{player} is attacking one specific player personally in chat.{details}{when}",
                 severityColor = Color3.fromRGB(255, 200, 60),
                 severityText = "MODERATE"
             },
             {
                 name = "Hate Speech in Chat",
-                text = "The reported user is posting hateful or discriminatory messages in chat channels, promoting prejudice and creating an hostile environment that violates anti-discrimination policies.",
+                text = "{player} used hate speech in chat.{details}{when}",
                 severityColor = Color3.fromRGB(255, 200, 60),
                 severityText = "MODERATE"
             },
             {
                 name = "Threats in Chat",
-                text = "This player is issuing direct threats through chat messages, creating fear and an unsafe environment for targeted individuals and violating platform safety policies.",
+                text = "{player} sent threats in chat.{details}{when}",
                 severityColor = Color3.fromRGB(255, 80, 80),
                 severityText = "SEVERE"
             },
             {
                 name = "Organized Bullying Campaign",
-                text = "The reported player is coordinating or leading organized bullying campaigns against specific users through chat, representing a severe and premeditated form of harassment requiring immediate intervention.",
+                text = "{player} and others are working together to bully one player in chat.{details}{when}",
                 severityColor = Color3.fromRGB(255, 80, 80),
                 severityText = "SEVERE"
             },
@@ -10093,42 +10178,42 @@ ReportData = {
     },
     {
         category = "VOICE CHAT ABUSE / BULLYING",
-        color = Color3.fromRGB(255, 200, 60),
-        severity = "MODERATE",
+        color = Color3.fromRGB(255, 80, 80),
+        severity = "SEVERE",
         reports = {
             {
                 name = "Disrespectful Tone",
-                text = "This player is communicating in voice chat with a consistently rude or disrespectful tone, creating an unpleasant atmosphere that discourages comfortable participation from others.",
+                text = "{player} speaks to other players in a disrespectful tone in voice chat.{details}{when}",
                 severityColor = Color3.fromRGB(80, 200, 80),
                 severityText = "MILD"
             },
             {
                 name = "Sound / Noise Disruption",
-                text = "The reported user is intentionally producing disruptive sounds or noise through voice chat, interfering with normal communication and creating an unpleasant experience for other participants.",
+                text = "{player} is making loud noises or playing sounds in voice chat to disrupt others.{details}{when}",
                 severityColor = Color3.fromRGB(80, 200, 80),
                 severityText = "MILD"
             },
             {
                 name = "Verbal Insult via Voice",
-                text = "This player is verbally insulting and demeaning other users through voice chat, delivering personal attacks that constitute clear verbal abuse and violate community conduct policies.",
+                text = "{player} is insulting other players in voice chat.{details}{when}",
                 severityColor = Color3.fromRGB(255, 200, 60),
                 severityText = "MODERATE"
             },
             {
                 name = "Hate Speech via Voice",
-                text = "The reported user is expressing hateful or discriminatory views through voice chat, using slurs and derogatory language that violates anti-discrimination policies and creates a hostile environment.",
+                text = "{player} used hate speech in voice chat.{details}{when}",
                 severityColor = Color3.fromRGB(255, 200, 60),
                 severityText = "MODERATE"
             },
             {
                 name = "Threats via Voice Chat",
-                text = "This player is issuing direct verbal threats through voice chat, creating immediate fear and an unsafe environment for targeted users that demands urgent moderation response.",
+                text = "{player} made threats in voice chat.{details}{when}",
                 severityColor = Color3.fromRGB(255, 80, 80),
                 severityText = "SEVERE"
             },
             {
                 name = "Sexual Harassment via Voice",
-                text = "The reported player is making explicit sexual remarks or engaging in sexual harassment through voice communication, creating a deeply inappropriate and unsafe environment for all users.",
+                text = "{player} is sexually harassing other players in voice chat.{details}{when}",
                 severityColor = Color3.fromRGB(255, 80, 80),
                 severityText = "SEVERE"
             },
@@ -10136,42 +10221,42 @@ ReportData = {
     },
     {
         category = "INAPPROPRIATE AVATAR / SKIN",
-        color = Color3.fromRGB(255, 200, 60),
-        severity = "MODERATE",
+        color = Color3.fromRGB(255, 80, 80),
+        severity = "SEVERE",
         reports = {
             {
                 name = "Mildly Inappropriate Appearance",
-                text = "This player's avatar appearance is mildly inappropriate or provocative, which while not explicitly violating policies, may create discomfort among other users in the community.",
+                text = "The avatar of {player} is mildly inappropriate for this platform.{details}{when}",
                 severityColor = Color3.fromRGB(80, 200, 80),
                 severityText = "MILD"
             },
             {
                 name = "Violence-Themed Costume",
-                text = "The reported user has customized their avatar with violent or gore-themed elements that are disturbing and inappropriate for a platform accessible to users of all ages.",
+                text = "The avatar of {player} is a violence-themed costume.{details}{when}",
                 severityColor = Color3.fromRGB(80, 200, 80),
                 severityText = "MILD"
             },
             {
                 name = "Provocative Appearance",
-                text = "This player's avatar is designed with suggestive or sexually provocative elements that push the boundaries of acceptable content and may make other users uncomfortable.",
+                text = "The avatar of {player} is provocative or revealing.{details}{when}",
                 severityColor = Color3.fromRGB(255, 200, 60),
                 severityText = "MODERATE"
             },
             {
                 name = "Hate-Themed Avatar",
-                text = "The reported user has created an avatar incorporating hate symbols or discriminatory imagery, promoting hatred and violating anti-discrimination and content moderation policies.",
+                text = "The avatar of {player} contains hateful symbols or themes.{details}{when}",
                 severityColor = Color3.fromRGB(255, 200, 60),
                 severityText = "MODERATE"
             },
             {
                 name = "Explicit Sexual Avatar",
-                text = "This player has created an avatar with explicitly sexual or nude elements, severely violating content policies and creating an inappropriate environment particularly harmful to younger users.",
+                text = "The avatar of {player} is sexually explicit.{details}{when}",
                 severityColor = Color3.fromRGB(255, 80, 80),
                 severityText = "SEVERE"
             },
             {
                 name = "Copyright-Infringing Avatar",
-                text = "The reported player is using copyrighted character designs or intellectual property without authorization in their avatar customization, constituting a serious intellectual property violation.",
+                text = "The avatar of {player} copies protected brand or character designs.{details}{when}",
                 severityColor = Color3.fromRGB(255, 80, 80),
                 severityText = "SEVERE"
             },
@@ -10184,37 +10269,37 @@ ReportData = {
         reports = {
             {
                 name = "Implicit Adult Content",
-                text = "This player is sharing or referencing implicitly adult content that, while not explicitly pornographic, is clearly inappropriate for a platform serving users of all ages.",
+                text = "{player} is posting or hinting at adult content in this game.{details}{when}",
                 severityColor = Color3.fromRGB(80, 200, 80),
                 severityText = "MILD"
             },
             {
                 name = "Adult Content Discussion",
-                text = "The reported user is engaging in conversations about adult or pornographic content in public spaces, creating an inappropriate environment that exposes minors to unsuitable material.",
+                text = "{player} keeps steering the chat toward adult topics.{details}{when}",
                 severityColor = Color3.fromRGB(80, 200, 80),
                 severityText = "MILD"
             },
             {
                 name = "Sexual Content Sharing",
-                text = "This player is distributing sexually explicit material through available communication channels, directly exposing other users including minors to pornographic content in violation of platform policies.",
+                text = "{player} is sharing sexual content with other players.{details}{when}",
                 severityColor = Color3.fromRGB(255, 200, 60),
                 severityText = "MODERATE"
             },
             {
                 name = "Targeted Sexual Content",
-                text = "The reported user is sending unsolicited explicit sexual content directly to specific players, constituting targeted sexual harassment that severely violates platform safety and conduct policies.",
+                text = "{player} is sending sexual content to a specific player who did not ask for it.{details}{when}",
                 severityColor = Color3.fromRGB(255, 200, 60),
                 severityText = "MODERATE"
             },
             {
                 name = "Pornography Distribution",
-                text = "This player is actively distributing pornographic content within the platform, representing a critical violation of content policies that demands immediate action to protect all users especially minors.",
+                text = "{player} is distributing pornography.{details}{when}",
                 severityColor = Color3.fromRGB(255, 80, 80),
                 severityText = "SEVERE"
             },
             {
                 name = "Child Exploitation Content",
-                text = "The reported player is sharing or referencing content that depicts or promotes the sexual exploitation of minors, constituting an extremely serious criminal violation requiring immediate escalation to authorities.",
+                text = "{player} is sharing content that sexually exploits children.{details}{when}",
                 severityColor = Color3.fromRGB(255, 80, 80),
                 severityText = "SEVERE"
             },
@@ -10222,48 +10307,49 @@ ReportData = {
     },
     {
         category = "SPAM / PROMOTION",
-        color = Color3.fromRGB(80, 200, 80),
-        severity = "MILD",
+        color = Color3.fromRGB(255, 80, 80),
+        severity = "SEVERE",
         reports = {
             {
                 name = "Repeated Messages",
-                text = "This player is repeatedly sending identical or similar messages in rapid succession, disrupting normal communication flow and creating an unpleasant experience for other users.",
+                text = "{player} keeps sending the same message again and again.{details}{when}",
                 severityColor = Color3.fromRGB(80, 200, 80),
                 severityText = "MILD"
             },
             {
                 name = "Self-Promotion",
-                text = "The reported user is excessively promoting their own content, channel, or services in an unsolicited manner, violating promotional guidelines and disrupting community interactions.",
+                text = "{player} keeps advertising themselves, their game or their channel.{details}{when}",
                 severityColor = Color3.fromRGB(80, 200, 80),
                 severityText = "MILD"
             },
             {
                 name = "Mass Spam",
-                text = "This player is flooding communication channels with large volumes of irrelevant or repetitive messages, severely disrupting normal interactions and making channels unusable for other participants.",
+                text = "{player} is flooding the chat with spam messages.{details}{when}",
                 severityColor = Color3.fromRGB(255, 200, 60),
                 severityText = "MODERATE"
             },
             {
                 name = "Commercial Product Promotion",
-                text = "The reported user is conducting unsolicited commercial promotion or advertising within the platform, exploiting community spaces for personal financial gain in violation of platform policies.",
+                text = "{player} is advertising a commercial product or service in chat.{details}{when}",
                 severityColor = Color3.fromRGB(255, 200, 60),
                 severityText = "MODERATE"
             },
             {
                 name = "Automated Spam Bot",
-                text = "This player appears to be operating automated bot systems to generate spam at scale, systematically disrupting platform communications and potentially harvesting user data.",
+                text = "{player} looks like an automated bot that spams the chat.{details}{when}",
                 severityColor = Color3.fromRGB(255, 80, 80),
                 severityText = "SEVERE"
             },
             {
                 name = "Harmful Content Promotion",
-                text = "The reported player is spamming links or promotions for harmful, illegal, or malicious content, actively endangering the safety and security of other users who may interact with the promoted material.",
+                text = "{player} is spamming links or promotions for harmful or illegal content.{details}{when}",
                 severityColor = Color3.fromRGB(255, 80, 80),
                 severityText = "SEVERE"
             },
         }
     },
 }
+
 
 AllReportFrames = {}
 IsSearchingReport = false
@@ -10278,7 +10364,7 @@ function CreateReportCard(sectionData, report, cardIndex, sectionIndex)
     Instance.new("UICorner", Card).CornerRadius = UDim.new(0,8)
     
     CardStroke = Instance.new("UIStroke", Card)
-    CardStroke.Color = sectionData.color
+    CardStroke.Color = report.severityColor
     CardStroke.Thickness = 2
     CardStroke.Transparency = 0.3
     
@@ -10329,7 +10415,8 @@ function CreateReportCard(sectionData, report, cardIndex, sectionIndex)
     DescText.Size = UDim2.new(1, -8, 1, -8)
     DescText.Position = UDim2.new(0, 4, 0, 4)
     DescText.BackgroundTransparency = 1
-    DescText.Text = report.text
+        DescText.Text = DHRep.Compose(report.text, false)
+    DHRep.Cards[#DHRep.Cards + 1] = {DescText, report.text}
     DescText.TextColor3 = Color3.fromRGB(200,200,200)
     DescText.TextSize = 12
     DescText.Font = Enum.Font.Gotham
@@ -10359,11 +10446,11 @@ function CreateReportCard(sectionData, report, cardIndex, sectionIndex)
     CopyButton.MouseButton1Click:Connect(function()
         success = pcall(function()
             if setclipboard then
-                setclipboard(report.text)
+                setclipboard(DHRep.Compose(report.text, true))
             else
                 DescText.Text = "Text ready to copy! (Ctrl+A then Ctrl+C)"
                 task.wait(1.5)
-                DescText.Text = report.text
+                DescText.Text = DHRep.Compose(report.text, false)
             end
         end)
         
@@ -10383,7 +10470,7 @@ function CreateReportCard(sectionData, report, cardIndex, sectionIndex)
             
             TweenService:Create(CardStroke, TweenInfo.new(0.2), {
                 Transparency = 0.3,
-                Color = sectionData.color
+                Color = report.severityColor
             }):Play()
         else
             CopyButton.Text = "⚠ ERROR"
@@ -27630,6 +27717,7 @@ DHChangelog = {
         {"Added", "Troll tab: Desync Marker, a purple pillar that shows where TP Spawn takes you."},
         {"Added", "Visual tab: Crosshair with position, rotation, spinning and colors."},
         {"Added", "Info tab: Calculator. Music tab: a visualizer (Bars or Wave) that follows the volume and effects."},
+        {"Changed", "Report tab: clearer, more specific report texts. New Report Details boxes (player, what happened, when / where) are added to the text you copy, and the card border now matches its severity color."},
         {"Fixed", "Refresh no longer sends you back to the Refresh spot after a normal respawn."},
     }},
     {id = 18, date = "2026-10-25", title = "What's New", items = {
