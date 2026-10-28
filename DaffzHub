@@ -3424,6 +3424,213 @@ end
 
 pcall(DHPv.Build)
 
+-- ---------- CALCULATOR ----------
+DHCalc = {Expr = "", Hist = "", Fresh = false}
+
+-- small safe parser: numbers, + - * / % (remainder), ^, ( ), sqrt( )
+function DHCalc.Eval(src)
+    local s = src:gsub("%s", "")
+    local pos = 1
+    local expr, unary
+    local function peek() return s:sub(pos, pos) end
+    local function primary()
+        if peek() == "(" then
+            pos = pos + 1
+            local v = expr()
+            if peek() ~= ")" then error("paren") end
+            pos = pos + 1
+            return v
+        end
+        if s:sub(pos, pos + 4) == "sqrt(" then
+            pos = pos + 5
+            local v = expr()
+            if peek() ~= ")" then error("paren") end
+            pos = pos + 1
+            if v < 0 then error("neg") end
+            return math.sqrt(v)
+        end
+        local num = s:match("^%d+%.?%d*", pos) or s:match("^%.%d+", pos)
+        if not num then error("num") end
+        pos = pos + #num
+        return tonumber(num)
+    end
+    local function power()
+        local base = primary()
+        if peek() == "^" then
+            pos = pos + 1
+            return base ^ unary()
+        end
+        return base
+    end
+    unary = function()
+        if peek() == "-" then
+            pos = pos + 1
+            return -unary()
+        end
+        return power()
+    end
+    local function term()
+        local v = unary()
+        while true do
+            local c = peek()
+            if c == "*" then
+                pos = pos + 1
+                v = v * unary()
+            elseif c == "/" or c == "%" then
+                pos = pos + 1
+                local d = unary()
+                if d == 0 then error("div0") end
+                if c == "/" then v = v / d else v = v % d end
+            else
+                break
+            end
+        end
+        return v
+    end
+    expr = function()
+        local v = term()
+        while true do
+            local c = peek()
+            if c == "+" then
+                pos = pos + 1
+                v = v + term()
+            elseif c == "-" then
+                pos = pos + 1
+                v = v - term()
+            else
+                break
+            end
+        end
+        return v
+    end
+    local ok, v = pcall(function()
+        local r = expr()
+        if pos <= #s then error("junk") end
+        return r
+    end)
+    if ok and type(v) == "number" and v == v and math.abs(v) ~= math.huge then return v end
+    return nil
+end
+
+function DHCalc.Fmt(v)
+    if v == math.floor(v) and math.abs(v) < 1e15 then return string.format("%.0f", v) end
+    return string.format("%.10g", v)
+end
+
+function DHCalc.Shown(e)
+    local t = e:gsub("%*", "×")
+    t = t:gsub("/", "÷")
+    return t
+end
+
+function DHCalc.Refresh()
+    if DHCalc.Main then DHCalc.Main.Text = (DHCalc.Expr == "") and "0" or DHCalc.Shown(DHCalc.Expr) end
+    if DHCalc.Top then DHCalc.Top.Text = DHCalc.Hist end
+end
+
+function DHCalc.Press(k)
+    local e = DHCalc.Expr
+    if k == "C" then
+        DHCalc.Expr = ""
+        DHCalc.Hist = ""
+        DHCalc.Fresh = false
+    elseif k == "DEL" then
+        if e:sub(-5) == "sqrt(" then DHCalc.Expr = e:sub(1, -6) else DHCalc.Expr = e:sub(1, -2) end
+        DHCalc.Fresh = false
+    elseif k == "=" then
+        if e == "" then return end
+        local v = DHCalc.Eval(e)
+        if v then
+            DHCalc.Hist = DHCalc.Shown(e) .. " ="
+            DHCalc.Expr = DHCalc.Fmt(v)
+            DHCalc.Fresh = true
+        else
+            DHCalc.Hist = "Error"
+            DHCalc.Expr = ""
+            DHCalc.Fresh = false
+        end
+    elseif k == "Copy" then
+        if setclipboard and e ~= "" then pcall(setclipboard, e) end
+        return
+    else
+        -- after "=", a number starts a new calculation, an operator continues with the result
+        if DHCalc.Fresh and (k:match("^[%d%.%(]") or k == "sqrt(") then e = "" end
+        DHCalc.Fresh = false
+        if #e < 60 then DHCalc.Expr = e .. k end
+    end
+    DHCalc.Refresh()
+end
+
+function DHCalc.Build()
+    CreateSectionLabel("CALCULATOR")
+    local box = Instance.new("Frame", InfoScroll)
+    box.Size = UDim2.new(1, 0, 0, 336)
+    box.BackgroundColor3 = Color3.fromRGB(25, 25, 25)
+    box.BorderSizePixel = 0
+    Instance.new("UICorner", box).CornerRadius = UDim.new(0, 8)
+
+    local disp = Instance.new("Frame", box)
+    disp.Position = UDim2.new(0, 8, 0, 8)
+    disp.Size = UDim2.new(1, -16, 0, 64)
+    disp.BackgroundColor3 = Color3.fromRGB(15, 15, 18)
+    disp.BorderSizePixel = 0
+    disp.ClipsDescendants = true
+    Instance.new("UICorner", disp).CornerRadius = UDim.new(0, 6)
+
+    DHCalc.Top = Instance.new("TextLabel", disp)
+    DHCalc.Top.Position = UDim2.new(0, 8, 0, 4)
+    DHCalc.Top.Size = UDim2.new(1, -16, 0, 16)
+    DHCalc.Top.BackgroundTransparency = 1
+    DHCalc.Top.Font = Enum.Font.Gotham
+    DHCalc.Top.TextSize = 11
+    DHCalc.Top.TextColor3 = Color3.fromRGB(150, 150, 150)
+    DHCalc.Top.TextXAlignment = Enum.TextXAlignment.Right
+    DHCalc.Top.Text = ""
+
+    DHCalc.Main = Instance.new("TextLabel", disp)
+    DHCalc.Main.Position = UDim2.new(0, 8, 0, 22)
+    DHCalc.Main.Size = UDim2.new(1, -16, 0, 36)
+    DHCalc.Main.BackgroundTransparency = 1
+    DHCalc.Main.Font = Enum.Font.GothamBold
+    DHCalc.Main.TextSize = 24
+    DHCalc.Main.TextColor3 = Color3.new(1, 1, 1)
+    DHCalc.Main.TextXAlignment = Enum.TextXAlignment.Right
+    DHCalc.Main.Text = "0"
+
+    local grid = Instance.new("Frame", box)
+    grid.Position = UDim2.new(0, 8, 0, 80)
+    grid.Size = UDim2.new(1, -16, 0, 246)
+    grid.BackgroundTransparency = 1
+    local gl = Instance.new("UIGridLayout", grid)
+    gl.CellSize = UDim2.new(0.25, -6, 0, 36)
+    gl.CellPadding = UDim2.new(0, 8, 0, 6)
+    gl.SortOrder = Enum.SortOrder.LayoutOrder
+
+    -- key, label, color
+    local num = Color3.fromRGB(55, 55, 55)
+    local op = Color3.fromRGB(200, 120, 30)
+    local keys = {
+        {"C", "C", Color3.fromRGB(170, 55, 55)}, {"DEL", "DEL", Color3.fromRGB(90, 90, 90)}, {"(", "(", op}, {")", ")", op},
+        {"7", "7", num}, {"8", "8", num}, {"9", "9", num}, {"/", "÷", op},
+        {"4", "4", num}, {"5", "5", num}, {"6", "6", num}, {"*", "×", op},
+        {"1", "1", num}, {"2", "2", num}, {"3", "3", num}, {"-", "-", op},
+        {"0", "0", num}, {".", ".", num}, {"%", "mod", op}, {"+", "+", op},
+        {"^", "x^y", op}, {"sqrt(", "sqrt", op}, {"Copy", "Copy", Color3.fromRGB(40, 140, 200)}, {"=", "=", Color3.fromRGB(35, 160, 90)},
+    }
+    for i, k in ipairs(keys) do
+        local b = Instance.new("TextButton", grid)
+        b.LayoutOrder = i
+        b.Text = k[2]
+        b.Font = Enum.Font.GothamBold
+        b.TextSize = 15
+        b.TextColor3 = Color3.new(1, 1, 1)
+        b.BackgroundColor3 = k[3]
+        Instance.new("UICorner", b).CornerRadius = UDim.new(0, 6)
+        b.MouseButton1Click:Connect(function() DHCalc.Press(k[1]) end)
+    end
+end
+pcall(DHCalc.Build)
+
 local ServerStartTime = os.time()
 
 -- ================================================
@@ -3826,7 +4033,7 @@ Instance.new("UICorner", VolumeReset).CornerRadius = UDim.new(0, 6)
 -- ================================================
 ListSection = Instance.new("Frame", MusicScroll)
 ListSection.Size = UDim2.new(1, 0, 0, 300)
-ListSection.Position = UDim2.new(0, 0, 0, 600)
+ListSection.Position = UDim2.new(0, 0, 0, 1232)
 ListSection.BackgroundColor3 = Color3.fromRGB(25,25,25)
 Instance.new("UICorner", ListSection).CornerRadius = UDim.new(0, 8)
 
@@ -4278,6 +4485,439 @@ function DHMusic.BuildLoop()
 end
 pcall(DHMusic.BuildLoop)
 
+-- ================================================
+-- SOUND EFFECTS: bass, speed, pitch, reverb, echo and presets for the music you play (only you hear it)
+-- ================================================
+DHFx = {Show = {}, Chips = {}}
+DHFx.Default = {Bass = 0, Mid = 0, Treble = 0, Speed = 1, Pitch = 1, Reverb = 0, Echo = 0, Dist = 0, Spin = false}
+DHFx.S = {}
+for k, v in pairs(DHFx.Default) do DHFx.S[k] = v end
+
+DHFx.Presets = {
+    {"Normal", {}},
+    {"Echo", {Echo = 6}},
+    {"Reverb", {Reverb = 6}},
+    {"Slowed", {Speed = 0.8}},
+    {"Slowed+Reverb", {Speed = 0.8, Reverb = 6}},
+    {"Sped Up", {Speed = 1.25}},
+    {"Nightcore", {Speed = 1.2, Pitch = 1.2}},
+    {"Bass Boost", {Bass = 10}},
+    {"8D Audio", {Spin = true, Reverb = 2}},
+    {"Lo-fi", {Bass = 3, Treble = -25, Dist = 0.15, Reverb = 2}},
+    {"Phonk", {Bass = 10, Dist = 0.35, Reverb = 3}},
+    {"Underwater", {Mid = -6, Treble = -40, Reverb = 5}},
+    {"Muffled", {Mid = -4, Treble = -40}},
+    {"Deep Voice", {Pitch = 0.75}},
+    {"Chipmunk", {Pitch = 1.6}},
+    {"Daycore", {Speed = 0.75, Treble = -10, Reverb = 3}},
+}
+
+function DHFx.Get(snd, class, name)
+    local e = snd:FindFirstChild(name)
+    if not e then
+        e = Instance.new(class)
+        e.Name = name
+        e.Parent = snd
+    end
+    return e
+end
+
+function DHFx.Drop(snd, name)
+    local e = snd:FindFirstChild(name)
+    if e then e:Destroy() end
+end
+
+-- move the sound to another parent without stopping it
+function DHFx.Move(snd, parent)
+    if snd.Parent == parent then return end
+    local was, pos = snd.IsPlaying, snd.TimePosition
+    snd.Parent = parent
+    if was then
+        snd.TimePosition = pos
+        snd:Play()
+    end
+end
+
+-- 8D: the sound circles around your head
+function DHFx.SpinStart()
+    if DHFx.SpinConn then return end
+    local part = Instance.new("Part")
+    part.Name = "DH_8D"
+    part.Anchored = true
+    part.CanCollide = false
+    part.CanQuery = false
+    part.CanTouch = false
+    part.Transparency = 1
+    part.Size = Vector3.new(1, 1, 1)
+    part.Parent = workspace
+    DHFx.SpinPart = part
+    local ang = 0
+    DHFx.SpinConn = RunService.Heartbeat:Connect(function(dt)
+        local cam = workspace.CurrentCamera
+        if not cam then return end
+        ang = ang + dt * 0.8
+        part.Position = cam.CFrame.Position + Vector3.new(math.cos(ang) * 6, 0, math.sin(ang) * 6)
+    end)
+end
+
+function DHFx.SpinStop()
+    if not DHFx.SpinConn then return end
+    DHFx.SpinConn:Disconnect()
+    DHFx.SpinConn = nil
+    local part = DHFx.SpinPart
+    DHFx.SpinPart = nil
+    if CurrentSound and CurrentSound.Parent == part then
+        pcall(DHFx.Move, CurrentSound, workspace)
+    end
+    if part then pcall(function() part:Destroy() end) end
+end
+
+function DHFx.Apply(snd)
+    local s = DHFx.S
+    if s.Spin then DHFx.SpinStart() else DHFx.SpinStop() end
+    snd = snd or CurrentSound
+    if not (snd and snd.Parent) then return end
+    snd.PlaybackSpeed = s.Speed
+
+    -- one equalizer reaches +10 dB at most, so a stronger boost stacks several of them
+    local used = (s.Bass ~= 0 or s.Mid ~= 0 or s.Treble ~= 0)
+    local n = math.clamp(math.ceil(math.max(s.Bass, s.Mid, s.Treble) / 10), 1, 4)
+    for i = 1, 4 do
+        local name = "DHFx_EQ" .. i
+        if used and i <= n then
+            local e = DHFx.Get(snd, "EqualizerSoundEffect", name)
+            local function part(v)
+                if v > 0 then return v / n end
+                return (i == 1) and v or 0
+            end
+            e.LowGain = part(s.Bass)
+            e.MidGain = part(s.Mid)
+            e.HighGain = part(s.Treble)
+        else
+            DHFx.Drop(snd, name)
+        end
+    end
+
+    -- one pitch shifter covers 0.5x to 2x, beyond that two of them work together
+    if s.Pitch ~= 1 then
+        if s.Pitch < 0.5 or s.Pitch > 2 then
+            local half = math.sqrt(s.Pitch)
+            DHFx.Get(snd, "PitchShiftSoundEffect", "DHFx_Pitch").Octave = half
+            DHFx.Get(snd, "PitchShiftSoundEffect", "DHFx_Pitch2").Octave = half
+        else
+            DHFx.Get(snd, "PitchShiftSoundEffect", "DHFx_Pitch").Octave = s.Pitch
+            DHFx.Drop(snd, "DHFx_Pitch2")
+        end
+    else
+        DHFx.Drop(snd, "DHFx_Pitch")
+        DHFx.Drop(snd, "DHFx_Pitch2")
+    end
+
+    if s.Reverb > 0 then
+        local e = DHFx.Get(snd, "ReverbSoundEffect", "DHFx_Reverb")
+        e.DecayTime = 1.5 + s.Reverb * 0.3
+        e.Density = 1
+        e.Diffusion = 1
+        e.DryLevel = -2
+        e.WetLevel = math.min(10, -24 + s.Reverb * 2.4)
+    else
+        DHFx.Drop(snd, "DHFx_Reverb")
+    end
+    if s.Echo > 0 then
+        local e = DHFx.Get(snd, "EchoSoundEffect", "DHFx_Echo")
+        e.Delay = 0.28
+        e.Feedback = math.min(0.9, 0.2 + s.Echo * 0.04)
+        e.DryLevel = 0
+        e.WetLevel = math.min(10, -20 + s.Echo * 1.6)
+    else
+        DHFx.Drop(snd, "DHFx_Echo")
+    end
+    if s.Dist > 0 then
+        DHFx.Get(snd, "DistortionSoundEffect", "DHFx_Dist").Level = s.Dist
+    else
+        DHFx.Drop(snd, "DHFx_Dist")
+    end
+    if s.Spin and DHFx.SpinPart then
+        DHFx.Move(snd, DHFx.SpinPart)
+    end
+end
+
+function DHFx.Mark(name)
+    for n, b in pairs(DHFx.Chips) do
+        b.BackgroundColor3 = (n == name) and Color3.fromRGB(40, 140, 200) or Color3.fromRGB(55, 55, 55)
+    end
+end
+
+function DHFx.Use(name, p)
+    local s = DHFx.S
+    for k, v in pairs(DHFx.Default) do s[k] = v end
+    for k, v in pairs(p) do s[k] = v end
+    for _, f in pairs(DHFx.Show) do f() end
+    DHFx.Mark(name)
+    DHFx.Apply()
+end
+
+function DHFx.Slider(sec, y, name, lo, hi, step, key, fmt)
+    local lbl = Instance.new("TextLabel", sec)
+    lbl.Position = UDim2.new(0, 10, 0, y)
+    lbl.Size = UDim2.new(1, -20, 0, 16)
+    lbl.BackgroundTransparency = 1
+    lbl.Font = Enum.Font.Gotham
+    lbl.TextSize = 12
+    lbl.TextColor3 = Color3.fromRGB(200, 200, 200)
+    lbl.TextXAlignment = Enum.TextXAlignment.Left
+
+    local bar = Instance.new("Frame", sec)
+    bar.Position = UDim2.new(0, 10, 0, y + 24)
+    bar.Size = UDim2.new(1, -20, 0, 8)
+    bar.BackgroundColor3 = Color3.fromRGB(55, 55, 55)
+    Instance.new("UICorner", bar).CornerRadius = UDim.new(1, 0)
+    local fill = Instance.new("Frame", bar)
+    fill.BackgroundColor3 = Color3.fromRGB(40, 140, 200)
+    Instance.new("UICorner", fill).CornerRadius = UDim.new(1, 0)
+    local knob = Instance.new("Frame", bar)
+    knob.Size = UDim2.new(0, 16, 0, 16)
+    knob.AnchorPoint = Vector2.new(0.5, 0.5)
+    knob.BackgroundColor3 = Color3.new(1, 1, 1)
+    Instance.new("UICorner", knob).CornerRadius = UDim.new(1, 0)
+
+    local function show()
+        local v = DHFx.S[key]
+        local r = math.clamp((v - lo) / (hi - lo), 0, 1)
+        fill.Size = UDim2.new(r, 0, 1, 0)
+        knob.Position = UDim2.new(r, 0, 0.5, 0)
+        lbl.Text = name .. ": " .. string.format(fmt, v)
+    end
+    DHFx.Show[key] = show
+    show()
+
+    local hit = Instance.new("TextButton", sec)
+    hit.Position = UDim2.new(0, 10, 0, y + 14)
+    hit.Size = UDim2.new(1, -20, 0, 28)
+    hit.BackgroundTransparency = 1
+    hit.Text = ""
+    local function setFrom(x)
+        local r = math.clamp((x - bar.AbsolutePosition.X) / math.max(1, bar.AbsoluteSize.X), 0, 1)
+        local v = lo + r * (hi - lo)
+        v = math.floor(v / step + 0.5) * step
+        DHFx.S[key] = tonumber(string.format("%.3f", math.clamp(v, lo, hi)))
+        show()
+        DHFx.Mark(nil)
+        DHFx.Apply()
+    end
+    hit.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+            DHFx.Active = setFrom
+            MusicScroll.ScrollingEnabled = false
+            setFrom(input.Position.X)
+        end
+    end)
+end
+
+function DHFx.Build()
+    local sec = Instance.new("Frame", MusicScroll)
+    sec.Size = UDim2.new(1, 0, 0, 516)
+    sec.Position = UDim2.new(0, 0, 0, 416)
+    sec.BackgroundColor3 = Color3.fromRGB(25, 25, 25)
+    Instance.new("UICorner", sec).CornerRadius = UDim.new(0, 8)
+
+    local hd = Instance.new("TextLabel", sec)
+    hd.Size = UDim2.new(1, -20, 0, 25)
+    hd.Position = UDim2.new(0, 10, 0, 5)
+    hd.BackgroundTransparency = 1
+    hd.Text = "SOUND EFFECTS"
+    hd.Font = Enum.Font.GothamBold
+    hd.TextSize = 14
+    hd.TextColor3 = Color3.fromRGB(255, 200, 100)
+    hd.TextXAlignment = Enum.TextXAlignment.Left
+
+    local grid = Instance.new("Frame", sec)
+    grid.Position = UDim2.new(0, 10, 0, 34)
+    grid.Size = UDim2.new(1, -20, 0, 188)
+    grid.BackgroundTransparency = 1
+    local gl = Instance.new("UIGridLayout", grid)
+    gl.CellSize = UDim2.new(1 / 3, -4, 0, 28)
+    gl.CellPadding = UDim2.new(0, 6, 0, 4)
+    gl.SortOrder = Enum.SortOrder.LayoutOrder
+    for i, p in ipairs(DHFx.Presets) do
+        local b = Instance.new("TextButton", grid)
+        b.LayoutOrder = i
+        b.Text = p[1]
+        b.Font = Enum.Font.GothamBold
+        b.TextSize = 10
+        b.TextColor3 = Color3.new(1, 1, 1)
+        b.BackgroundColor3 = Color3.fromRGB(55, 55, 55)
+        Instance.new("UICorner", b).CornerRadius = UDim.new(0, 6)
+        DHFx.Chips[p[1]] = b
+        b.MouseButton1Click:Connect(function() DHFx.Use(p[1], p[2]) end)
+    end
+    DHFx.Mark("Normal")
+
+    DHFx.Slider(sec, 230, "Bass", -40, 40, 1, "Bass", "%.0f dB")
+    DHFx.Slider(sec, 270, "Treble", -60, 40, 1, "Treble", "%.0f dB")
+    DHFx.Slider(sec, 310, "Speed", 0.25, 4, 0.05, "Speed", "%.2fx")
+    DHFx.Slider(sec, 350, "Pitch", 0.25, 4, 0.05, "Pitch", "%.2fx")
+    DHFx.Slider(sec, 390, "Reverb", 0, 20, 1, "Reverb", "%.0f")
+    DHFx.Slider(sec, 430, "Echo", 0, 20, 1, "Echo", "%.0f")
+
+    local spin = Instance.new("TextButton", sec)
+    spin.Position = UDim2.new(0, 10, 0, 474)
+    spin.Size = UDim2.new(0.5, -15, 0, 30)
+    spin.Font = Enum.Font.GothamBold
+    spin.TextSize = 12
+    spin.TextColor3 = Color3.new(1, 1, 1)
+    Instance.new("UICorner", spin).CornerRadius = UDim.new(0, 6)
+    local function paintSpin()
+        spin.Text = "8D Spin: " .. (DHFx.S.Spin and "ON" or "OFF")
+        spin.BackgroundColor3 = DHFx.S.Spin and Color3.fromRGB(35, 160, 90) or Color3.fromRGB(60, 60, 60)
+    end
+    DHFx.Show.Spin = paintSpin
+    paintSpin()
+    spin.MouseButton1Click:Connect(function()
+        DHFx.S.Spin = not DHFx.S.Spin
+        paintSpin()
+        DHFx.Mark(nil)
+        DHFx.Apply()
+    end)
+
+    local reset = Instance.new("TextButton", sec)
+    reset.Position = UDim2.new(0.5, 5, 0, 474)
+    reset.Size = UDim2.new(0.5, -15, 0, 30)
+    reset.Text = "Reset effects"
+    reset.Font = Enum.Font.GothamBold
+    reset.TextSize = 12
+    reset.TextColor3 = Color3.new(1, 1, 1)
+    reset.BackgroundColor3 = Color3.fromRGB(100, 100, 100)
+    Instance.new("UICorner", reset).CornerRadius = UDim.new(0, 6)
+    reset.MouseButton1Click:Connect(function() DHFx.Use("Normal", {}) end)
+
+    -- one shared drag for all sliders
+    UIS.InputChanged:Connect(function(input)
+        if DHFx.Active and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
+            DHFx.Active(input.Position.X)
+        end
+    end)
+    UIS.InputEnded:Connect(function(input)
+        if DHFx.Active and (input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch) then
+            DHFx.Active = nil
+            MusicScroll.ScrollingEnabled = true
+        end
+    end)
+
+    ScreenGui.Destroying:Connect(function() pcall(DHFx.SpinStop) end)
+end
+pcall(DHFx.Build)
+
+-- ================================================
+-- MUSIC VISUALIZER: RGB bars that move with the loudness of the music you play
+-- ================================================
+DHViz = {N = 48, Style = 1, Bars = {}, Lvl = 0, Last = 0, Kick = 0}
+
+function DHViz.Build()
+    local sec = Instance.new("Frame", MusicScroll)
+    sec.Size = UDim2.new(1, 0, 0, 96)
+    sec.Position = UDim2.new(0, 0, 0, 310)
+    sec.BackgroundColor3 = Color3.fromRGB(18, 18, 22)
+    sec.ClipsDescendants = true
+    Instance.new("UICorner", sec).CornerRadius = UDim.new(0, 8)
+
+    local area = Instance.new("Frame", sec)
+    area.Position = UDim2.new(0, 8, 0, 6)
+    area.Size = UDim2.new(1, -16, 0, 84)
+    area.BackgroundTransparency = 1
+    for i = 1, DHViz.N do
+        local b = Instance.new("Frame", area)
+        b.AnchorPoint = Vector2.new(0.5, 0.5)
+        b.Position = UDim2.new((i - 0.5) / DHViz.N, 0, 0.5, 0)
+        b.Size = UDim2.new(1 / DHViz.N, -2, 0, 4)
+        b.BorderSizePixel = 0
+        b.BackgroundColor3 = Color3.new(1, 1, 1)
+        Instance.new("UICorner", b).CornerRadius = UDim.new(1, 0)
+        DHViz.Bars[i] = b
+    end
+
+    local btn = Instance.new("TextButton", sec)
+    btn.Position = UDim2.new(1, -82, 0, 6)
+    btn.Size = UDim2.new(0, 74, 0, 18)
+    btn.BackgroundColor3 = Color3.new(0, 0, 0)
+    btn.BackgroundTransparency = 0.4
+    btn.Text = "Style: Bars"
+    btn.Font = Enum.Font.GothamBold
+    btn.TextSize = 10
+    btn.TextColor3 = Color3.new(1, 1, 1)
+    btn.ZIndex = 3
+    Instance.new("UICorner", btn).CornerRadius = UDim.new(0, 5)
+    btn.MouseButton1Click:Connect(function()
+        DHViz.Style = (DHViz.Style == 1) and 2 or 1
+        btn.Text = (DHViz.Style == 1) and "Style: Bars" or "Style: Wave"
+    end)
+
+    local t, acc = 0, 0
+    DHViz.Conn = RunService.Heartbeat:Connect(function(dt)
+        if not (MusicContent and MusicContent.Visible) then return end
+        t = t + dt
+        acc = acc + dt
+        if acc < 1 / 30 then return end
+        local step = acc
+        acc = 0
+
+        local snd = CurrentSound
+        local loud = 0
+        if snd and snd.Parent and snd.IsPlaying then loud = snd.PlaybackLoudness end
+        local target = math.clamp(loud / 450, 0, 1)
+        -- rises fast, falls slowly
+        local k = (target > DHViz.Lvl) and 0.5 or 0.12
+        DHViz.Lvl = DHViz.Lvl + (target - DHViz.Lvl) * math.min(1, k * step * 60)
+        DHViz.Kick = math.max(math.clamp((loud - DHViz.Last) / 120, 0, 1), DHViz.Kick - step * 3)
+        DHViz.Last = loud
+
+        -- history of the loudness: the middle is "now", the sides are the last moments, so the bars follow the real music
+        local H = 40
+        local hist = DHViz.Hist
+        if not hist then
+            hist = {}
+            for j = 1, H do hist[j] = 0 end
+            DHViz.Hist = hist
+        end
+        -- soft scale: boosted bass makes the bars longer, and the Volume setting scales them too
+        local vol = 1
+        if snd and snd.Parent then vol = math.clamp(snd.Volume, 0.1, 1) ^ 0.6 end
+        table.insert(hist, 1, (1 - math.exp(-loud / 600)) * vol)
+        hist[H + 1] = nil
+
+        local n = DHViz.N
+        local bars = DHViz.Style == 1
+        for i = 1, n do
+            local b = DHViz.Bars[i]
+            local x = (i - 0.5) / n
+            -- 0 in the middle, 1 at the sides
+            local d = math.abs(x - 0.5) * 2
+            local p = 1 + d * (H - 1)
+            local a = math.floor(p)
+            local f = p - a
+            local v1 = hist[a] or 0
+            local v2 = hist[math.min(H, a + 1)] or 0
+            local h = v1 + (v2 - v1) * f
+            if bars then
+                b.Visible = (i % 2 == 0)
+                h = h ^ 0.9
+            else
+                b.Visible = true
+            end
+            h = math.clamp(h, 0, 1)
+            if b.Visible then
+                b.Size = UDim2.new((bars and 2 or 1) / n, -2, 0, 4 + h * 76)
+                b.BackgroundColor3 = Color3.fromHSV((t * 0.12 + x) % 1, 0.9, 1)
+            end
+        end
+    end)
+
+    ScreenGui.Destroying:Connect(function()
+        if DHViz.Conn then DHViz.Conn:Disconnect() end
+    end)
+end
+pcall(DHViz.Build)
+
 MusicBox:GetPropertyChangedSignal("Text"):Connect(DHMusic.SetPlayText)
 
 -- Play button (becomes Resume while paused on the same ID)
@@ -4301,6 +4941,7 @@ PlayBtn.MouseButton1Click:Connect(function()
         CurrentSound:SetAttribute("DH_Music", true) -- so "No Audio" does not mute the hub music
         CurrentSound.Looped = DHMusic.Loop == true
         CurrentSound.Parent = workspace
+        pcall(DHFx.Apply, CurrentSound)
         DHMusic.Id = id
         DHMusic.Paused = false
         DHMusic.SetPlayText()
@@ -4487,7 +5128,7 @@ end
 function DHMS.Build()
     local sec = Instance.new("Frame", MusicScroll)
     sec.Size = UDim2.new(1, 0, 0, 280)
-    sec.Position = UDim2.new(0, 0, 0, 310)
+    sec.Position = UDim2.new(0, 0, 0, 942)
     sec.BackgroundColor3 = Color3.fromRGB(25,25,25)
     Instance.new("UICorner", sec).CornerRadius = UDim.new(0, 8)
 
@@ -4572,7 +5213,7 @@ updateMusicList("")
 -- ================================================
 YouTubeContainer = Instance.new("Frame", MusicScroll)
 YouTubeContainer.Size = UDim2.new(1, 0, 0, 120)
-YouTubeContainer.Position = UDim2.new(0, 0, 0, 910)  -- Sesuaikan dengan posisi setelah Volume
+YouTubeContainer.Position = UDim2.new(0, 0, 0, 1542)  -- Sesuaikan dengan posisi setelah Volume
 YouTubeContainer.BackgroundColor3 = Color3.fromRGB(25,25,25)
 YouTubeContainer.ClipsDescendants = true
 Instance.new("UICorner", YouTubeContainer).CornerRadius = UDim.new(0, 8)
@@ -7036,6 +7677,11 @@ RefreshBtn.MouseButton1Click:Connect(function()
     ShowConfirmPopup("Refresh Character?", Color3.fromRGB(200, 150, 50), function()
         if Player.Character and Player.Character:FindFirstChild("HumanoidRootPart") then
             lastCFrame = Player.Character.HumanoidRootPart.CFrame
+            local mine = lastCFrame
+            -- if you did not respawn within 8 seconds, forget the spot
+            task.delay(8, function()
+                if lastCFrame == mine then lastCFrame = nil end
+            end)
         end
         if Player.Character and Player.Character:FindFirstChild("Humanoid") then
             Player.Character.Humanoid.Health = 0
@@ -7070,6 +7716,7 @@ Player.CharacterAdded:Connect(function(char)
     task.wait(0.2)
     if lastCFrame then
         char.HumanoidRootPart.CFrame = lastCFrame
+        lastCFrame = nil -- used once
     end
     if char:FindFirstChild("Humanoid") then
         Camera.CameraType = Enum.CameraType.Custom
@@ -14312,6 +14959,91 @@ local desyncLoop = nil
 local desyncHiddenPos = nil
 local desyncSpawnCF = nil
 
+
+-- Desync spawn marker (like the Waypoint markers): a pillar + label where TP Spawn will take you
+DHDsMk = {On = true}
+DHDsMk.Btn = Instance.new("TextButton", DesyncSection)
+DHDsMk.Btn.Size = UDim2.new(0.31, -10, 0, 32)
+DHDsMk.Btn.Position = UDim2.new(0.69, 0, 0, 85)
+DHDsMk.Btn.BackgroundColor3 = Color3.fromRGB(35, 160, 90)
+DHDsMk.Btn.Text = "Marker | ON"
+DHDsMk.Btn.Font = Enum.Font.GothamBold
+DHDsMk.Btn.TextSize = 11
+DHDsMk.Btn.TextColor3 = Color3.new(1, 1, 1)
+Instance.new("UICorner", DHDsMk.Btn).CornerRadius = UDim.new(0, 6)
+
+function DHDsMk.Clear()
+    if DHDsMk.Folder then
+        pcall(function() DHDsMk.Folder:Destroy() end)
+        DHDsMk.Folder = nil
+    end
+    DHDsMk.Lbl = nil
+end
+
+function DHDsMk.Show(cf)
+    DHDsMk.Clear()
+    if not DHDsMk.On or not cf then return end
+    local f = Instance.new("Folder")
+    f.Name = "DHDesyncMarker"
+    local pole = Instance.new("Part")
+    pole.Anchored = true
+    pole.CanCollide = false
+    pole.CanQuery = false
+    pole.CanTouch = false
+    pole.Material = Enum.Material.Neon
+    pole.Color = Color3.fromRGB(150, 110, 255)
+    pole.Transparency = 0.35
+    pole.Size = Vector3.new(0.35, 14, 0.35)
+    pole.Position = cf.Position + Vector3.new(0, 7, 0)
+    pole.Parent = f
+    local bb = Instance.new("BillboardGui", pole)
+    bb.Adornee = pole
+    bb.AlwaysOnTop = true
+    bb.Size = UDim2.new(0, 130, 0, 34)
+    bb.StudsOffset = Vector3.new(0, 8.5, 0)
+    bb.ResetOnSpawn = false
+    local lb = Instance.new("TextLabel", bb)
+    lb.Size = UDim2.new(1, 0, 1, 0)
+    lb.BackgroundTransparency = 1
+    lb.Font = Enum.Font.GothamBold
+    lb.TextSize = 12
+    lb.TextColor3 = Color3.fromRGB(180, 150, 255)
+    lb.TextStrokeTransparency = 0.3
+    lb.Text = "Desync Spawn"
+    f.Parent = workspace
+    DHDsMk.Folder = f
+    DHDsMk.Lbl = lb
+end
+
+DHDsMk.Btn.MouseButton1Click:Connect(function()
+    DHDsMk.On = not DHDsMk.On
+    DHDsMk.Btn.Text = DHDsMk.On and "Marker | ON" or "Marker | OFF"
+    DHDsMk.Btn.BackgroundColor3 = DHDsMk.On and Color3.fromRGB(35, 160, 90) or Color3.fromRGB(30, 30, 40)
+    if DHDsMk.On and desyncActive then
+        DHDsMk.Show(desyncSpawnCF)
+    else
+        DHDsMk.Clear()
+    end
+end)
+
+-- keeps the distance on the label fresh
+task.spawn(function()
+    while ScreenGui.Parent do
+        task.wait(0.25)
+        local lb = DHDsMk.Lbl
+        if lb and lb.Parent and desyncSpawnCF then
+            local ch = Player.Character
+            local r = ch and ch:FindFirstChild("HumanoidRootPart")
+            if r then
+                local d = math.floor((r.Position - desyncSpawnCF.Position).Magnitude + 0.5)
+                lb.Text = "Desync Spawn\n" .. d .. "m"
+            end
+        end
+    end
+end)
+ScreenGui.Destroying:Connect(function() pcall(DHDsMk.Clear) end)
+
+
 local function desyncGetRoot(char)
     return char:FindFirstChild("HumanoidRootPart") or char:FindFirstChild("Torso") or char:FindFirstChild("UpperTorso")
 end
@@ -14352,6 +15084,7 @@ DesyncToggle.MouseButton1Click:Connect(function()
         desyncSeat.CFrame = savedCF
 
         desyncActive = true
+        DHDsMk.Show(savedCF)
         DesyncToggle.Text = "Desync | ON"
         DesyncToggle.BackgroundColor3 = Color3.fromRGB(90, 55, 200)
         DesyncStatus.Text = "✅ Desync  Active!"
@@ -14370,6 +15103,7 @@ DesyncToggle.MouseButton1Click:Connect(function()
         end
 
         desyncActive = false
+        DHDsMk.Clear()
         if desyncSpeedOn then
             local hs = char:FindFirstChildOfClass("Humanoid")
             if hs then hs.WalkSpeed = DesyncSpeedBtn:GetAttribute("Orig") or 16 end
@@ -14439,6 +15173,7 @@ end)
 Player.CharacterAdded:Connect(function()
     if desyncActive then
         desyncActive = false
+        DHDsMk.Clear()
         if desyncLoop then desyncLoop:Disconnect() desyncLoop = nil end
         if desyncSeat and desyncSeat.Parent then desyncSeat:Destroy() end
         desyncSeat = nil desyncWeld = nil
@@ -17744,7 +18479,8 @@ pcall(BuildAdjustment)
 -- ================================================
 -- EFFECT: Sun Flare, Motion Blur, Soft Global Illumination, Copy Saved Adjustment
 -- ================================================
-DHFx = {mbStrength = 50}
+DHFx = DHFx or {}
+DHFx.mbStrength = 50
 
 function DHFx.MotionBlur(on)
     if DHFx.mbConn then
@@ -17955,6 +18691,365 @@ function BuildCamera()
 end
 
 pcall(BuildCamera)
+
+-- ================================================
+-- CROSSHAIR: drawn on screen in Lucide style (type the icon name or tap one), position, rotate, spin, color
+-- ================================================
+DHXh = {
+    On = false, Shape = "crosshair", Size = 40, Thick = 2, X = 0, Y = 0, Rot = 0,
+    Spin = false, SpinSpeed = 90, Angle = 0, Rgb = false, Hue = 0,
+    Color = Color3.fromRGB(255, 60, 60), Parts = {}, CustomId = nil,
+}
+
+DHXh.Names = {"crosshair", "target", "locate", "locate-fixed", "circle-dot", "plus", "scan", "focus", "x", "minus", "dot", "square-dot"}
+
+DHXh.Colors = {
+    Color3.fromRGB(255, 255, 255), Color3.fromRGB(255, 60, 60), Color3.fromRGB(60, 255, 100), Color3.fromRGB(70, 140, 255),
+    Color3.fromRGB(255, 230, 60), Color3.fromRGB(60, 240, 255), Color3.fromRGB(255, 80, 230), Color3.fromRGB(255, 150, 40),
+}
+
+function DHXh.Say(text)
+    if DHXh.Msg then DHXh.Msg.Text = text end
+end
+
+function DHXh.Paint()
+    local c = DHXh.Rgb and Color3.fromHSV(DHXh.Hue, 1, 1) or DHXh.Color
+    for _, p in ipairs(DHXh.Parts) do
+        local o, k = p[1], p[2]
+        if k == "fill" then
+            o.BackgroundColor3 = c
+        elseif k == "stroke" then
+            o.Color = c
+        else
+            o.ImageColor3 = c
+        end
+    end
+end
+
+function DHXh.Draw()
+    local root = DHXh.Root
+    if not root then return end
+    for _, c in ipairs(root:GetChildren()) do c:Destroy() end
+    DHXh.Parts = {}
+    local S, T = DHXh.Size, DHXh.Thick
+    local u = S / 24
+    root.Size = UDim2.fromOffset(S, S)
+
+    -- a filled rectangle: x, y from the top left of the crosshair, width, height, optional rotation
+    local function fill(x, y, w, h, rot)
+        local f = Instance.new("Frame", root)
+        f.BorderSizePixel = 0
+        f.AnchorPoint = Vector2.new(0.5, 0.5)
+        f.Position = UDim2.fromOffset(x + w / 2, y + h / 2)
+        f.Size = UDim2.fromOffset(w, h)
+        if rot then f.Rotation = rot end
+        DHXh.Parts[#DHXh.Parts + 1] = {f, "fill"}
+    end
+    local function hbar(x1, x2) fill(x1 * u, S / 2 - T / 2, (x2 - x1) * u, T) end
+    local function vbar(y1, y2) fill(S / 2 - T / 2, y1 * u, T, (y2 - y1) * u) end
+    local function ring(d, corner)
+        local f = Instance.new("Frame", root)
+        f.BackgroundTransparency = 1
+        f.BorderSizePixel = 0
+        f.AnchorPoint = Vector2.new(0.5, 0.5)
+        f.Position = UDim2.fromScale(0.5, 0.5)
+        f.Size = UDim2.fromOffset(d * u, d * u)
+        Instance.new("UICorner", f).CornerRadius = corner or UDim.new(1, 0)
+        local s = Instance.new("UIStroke", f)
+        s.Thickness = T
+        s.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+        DHXh.Parts[#DHXh.Parts + 1] = {s, "stroke"}
+    end
+    local function dot(d)
+        local dd = math.max(d * u, T)
+        local f = Instance.new("Frame", root)
+        f.BorderSizePixel = 0
+        f.AnchorPoint = Vector2.new(0.5, 0.5)
+        f.Position = UDim2.fromScale(0.5, 0.5)
+        f.Size = UDim2.fromOffset(dd, dd)
+        Instance.new("UICorner", f).CornerRadius = UDim.new(1, 0)
+        DHXh.Parts[#DHXh.Parts + 1] = {f, "fill"}
+    end
+    -- scan corners (sx, sy = which corner)
+    local function corner(sx, sy)
+        local ox = (sx == 1) and 3 * u or 21 * u
+        local oy = (sy == 1) and 3 * u or 21 * u
+        local hx = (sx == 1) and (ox - T / 2) or (ox - 5 * u + T / 2)
+        local vy = (sy == 1) and (oy - T / 2) or (oy - 5 * u + T / 2)
+        fill(hx, oy - T / 2, 5 * u, T)
+        fill(ox - T / 2, vy, T, 5 * u)
+    end
+    local function corners()
+        corner(1, 1)
+        corner(-1, 1)
+        corner(1, -1)
+        corner(-1, -1)
+    end
+
+    local shape = DHXh.Shape
+    if shape == "crosshair" then
+        ring(20) hbar(2, 6) hbar(18, 22) vbar(2, 6) vbar(18, 22)
+    elseif shape == "target" then
+        ring(20) ring(12) ring(4)
+    elseif shape == "locate" then
+        ring(14) hbar(2, 5) hbar(19, 22) vbar(2, 5) vbar(19, 22)
+    elseif shape == "locate-fixed" then
+        ring(14) hbar(2, 5) hbar(19, 22) vbar(2, 5) vbar(19, 22) dot(6)
+    elseif shape == "circle-dot" then
+        ring(20) dot(5)
+    elseif shape == "plus" then
+        hbar(5, 19) vbar(5, 19)
+    elseif shape == "scan" then
+        corners()
+    elseif shape == "focus" then
+        corners() dot(6)
+    elseif shape == "x" then
+        fill(S / 2 - 8.5 * u, S / 2 - T / 2, 17 * u, T, 45)
+        fill(S / 2 - 8.5 * u, S / 2 - T / 2, 17 * u, T, -45)
+    elseif shape == "minus" then
+        hbar(5, 19)
+    elseif shape == "dot" then
+        dot(6)
+    elseif shape == "square-dot" then
+        ring(18, UDim.new(0, 2 * u))
+        dot(4)
+    elseif shape == "custom" and DHXh.CustomId then
+        local img = Instance.new("ImageLabel", root)
+        img.BackgroundTransparency = 1
+        img.Size = UDim2.new(1, 0, 1, 0)
+        img.Image = "rbxassetid://" .. tostring(DHXh.CustomId)
+        DHXh.Parts[#DHXh.Parts + 1] = {img, "image"}
+    end
+    DHXh.Paint()
+end
+
+function DHXh.Refresh()
+    local root = DHXh.Root
+    if not root then return end
+    root.Position = UDim2.new(0.5, DHXh.X, 0.5, DHXh.Y)
+    root.Rotation = DHXh.Rot + DHXh.Angle
+    DHXh.Draw()
+end
+
+function DHXh.Set(on)
+    DHXh.On = on and true or false
+    if DHXh.Conn then
+        DHXh.Conn:Disconnect()
+        DHXh.Conn = nil
+    end
+    if DHXh.Gui then
+        DHXh.Gui:Destroy()
+        DHXh.Gui, DHXh.Root = nil, nil
+    end
+    if not DHXh.On then return end
+    local g = Instance.new("ScreenGui")
+    g.Name = "DH_Crosshair"
+    g.IgnoreGuiInset = true
+    g.ResetOnSpawn = false
+    g.DisplayOrder = 20
+    g.Parent = ScreenGui.Parent
+    local root = Instance.new("Frame", g)
+    root.BackgroundTransparency = 1
+    root.BorderSizePixel = 0
+    root.AnchorPoint = Vector2.new(0.5, 0.5)
+    DHXh.Gui, DHXh.Root = g, root
+    DHXh.Refresh()
+    DHXh.Conn = RunService.RenderStepped:Connect(function(dt)
+        if DHXh.Spin then DHXh.Angle = (DHXh.Angle + DHXh.SpinSpeed * dt) % 360 end
+        root.Rotation = DHXh.Rot + DHXh.Angle
+        if DHXh.Rgb then
+            DHXh.Hue = (DHXh.Hue + dt * 0.25) % 1
+            DHXh.Paint()
+        end
+    end)
+end
+
+function DHXh.MarkChips()
+    if not DHXh.Chips then return end
+    for n, b in pairs(DHXh.Chips) do
+        b.BackgroundColor3 = (n == DHXh.Shape) and Color3.fromRGB(40, 140, 200) or Color3.fromRGB(55, 55, 55)
+    end
+end
+
+-- text: a Lucide icon name, any capitals or spaces are fine
+function DHXh.Pick(text)
+    local name = (text or ""):lower():gsub("^%s+", ""):gsub("%s+$", ""):gsub("[%s_]+", "-")
+    if name == "" then return end
+    if table.find(DHXh.Names, name) then
+        DHXh.Shape = name
+        DHXh.Say("Shape: " .. name)
+        DHXh.MarkChips()
+        DHXh.Refresh()
+    else
+        DHXh.Say('"' .. name .. '" is not in the DaffzHub list. Use: ' .. table.concat(DHXh.Names, ", "))
+    end
+end
+
+function BuildCrosshair()
+    local box = DHVisual.AddContainer("Crosshair", 97)
+    DHVisual.AddNote(box, "A crosshair in the middle of your screen, drawn in Lucide style. Type a Lucide icon name or tap one below.")
+    DHVisual.AddToggle(box, "Crosshair", "Show it on your screen", DHXh.Set, false)
+
+    local nb = Instance.new("TextBox")
+    nb.Size = UDim2.new(1, 0, 0, 30)
+    nb.BackgroundColor3 = Color3.fromRGB(35, 35, 35)
+    nb.BorderSizePixel = 0
+    nb.PlaceholderText = "Lucide icon name (e.g. crosshair)"
+    nb.Text = ""
+    nb.ClearTextOnFocus = false
+    nb.Font = Enum.Font.Gotham
+    nb.TextSize = 13
+    nb.TextColor3 = Color3.new(1, 1, 1)
+    nb.PlaceholderColor3 = Color3.fromRGB(130, 130, 130)
+    nb.LayoutOrder = DHVisual.Next(box)
+    nb.Parent = box
+    Instance.new("UICorner", nb).CornerRadius = UDim.new(0, 6)
+    nb.FocusLost:Connect(function() DHXh.Pick(nb.Text) end)
+
+    DHXh.Msg = DHVisual.AddNote(box, "Shape: crosshair")
+
+    local grid = Instance.new("Frame")
+    grid.Size = UDim2.new(1, 0, 0, 0)
+    grid.AutomaticSize = Enum.AutomaticSize.Y
+    grid.BackgroundTransparency = 1
+    grid.LayoutOrder = DHVisual.Next(box)
+    grid.Parent = box
+    local gl = Instance.new("UIGridLayout", grid)
+    gl.CellSize = UDim2.new(1 / 3, -4, 0, 28)
+    gl.CellPadding = UDim2.new(0, 6, 0, 6)
+    gl.SortOrder = Enum.SortOrder.LayoutOrder
+    DHXh.Chips = {}
+    for i, n in ipairs(DHXh.Names) do
+        local b = Instance.new("TextButton")
+        b.LayoutOrder = i
+        b.Text = n
+        b.Font = Enum.Font.GothamBold
+        b.TextSize = 10
+        b.TextColor3 = Color3.new(1, 1, 1)
+        b.BackgroundColor3 = Color3.fromRGB(55, 55, 55)
+        b.TextTruncate = Enum.TextTruncate.AtEnd
+        b.Parent = grid
+        Instance.new("UICorner", b).CornerRadius = UDim.new(0, 6)
+        DHXh.Chips[n] = b
+        b.MouseButton1Click:Connect(function()
+            nb.Text = n
+            DHXh.Pick(n)
+        end)
+    end
+    DHXh.MarkChips()
+
+    -- your own Lucide icon, uploaded to Roblox
+    local cb = Instance.new("TextBox")
+    cb.Size = UDim2.new(1, 0, 0, 30)
+    cb.BackgroundColor3 = Color3.fromRGB(35, 35, 35)
+    cb.BorderSizePixel = 0
+    cb.PlaceholderText = "Custom image ID (a white icon you uploaded)"
+    cb.Text = ""
+    cb.ClearTextOnFocus = false
+    cb.Font = Enum.Font.Gotham
+    cb.TextSize = 12
+    cb.TextColor3 = Color3.new(1, 1, 1)
+    cb.PlaceholderColor3 = Color3.fromRGB(130, 130, 130)
+    cb.LayoutOrder = DHVisual.Next(box)
+    cb.Parent = box
+    Instance.new("UICorner", cb).CornerRadius = UDim.new(0, 6)
+    DHVisual.AddButton(box, "Use Custom ID", function()
+        local id = cb.Text:match("%d+")
+        if not id then
+            DHXh.Say("Type the image ID first")
+            return
+        end
+        DHXh.CustomId = id
+        DHXh.Shape = "custom"
+        DHXh.Say("Shape: custom (ID " .. id .. ")")
+        DHXh.MarkChips()
+        DHXh.Refresh()
+    end)
+
+    -- colors
+    local crow = Instance.new("Frame")
+    crow.Size = UDim2.new(1, 0, 0, 30)
+    crow.BackgroundTransparency = 1
+    crow.LayoutOrder = DHVisual.Next(box)
+    crow.Parent = box
+    local cg = Instance.new("UIGridLayout", crow)
+    cg.CellSize = UDim2.new(1 / 9, -4, 1, 0)
+    cg.CellPadding = UDim2.new(0, 4, 0, 0)
+    cg.SortOrder = Enum.SortOrder.LayoutOrder
+    local cbtns = {}
+    local function paintColors()
+        for i, b in ipairs(cbtns) do
+            local on = (i == 9 and DHXh.Rgb) or (i < 9 and not DHXh.Rgb and DHXh.Color == DHXh.Colors[i])
+            local st = b:FindFirstChildOfClass("UIStroke")
+            if st then st.Enabled = on end
+        end
+    end
+    for i = 1, 9 do
+        local b = Instance.new("TextButton")
+        b.LayoutOrder = i
+        b.Text = (i == 9) and "RGB" or ""
+        b.Font = Enum.Font.GothamBold
+        b.TextSize = 9
+        b.TextColor3 = Color3.new(1, 1, 1)
+        b.BackgroundColor3 = (i == 9) and Color3.fromRGB(90, 60, 160) or DHXh.Colors[i]
+        b.Parent = crow
+        Instance.new("UICorner", b).CornerRadius = UDim.new(1, 0)
+        local st = Instance.new("UIStroke", b)
+        st.Color = Color3.new(1, 1, 1)
+        st.Thickness = 2
+        st.Enabled = false
+        cbtns[i] = b
+        b.MouseButton1Click:Connect(function()
+            if i == 9 then
+                DHXh.Rgb = true
+            else
+                DHXh.Rgb = false
+                DHXh.Color = DHXh.Colors[i]
+            end
+            paintColors()
+            DHXh.Paint()
+        end)
+    end
+    paintColors()
+
+    DHVisual.AddSlider(box, "Size", 10, 200, DHXh.Size, 0, function(v)
+        DHXh.Size = v
+        DHXh.Refresh()
+    end)
+    DHVisual.AddSlider(box, "Thickness", 1, 10, DHXh.Thick, 0, function(v)
+        DHXh.Thick = v
+        DHXh.Refresh()
+    end)
+    local sx = DHVisual.AddSlider(box, "Position X", -500, 500, 0, 0, function(v)
+        DHXh.X = v
+        DHXh.Refresh()
+    end)
+    local sy = DHVisual.AddSlider(box, "Position Y", -400, 400, 0, 0, function(v)
+        DHXh.Y = v
+        DHXh.Refresh()
+    end)
+    DHVisual.AddButton(box, "Center", function()
+        DHXh.X, DHXh.Y = 0, 0
+        sx.Set(0, true)
+        sy.Set(0, true)
+        DHXh.Refresh()
+    end)
+    DHVisual.AddSlider(box, "Rotate", 0, 360, 0, 0, function(v)
+        DHXh.Rot = v
+        if DHXh.Root then DHXh.Root.Rotation = DHXh.Rot + DHXh.Angle end
+    end)
+    DHVisual.AddToggle(box, "Spinning", "The crosshair turns by itself", function(on)
+        DHXh.Spin = on
+        if not on then DHXh.Angle = 0 end
+    end, false)
+    DHVisual.AddSlider(box, "Spin Speed", 10, 720, 90, 0, function(v)
+        DHXh.SpinSpeed = v
+    end)
+
+    DHVisual.OnCleanup(function() DHXh.Set(false) end)
+end
+
+pcall(BuildCrosshair)
 
 -- ================================================
 -- ANIMATION TAB (part 1: shell). Search + Saved panels are filled by the next parts.
@@ -21722,6 +22817,10 @@ function DHInv.Step()
 end
 
 function DHInv.Enter()
+    if DHDum and DHDum.Ctl then
+        DHInv.Hint("Go back to your own body first")
+        return false
+    end
     if DHSafeState and DHSafeState() then
         DHInv.Hint("Turn off Safe Zone first")
         return false
@@ -21834,6 +22933,745 @@ function BuildModsPart9()
 end
 
 pcall(BuildModsPart9)
+
+-- ================================================
+-- DUMMY: spawn gray visual dummies at your spot and take control of one (only you can see them)
+-- ================================================
+DHDum = {List = {}, N = 0, Ctl = nil, Speed = 16}
+
+DHDum.Anims = {
+    idle = "rbxassetid://507766666",
+    walk = "rbxassetid://507777826",
+    jump = "rbxassetid://507765000",
+    fall = "rbxassetid://507767968",
+    climb = "rbxassetid://507765644",
+    swim = "rbxassetid://507784897",
+    swimidle = "rbxassetid://507785072",
+}
+
+DHDum.EmoteList = {"Wave", "Cheer", "Point", "Laugh", "Dance", "Dance 2", "Dance 3"}
+DHDum.EmoteIds = {
+    ["Wave"] = 507770239,
+    ["Cheer"] = 507770677,
+    ["Point"] = 507770453,
+    ["Laugh"] = 507770818,
+    ["Dance"] = 507771019,
+    ["Dance 2"] = 507776043,
+    ["Dance 3"] = 507777268,
+}
+DHDum.EmoteSel = "Wave"
+
+-- parts whose name contains one of these words are treated as a ladder
+DHDum.ClimbWords = {"ladder", "climb", "rung", "truss", "scaffold"}
+
+DHDum.Esp = {On = false, Style = "Filled", Line = false, Dist = false, Name = false}
+DHDum.EspColor = Color3.fromRGB(0, 200, 255)
+
+function DHDum.Say(text)
+    if DHDum.Status then DHDum.Status.Text = text end
+end
+
+-- loads (once) and returns an animation track for one dummy
+function DHDum.Track(e, key, id, looped, prio)
+    local tr = e.Tracks[key]
+    if tr then return tr end
+    local animator = e.Hum:FindFirstChildOfClass("Animator")
+    if not animator then return nil end
+    local an = Instance.new("Animation")
+    an.AnimationId = id
+    local ok, t = pcall(function() return animator:LoadAnimation(an) end)
+    if not ok or not t then return nil end
+    t.Looped = looped and true or false
+    if prio then t.Priority = prio end
+    e.Tracks[key] = t
+    return t
+end
+
+function DHDum.Spawn()
+    local char = Player.Character
+    local hum = char and char:FindFirstChildOfClass("Humanoid")
+    local root = hum and hum.RootPart
+    if not (hum and root) or hum.Health <= 0 then
+        DHDum.Say("No character")
+        return
+    end
+    if #DHDum.List >= 10 then
+        DHDum.Say("Maximum 10 dummies")
+        return
+    end
+    DHDum.N = DHDum.N + 1
+    local n = DHDum.N
+    local cf = root.CFrame
+    task.spawn(function()
+        local d = Instance.new("HumanoidDescription")
+        local gray = Color3.fromRGB(163, 162, 165)
+        d.HeadColor = gray
+        d.TorsoColor = gray
+        d.LeftArmColor = gray
+        d.RightArmColor = gray
+        d.LeftLegColor = gray
+        d.RightLegColor = gray
+        d.Face = 144075659
+        d.BodyTypeScale = 0
+        d.ProportionScale = 0
+        local ok, m = pcall(function() return Players:CreateHumanoidModelFromDescription(d, Enum.HumanoidRigType.R15) end)
+        d:Destroy()
+        if not ok or not m then
+            DHDum.Say("Could not make a dummy")
+            return
+        end
+        m.Name = "DaffzDummy"
+        for _, x in ipairs(m:GetDescendants()) do
+            if x:IsA("BaseScript") or x:IsA("Sound") then pcall(function() x:Destroy() end) end
+        end
+        local h = m:FindFirstChildOfClass("Humanoid")
+        local r = m:FindFirstChild("HumanoidRootPart")
+        if not (h and r) then
+            m:Destroy()
+            DHDum.Say("Could not make a dummy")
+            return
+        end
+        h.DisplayDistanceType = Enum.HumanoidDisplayDistanceType.None
+        h.HealthDisplayType = Enum.HumanoidHealthDisplayType.AlwaysOff
+        local a = n * 1.3
+        local pos = cf.Position + Vector3.new(math.cos(a) * 4, 0, math.sin(a) * 4)
+        m.Parent = workspace
+        m:PivotTo(CFrame.new(pos) * (cf - cf.Position))
+
+        local animator = h:FindFirstChildOfClass("Animator") or Instance.new("Animator", h)
+        local entry = {Id = n, Name = "Dummy " .. n, Model = m, Hum = h, Root = r, Tracks = {}, Home = pos}
+        for key, id in pairs(DHDum.Anims) do
+            DHDum.Track(entry, key, id, key ~= "jump")
+        end
+        DHDum.List[#DHDum.List + 1] = entry
+        DHDum.Start()
+        DHDum.Fill()
+        DHDum.Say(entry.Name .. " spawned (only you can see it)")
+    end)
+end
+
+-- plays the picked emote on the controlled dummy (or on all dummies when none is controlled)
+function DHDum.PlayEmote()
+    local id = DHDum.EmoteIds[DHDum.EmoteSel]
+    if not id then return end
+    local targets = DHDum.Ctl and {DHDum.Ctl} or DHDum.List
+    if #targets == 0 then
+        DHDum.Say("Spawn a dummy first")
+        return
+    end
+    local loop = string.sub(DHDum.EmoteSel, 1, 5) == "Dance"
+    for _, e in ipairs(targets) do
+      local tr = DHDum.Track(e, "emote_" .. DHDum.EmoteSel, "rbxassetid://" .. id, loop, Enum.AnimationPriority.Action)
+        if tr then
+            if e.Emote and e.Emote ~= tr then pcall(function() e.Emote:Stop(0.15) end) end
+            local cur = e.Tracks[e.Cur]
+            if cur then cur:Stop(0.15) end
+            e.Cur = nil
+            e.Emote = tr
+            e.EmoteT = os.clock()
+            tr:Play(0.15)
+        end
+    end
+    DHDum.Say(DHDum.EmoteSel .. " playing")
+end
+
+function DHDum.StopEmote()
+    local targets = DHDum.Ctl and {DHDum.Ctl} or DHDum.List
+    for _, e in ipairs(targets) do
+        if e.Emote then
+            pcall(function() e.Emote:Stop(0.15) end)
+            e.Emote = nil
+        end
+    end
+    DHDum.Say("Emote stopped")
+end
+
+function DHDum.Anim(e)
+    local h, r = e.Hum, e.Root
+    local moving = h.MoveDirection.Magnitude > 0.1
+    local air = h.FloorMaterial == Enum.Material.Air
+
+    -- an emote keeps playing until it ends, or until the controlled dummy moves / leaves the ground
+    local et = e.Emote
+    if et then
+        local cancel = DHDum.Ctl == e and (moving or air)
+        local fresh = os.clock() - (e.EmoteT or 0) < 0.8
+        if (et.IsPlaying or fresh) and not cancel then return end
+        pcall(function() et:Stop(0.2) end)
+        e.Emote = nil
+    end
+
+    local st = h:GetState()
+    local state
+    if e.Climb or st == Enum.HumanoidStateType.Climbing then
+        state = "climb"
+    elseif st == Enum.HumanoidStateType.Swimming then
+        state = moving and "swim" or "swimidle"
+    elseif air then
+        state = r.AssemblyLinearVelocity.Y > 1 and "jump" or "fall"
+    else
+        state = moving and "walk" or "idle"
+    end
+    -- fall back to a simpler animation when this one failed to load
+    if not e.Tracks[state] then
+        if state == "swimidle" then state = "swim" end
+        if state == "swim" and not e.Tracks.swim then state = "fall" end
+        if state == "climb" and not e.Tracks.climb then state = "idle" end
+    end
+    if state ~= e.Cur then
+        local old = e.Tracks[e.Cur]
+        if old then old:Stop(0.15) end
+        local new = e.Tracks[state]
+        if new then new:Play(0.15) end
+        e.Cur = state
+    end
+    if state == "walk" and e.Tracks.walk then
+        e.Tracks.walk:AdjustSpeed(math.max(0.3, h.WalkSpeed / 16))
+    elseif state == "climb" and e.Tracks.climb then
+        -- the climb pose freezes while the dummy hangs still
+        e.Tracks.climb:AdjustSpeed(math.abs(r.AssemblyLinearVelocity.Y) > 1 and 1 or 0)
+    end
+end
+
+-- ladder help for the controlled dummy: real TrussParts already work, this also covers
+-- ladder-shaped parts (named ladder / climb / rung / ...) that games build from normal parts
+function DHDum.Assist(e, md)
+    local h, r = e.Hum, e.Root
+    if h:GetState() == Enum.HumanoidStateType.Climbing then
+        e.Climb = false
+        return
+    end
+    local moving = md.Magnitude > 0.1
+    local dir = moving and Vector3.new(md.X, 0, md.Z) or Vector3.new(r.CFrame.LookVector.X, 0, r.CFrame.LookVector.Z)
+    if dir.Magnitude < 0.01 then return end
+    dir = dir.Unit
+
+    local rp = RaycastParams.new()
+    rp.FilterType = Enum.RaycastFilterType.Exclude
+    local ign = {e.Model}
+    if Player.Character then ign[#ign + 1] = Player.Character end
+    for _, x in ipairs(DHDum.List) do ign[#ign + 1] = x.Model end
+    rp.FilterDescendantsInstances = ign
+
+    local hit = workspace:Raycast(r.Position, dir * 2.4, rp)
+    local ladder = false
+    if hit and hit.Instance then
+        local p = hit.Instance
+        if p:IsA("TrussPart") then
+            ladder = true
+        else
+            local nm = string.lower(p.Name .. " " .. (p.Parent and p.Parent.Name or ""))
+            for _, w in ipairs(DHDum.ClimbWords) do
+                if string.find(nm, w, 1, true) then
+                    ladder = true
+                    break
+                end
+            end
+        end
+    end
+
+    if ladder then
+        local into = moving and (-hit.Normal):Dot(dir) or 0
+        if into > 0.3 then
+            -- walking into the ladder: go up
+            r.AssemblyLinearVelocity = Vector3.new(0, math.clamp(h.WalkSpeed * 0.8, 6, 40), 0) + (-hit.Normal) * 3
+            e.Climb = true
+        elseif e.Climb and not moving then
+            -- let go of the stick: hang on the ladder
+            r.AssemblyLinearVelocity = Vector3.zero
+        else
+            e.Climb = false
+        end
+    else
+        if e.Climb and moving then
+            -- reached the top: hop over the edge
+            r.AssemblyLinearVelocity = Vector3.new(dir.X * h.WalkSpeed * 0.6, 14, dir.Z * h.WalkSpeed * 0.6)
+        end
+        e.Climb = false
+    end
+end
+
+function DHDum.EspDrop(e)
+    for _, k in ipairs({"Hl", "Tag", "Ln"}) do
+        if e[k] then
+            pcall(function() e[k]:Destroy() end)
+            e[k] = nil
+        end
+    end
+    e.NameLbl, e.DistLbl, e.LastD = nil, nil, nil
+end
+
+function DHDum.EspKill()
+    for _, k in ipairs({"Tags", "Lines"}) do
+        if DHDum[k] then
+            pcall(function() DHDum[k]:Destroy() end)
+            DHDum[k] = nil
+        end
+    end
+end
+
+-- Highlight / NameTag / Distance / Line for every dummy (the one you control is skipped, like your own player)
+function DHDum.EspUpdate()
+    local E = DHDum.Esp
+    local cam = workspace.CurrentCamera
+    if not cam then return end
+    local any = E.On or E.Line or E.Dist or E.Name
+    local par = ScreenGui.Parent
+    if any and par then
+        if not DHDum.Tags or not DHDum.Tags.Parent then
+            DHDum.Tags = Instance.new("Folder")
+            DHDum.Tags.Name = "DH_DUMMY_Tags"
+            DHDum.Tags.Parent = par
+        end
+        if not DHDum.Lines or not DHDum.Lines.Parent then
+            local g = Instance.new("ScreenGui")
+            g.Name = "DH_DUMMY_Lines"
+            g.ResetOnSpawn = false
+            g.IgnoreGuiInset = true
+            g.DisplayOrder = -1
+            g.Parent = par
+            DHDum.Lines = g
+        end
+    end
+
+    -- distance is measured from the dummy you control, or from your own body
+    local from = cam.CFrame.Position
+    if DHDum.Ctl then
+        from = DHDum.Ctl.Root.Position
+    else
+        local mine = Player.Character and Player.Character:FindFirstChild("HumanoidRootPart")
+        if mine then from = mine.Position end
+    end
+    local col = DHDum.EspColor
+
+    for _, e in ipairs(DHDum.List) do
+        if not any or DHDum.Ctl == e then
+            if e.Hl or e.Tag or e.Ln then DHDum.EspDrop(e) end
+        else
+            -- Highlight
+            if E.On then
+                local hl = e.Hl
+                if not hl or hl.Parent ~= e.Model then
+                    if hl then hl:Destroy() end
+                    hl = Instance.new("Highlight")
+                    hl.Name = "DH_DUMMY_HL"
+                    hl.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+                    hl.Adornee = e.Model
+                    hl.Parent = e.Model
+                    e.Hl = hl
+                end
+                hl.Enabled = true
+                hl.FillColor = col
+                hl.OutlineColor = col
+                hl.OutlineTransparency = 0
+                hl.FillTransparency = (E.Style == "Filled") and 0.5 or 1
+            elseif e.Hl then
+                e.Hl.Enabled = false
+            end
+
+            -- NameTag + Distance
+            if (E.Name or E.Dist) and DHDum.Tags then
+                local tag = e.Tag
+                if not tag or not tag.Parent then
+                    tag = Instance.new("BillboardGui")
+                    tag.Name = "DH_DUMMY_Tag"
+                    tag.AlwaysOnTop = true
+                    tag.Size = UDim2.new(0, 140, 0, 36)
+                    tag.StudsOffset = Vector3.new(0, 2.6, 0)
+                    tag.LightInfluence = 0
+                    tag.ResetOnSpawn = false
+                    local nl = Instance.new("TextLabel", tag)
+                    nl.Size = UDim2.new(1, 0, 0, 18)
+                    nl.BackgroundTransparency = 1
+                    nl.Font = Enum.Font.GothamBold
+                    nl.TextSize = 14
+                    nl.TextStrokeTransparency = 0.3
+                    local dl = Instance.new("TextLabel", tag)
+                    dl.Size = UDim2.new(1, 0, 0, 14)
+                    dl.BackgroundTransparency = 1
+                    dl.Font = Enum.Font.Gotham
+                    dl.TextSize = 12
+                    dl.TextColor3 = Color3.new(1, 1, 1)
+                    dl.TextStrokeTransparency = 0.3
+                    tag.Parent = DHDum.Tags
+                    e.Tag, e.NameLbl, e.DistLbl = tag, nl, dl
+                end
+                tag.Adornee = e.Model:FindFirstChild("Head") or e.Root
+                e.NameLbl.Visible = E.Name
+                e.NameLbl.Text = e.Name
+                e.NameLbl.TextColor3 = col
+                e.DistLbl.Visible = E.Dist
+                e.DistLbl.Position = UDim2.new(0, 0, 0, E.Name and 18 or 0)
+                if E.Dist then
+                    local dist = math.floor((from - e.Root.Position).Magnitude + 0.5)
+                    if dist ~= e.LastD then
+                        e.LastD = dist
+                        e.DistLbl.Text = dist .. "m"
+                    end
+                end
+            elseif e.Tag then
+                e.Tag:Destroy()
+                e.Tag, e.NameLbl, e.DistLbl = nil, nil, nil
+            end
+
+            -- Line from the bottom of the screen
+            if E.Line and DHDum.Lines then
+                local f = e.Ln
+                if not f or not f.Parent then
+                    f = Instance.new("Frame")
+                    f.Name = "L"
+                    f.AnchorPoint = Vector2.new(0.5, 0.5)
+                    f.BorderSizePixel = 0
+                    f.BackgroundTransparency = 0.15
+                    f.Size = UDim2.new(0, 0, 0, 2)
+                    f.Visible = false
+                    f.Parent = DHDum.Lines
+                    e.Ln = f
+                end
+                f.BackgroundColor3 = col
+                local v, onScreen = cam:WorldToViewportPoint(e.Root.Position)
+                if onScreen and v.Z > 0 then
+                    local vs = cam.ViewportSize
+                    local a = Vector2.new(vs.X / 2, vs.Y)
+                    local b = Vector2.new(v.X, v.Y)
+                    local dv = b - a
+                    f.Size = UDim2.new(0, dv.Magnitude, 0, 2)
+                    f.Position = UDim2.fromOffset((a.X + b.X) / 2, (a.Y + b.Y) / 2)
+                    f.Rotation = math.deg(math.atan2(dv.Y, dv.X))
+                    f.Visible = true
+                else
+                    f.Visible = false
+                end
+            elseif e.Ln then
+                e.Ln:Destroy()
+                e.Ln = nil
+            end
+        end
+    end
+end
+
+function DHDum.Step()
+    local changed = false
+    for i = #DHDum.List, 1, -1 do
+        local e = DHDum.List[i]
+        if not (e.Model and e.Model.Parent and e.Hum.Parent and e.Root.Parent) then
+            if DHDum.Ctl == e then DHDum.Release() end
+            DHDum.EspDrop(e)
+            table.remove(DHDum.List, i)
+            changed = true
+        end
+    end
+    if changed then DHDum.Fill() end
+
+    local c = DHDum.Ctl
+    if c then
+        local char, hum = DHDum.Char, DHDum.RHum
+        -- your real body died or was replaced: give the camera back
+        if Player.Character ~= char or not hum or not hum.Parent or hum.Health <= 0 then
+            DHDum.Release(true)
+        else
+            local rr = char:FindFirstChild("HumanoidRootPart")
+            if rr and not rr.Anchored then rr.Anchored = true end
+            local cam = workspace.CurrentCamera
+            if cam and cam.CameraSubject ~= c.Hum then cam.CameraSubject = c.Hum end
+            c.Hum.WalkSpeed = DHDum.Speed
+            c.Hum:Move(hum.MoveDirection, false)
+            if hum.Jump then c.Hum.Jump = true end
+            pcall(DHDum.Assist, c, hum.MoveDirection)
+        end
+    end
+
+    for _, e in ipairs(DHDum.List) do
+        if e.Root.Position.Y < workspace.FallenPartsDestroyHeight + 50 then
+            e.Model:PivotTo(CFrame.new(e.Home + Vector3.new(0, 3, 0)))
+            e.Root.AssemblyLinearVelocity = Vector3.zero
+        end
+        DHDum.Anim(e)
+    end
+    pcall(DHDum.EspUpdate)
+
+    if #DHDum.List == 0 and not DHDum.Ctl and DHDum.Conn then
+        DHDum.Conn:Disconnect()
+        DHDum.Conn = nil
+    end
+end
+
+function DHDum.Start()
+    if DHDum.Conn then return end
+    DHDum.Conn = RunService.Heartbeat:Connect(function()
+        pcall(DHDum.Step)
+    end)
+end
+
+function DHDum.Control(e)
+    if DHInv and DHInv.Active then
+        DHDum.Say("Turn off Invisible first")
+        return
+    end
+    if DHMods.FlyActive or DHMods.WwActive then
+        DHDum.Say("Turn off Fly / Wall Walk first")
+        return
+    end
+    if DHSafeState and DHSafeState() then
+        DHDum.Say("Turn off Safe Zone first")
+        return
+    end
+    local char = Player.Character
+    local hum = char and char:FindFirstChildOfClass("Humanoid")
+    local rr = char and char:FindFirstChild("HumanoidRootPart")
+    if not (hum and rr) or hum.Health <= 0 then
+        DHDum.Say("No character")
+        return
+    end
+    if not DHDum.Ctl then
+        DHDum.Char, DHDum.RHum = char, hum
+        rr.Anchored = true
+        DHDum.JumpConn = UIS.JumpRequest:Connect(function()
+            if DHDum.Ctl then DHDum.Ctl.Hum.Jump = true end
+        end)
+    else
+        pcall(function() DHDum.Ctl.Hum:Move(Vector3.zero, false) end)
+    end
+    DHDum.Ctl = e
+    DHDum.Start()
+    DHDum.Fill()
+    DHDum.Say("Controlling " .. e.Name)
+end
+
+-- back to your own body (gone = your real body was already replaced)
+function DHDum.Release(gone)
+    if not DHDum.Ctl then return end
+    local c = DHDum.Ctl
+    DHDum.Ctl = nil
+    c.Climb = false
+    if DHDum.JumpConn then
+        DHDum.JumpConn:Disconnect()
+        DHDum.JumpConn = nil
+    end
+    pcall(function() c.Hum:Move(Vector3.zero, false) end)
+    local char = DHDum.Char
+    DHDum.Char, DHDum.RHum = nil, nil
+    if not gone and char then
+        local rr = char:FindFirstChild("HumanoidRootPart")
+        if rr then
+            rr.AssemblyLinearVelocity = Vector3.zero
+            rr.Anchored = false
+        end
+    end
+    pcall(function()
+        local cam = workspace.CurrentCamera
+        local h = Player.Character and Player.Character:FindFirstChildOfClass("Humanoid")
+        if cam and h then
+            cam.CameraType = Enum.CameraType.Custom
+            cam.CameraSubject = h
+        end
+    end)
+    DHDum.Fill()
+    DHDum.Say("Back in your own body")
+end
+
+function DHDum.Remove(e)
+    if DHDum.Ctl == e then DHDum.Release() end
+    for i, x in ipairs(DHDum.List) do
+        if x == e then
+            table.remove(DHDum.List, i)
+            break
+        end
+    end
+    for _, tr in pairs(e.Tracks) do pcall(function() tr:Stop(0) end) end
+    DHDum.EspDrop(e)
+    pcall(function() e.Model:Destroy() end)
+    DHDum.Fill()
+    DHDum.Say(e.Name .. " removed")
+end
+
+function DHDum.Clear()
+    DHDum.Release()
+    for i = #DHDum.List, 1, -1 do
+        local e = DHDum.List[i]
+        for _, tr in pairs(e.Tracks) do pcall(function() tr:Stop(0) end) end
+        DHDum.EspDrop(e)
+        pcall(function() e.Model:Destroy() end)
+        table.remove(DHDum.List, i)
+    end
+    DHDum.EspKill()
+    DHDum.Fill()
+end
+
+function DHDum.Fill()
+    local list = DHDum.ListFrame
+    if not list then return end
+    for _, c in ipairs(list:GetChildren()) do
+        if c:IsA("Frame") then c:Destroy() end
+    end
+    for i, e in ipairs(DHDum.List) do
+        local on = (DHDum.Ctl == e)
+        local row = Instance.new("Frame", list)
+        row.LayoutOrder = i
+        row.Size = UDim2.new(1, -6, 0, 32)
+        row.BackgroundColor3 = on and Color3.fromRGB(30, 70, 45) or Color3.fromRGB(40, 40, 40)
+        row.BorderSizePixel = 0
+        Instance.new("UICorner", row).CornerRadius = UDim.new(0, 6)
+
+        -- tap the name to rename the dummy
+        local t = Instance.new("TextBox", row)
+        t.Position = UDim2.new(0, 6, 0.5, -12)
+        t.Size = UDim2.new(1, -112, 0, 24)
+        t.BackgroundColor3 = Color3.fromRGB(28, 28, 28)
+        t.BorderSizePixel = 0
+        t.Text = e.Name
+        t.PlaceholderText = "Name"
+        t.ClearTextOnFocus = false
+        t.Font = Enum.Font.GothamBold
+        t.TextSize = 12
+        t.TextColor3 = Color3.new(1, 1, 1)
+        t.TextXAlignment = Enum.TextXAlignment.Left
+        t.TextTruncate = Enum.TextTruncate.AtEnd
+        Instance.new("UICorner", t).CornerRadius = UDim.new(0, 5)
+        Instance.new("UIPadding", t).PaddingLeft = UDim.new(0, 6)
+        t.FocusLost:Connect(function()
+            local s = string.match(t.Text, "^%s*(.-)%s*$")
+            if s == "" then s = e.Name end
+            s = string.sub(s, 1, 20)
+            e.Name = s
+            t.Text = s
+            DHDum.Say("Renamed to " .. s)
+        end)
+
+        local go = Instance.new("TextButton", row)
+        go.Position = UDim2.new(1, -100, 0.5, -12)
+        go.Size = UDim2.new(0, 66, 0, 24)
+        go.Text = on and "Active" or "Control"
+        go.Font = Enum.Font.GothamBold
+        go.TextSize = 11
+        go.TextColor3 = Color3.new(1, 1, 1)
+        go.BackgroundColor3 = on and Color3.fromRGB(35, 160, 90) or Color3.fromRGB(40, 140, 200)
+        Instance.new("UICorner", go).CornerRadius = UDim.new(0, 5)
+        go.MouseButton1Click:Connect(function() DHDum.Control(e) end)
+        local x = Instance.new("TextButton", row)
+        x.Position = UDim2.new(1, -30, 0.5, -12)
+        x.Size = UDim2.new(0, 24, 0, 24)
+        x.Text = "X"
+        x.Font = Enum.Font.GothamBold
+        x.TextSize = 11
+        x.TextColor3 = Color3.new(1, 1, 1)
+        x.BackgroundColor3 = Color3.fromRGB(170, 55, 55)
+        Instance.new("UICorner", x).CornerRadius = UDim.new(0, 5)
+        x.MouseButton1Click:Connect(function() DHDum.Remove(e) end)
+    end
+end
+
+function DHDum.Build()
+    if not DHMods.Scroll then return end
+    DHMods.Header("DUMMY")
+
+    DHMods.N = DHMods.N + 1
+    local bar = Instance.new("Frame", DHMods.Scroll)
+    bar.Size = UDim2.new(1, 0, 0, 36)
+    bar.LayoutOrder = DHMods.N
+    bar.BackgroundTransparency = 1
+    local sp = Instance.new("TextButton", bar)
+    sp.Size = UDim2.new(0.5, -4, 1, 0)
+    sp.Text = "Spawn Dummy"
+    sp.Font = Enum.Font.GothamBold
+    sp.TextSize = 13
+    sp.TextColor3 = Color3.new(1, 1, 1)
+    sp.BackgroundColor3 = Color3.fromRGB(35, 160, 90)
+    Instance.new("UICorner", sp).CornerRadius = UDim.new(0, 8)
+    sp.MouseButton1Click:Connect(DHDum.Spawn)
+    local ra = Instance.new("TextButton", bar)
+    ra.Position = UDim2.new(0.5, 4, 0, 0)
+    ra.Size = UDim2.new(0.5, -4, 1, 0)
+    ra.Text = "Remove All"
+    ra.Font = Enum.Font.GothamBold
+    ra.TextSize = 13
+    ra.TextColor3 = Color3.new(1, 1, 1)
+    ra.BackgroundColor3 = Color3.fromRGB(170, 55, 55)
+    Instance.new("UICorner", ra).CornerRadius = UDim.new(0, 8)
+    ra.MouseButton1Click:Connect(DHDum.Clear)
+
+    DHMods.N = DHMods.N + 1
+    local card = Instance.new("Frame", DHMods.Scroll)
+    card.Size = UDim2.new(1, 0, 0, 200)
+    card.LayoutOrder = DHMods.N
+    card.BackgroundColor3 = Color3.fromRGB(25, 25, 25)
+    card.BorderSizePixel = 0
+    Instance.new("UICorner", card).CornerRadius = UDim.new(0, 8)
+
+    local list = Instance.new("ScrollingFrame", card)
+    list.Position = UDim2.new(0, 8, 0, 8)
+    list.Size = UDim2.new(1, -16, 0, 132)
+    list.BackgroundTransparency = 1
+    list.BorderSizePixel = 0
+    list.ScrollBarThickness = 2
+    list.CanvasSize = UDim2.new(0, 0, 0, 0)
+    list.AutomaticCanvasSize = Enum.AutomaticSize.Y
+    local ll = Instance.new("UIListLayout", list)
+    ll.Padding = UDim.new(0, 4)
+    ll.SortOrder = Enum.SortOrder.LayoutOrder
+    DHDum.ListFrame = list
+
+    DHDum.Status = Instance.new("TextLabel", card)
+    DHDum.Status.Position = UDim2.new(0, 10, 0, 144)
+    DHDum.Status.Size = UDim2.new(1, -20, 0, 18)
+    DHDum.Status.BackgroundTransparency = 1
+    DHDum.Status.Text = "Spawn a dummy, tap its name to rename, tap Control to move it"
+    DHDum.Status.Font = Enum.Font.Gotham
+    DHDum.Status.TextSize = 10
+    DHDum.Status.TextColor3 = Color3.fromRGB(150, 150, 150)
+    DHDum.Status.TextXAlignment = Enum.TextXAlignment.Left
+    DHDum.Status.TextTruncate = Enum.TextTruncate.AtEnd
+
+    local back = Instance.new("TextButton", card)
+    back.Position = UDim2.new(0, 8, 0, 166)
+    back.Size = UDim2.new(1, -16, 0, 28)
+    back.Text = "Back to my body"
+    back.Font = Enum.Font.GothamBold
+    back.TextSize = 12
+    back.TextColor3 = Color3.new(1, 1, 1)
+    back.BackgroundColor3 = Color3.fromRGB(100, 100, 100)
+    Instance.new("UICorner", back).CornerRadius = UDim.new(0, 6)
+    back.MouseButton1Click:Connect(function() DHDum.Release() end)
+
+    DHMods.AddSlider("Dummy Speed", 8, 100, 16, 2, "%.0f", function(v) DHDum.Speed = v end)
+
+    DHMods.AddCycle("Dummy Emote", "Tap to pick: Wave, Cheer, Point, Laugh or a Dance", DHDum.EmoteList, 1, function(v) DHDum.EmoteSel = v end)
+    DHMods.N = DHMods.N + 1
+    local ebar = Instance.new("Frame", DHMods.Scroll)
+    ebar.Size = UDim2.new(1, 0, 0, 36)
+    ebar.LayoutOrder = DHMods.N
+    ebar.BackgroundTransparency = 1
+    local pe = Instance.new("TextButton", ebar)
+    pe.Size = UDim2.new(0.5, -4, 1, 0)
+    pe.Text = "Play Emote"
+    pe.Font = Enum.Font.GothamBold
+    pe.TextSize = 13
+    pe.TextColor3 = Color3.new(1, 1, 1)
+    pe.BackgroundColor3 = Color3.fromRGB(40, 140, 200)
+    Instance.new("UICorner", pe).CornerRadius = UDim.new(0, 8)
+    pe.MouseButton1Click:Connect(DHDum.PlayEmote)
+    local se = Instance.new("TextButton", ebar)
+    se.Position = UDim2.new(0.5, 4, 0, 0)
+    se.Size = UDim2.new(0.5, -4, 1, 0)
+    se.Text = "Stop Emote"
+    se.Font = Enum.Font.GothamBold
+    se.TextSize = 13
+    se.TextColor3 = Color3.new(1, 1, 1)
+    se.BackgroundColor3 = Color3.fromRGB(100, 100, 100)
+    Instance.new("UICorner", se).CornerRadius = UDim.new(0, 8)
+    se.MouseButton1Click:Connect(DHDum.StopEmote)
+
+    DHMods.Header("DUMMY ESP")
+    DHMods.AddToggle("Dummy ESP", "Highlight every dummy through walls", function(v) DHDum.Esp.On = v end)
+    DHMods.AddCycle("Dummy ESP Style", "Tap to change: Filled or Outline", {"Filled", "Outline"}, 1, function(v) DHDum.Esp.Style = v end)
+    DHMods.AddToggle("Dummy Line", "Draw a line from the bottom of the screen to each dummy", function(v) DHDum.Esp.Line = v end)
+    DHMods.AddToggle("Dummy Distance", "Show how far each dummy is", function(v) DHDum.Esp.Dist = v end)
+    DHMods.AddToggle("Dummy NameTag", "Show the name above each dummy head", function(v) DHDum.Esp.Name = v end)
+
+    DHMods.Offs[#DHMods.Offs + 1] = function() DHDum.Release() end
+    ScreenGui.Destroying:Connect(function() pcall(DHDum.Clear) end)
+end
+pcall(DHDum.Build)
 
 CheckLoadingHalt()
 SetLoadProgress(78)
@@ -25142,6 +26980,547 @@ if ModsTab then addTabButtonBorder(ModsTab) end
 addTabButtonBorder(SettingTab)
 addTabButtonBorder(CreditTab)
 
+
+-- ================================================
+-- THEME: change the look of the hub (border, background, accent, corners, size) in the Setting tab, and save it
+-- ================================================
+DHTheme = {
+    Path = "Daffzhub_file/Setting/Theme.json",
+    Def = {
+        border = {255, 255, 255}, bdThick = 1, bdTrans = 0.2, rgb = false, rgbSpd = 1,
+        bg = {15, 15, 15}, panel = {20, 20, 20}, card = {25, 25, 25}, accent = {35, 160, 90},
+        bgTrans = 0, round = 100, w = 500, h = 330,
+    },
+    Cur = {},
+    RoleOf = setmetatable({}, {__mode = "k"}),   -- instance -> "bg" / "panel" / "card" / "accent" (background color)
+    TRole = setmetatable({}, {__mode = "k"}),    -- instance -> accent (text color)
+    R0 = setmetatable({}, {__mode = "k"}),       -- UICorner -> its original radius
+    Hooked = setmetatable({}, {__mode = "k"}),
+    Skip = setmetatable({}, {__mode = "k"}),
+    T0 = setmetatable({}, {__mode = "k"}),       -- original background transparency
+    On = false,
+    Busy = false,
+    Target = "border",
+}
+
+function DHTheme.Copy(t)
+    local c = {}
+    for k, v in pairs(t) do
+        if type(v) == "table" then c[k] = {v[1], v[2], v[3]} else c[k] = v end
+    end
+    return c
+end
+DHTheme.Cur = DHTheme.Copy(DHTheme.Def)
+
+function DHTheme.Key(c)
+    return math.floor(c.R * 255 + 0.5) * 65536 + math.floor(c.G * 255 + 0.5) * 256 + math.floor(c.B * 255 + 0.5)
+end
+
+-- the colors the hub uses by default; whatever has one of these colors follows the theme
+DHTheme.Roles = {
+    [15 * 65536 + 15 * 256 + 15] = "bg",
+    [20 * 65536 + 20 * 256 + 20] = "panel",
+    [25 * 65536 + 25 * 256 + 25] = "card",
+    [35 * 65536 + 160 * 256 + 90] = "accent",
+    [30 * 65536 + 180 * 256 + 30] = "accent",
+}
+DHTheme.TextRoles = {
+    [100 * 65536 + 200 * 256 + 255] = "accent",
+}
+
+function DHTheme.Col(name)
+    local v = DHTheme.Cur[name]
+    return Color3.fromRGB(v[1], v[2], v[3])
+end
+
+function DHTheme.Trans(o, r)
+    local t0 = DHTheme.T0[o] or 0
+    if r == "accent" then return t0 end
+    return 1 - (1 - t0) * (1 - DHTheme.Cur.bgTrans)
+end
+
+function DHTheme.Tag(o)
+    if DHTheme.Skip[o] then return end
+    if o:IsA("GuiObject") then
+        if not DHTheme.RoleOf[o] and o.BackgroundTransparency < 1 then
+            local r = DHTheme.Roles[DHTheme.Key(o.BackgroundColor3)]
+            if r then
+                DHTheme.RoleOf[o] = r
+                DHTheme.T0[o] = o.BackgroundTransparency
+            end
+        end
+        if (o:IsA("TextLabel") or o:IsA("TextButton")) and not DHTheme.TRole[o] then
+            if DHTheme.TextRoles[DHTheme.Key(o.TextColor3)] then DHTheme.TRole[o] = true end
+        end
+        -- buttons change color when toggled: keep the new color in the theme too
+        if o:IsA("TextButton") and not DHTheme.Hooked[o] then
+            DHTheme.Hooked[o] = true
+            o:GetPropertyChangedSignal("BackgroundColor3"):Connect(function()
+                if DHTheme.Busy or not DHTheme.On then return end
+                local r = DHTheme.Roles[DHTheme.Key(o.BackgroundColor3)]
+                if r then
+                    DHTheme.RoleOf[o] = r
+                    DHTheme.Busy = true
+                    o.BackgroundColor3 = DHTheme.Col(r)
+                    o.BackgroundTransparency = DHTheme.Trans(o, r)
+                    DHTheme.Busy = false
+                end
+            end)
+        end
+    elseif o:IsA("UICorner") then
+        if not DHTheme.R0[o] and o.CornerRadius.Scale == 0 then
+            DHTheme.R0[o] = o.CornerRadius.Offset
+        end
+    end
+end
+
+function DHTheme.Paint(o)
+    local r = DHTheme.RoleOf[o]
+    if r then
+        o.BackgroundColor3 = DHTheme.Col(r)
+        o.BackgroundTransparency = DHTheme.Trans(o, r)
+    end
+    if DHTheme.TRole[o] then o.TextColor3 = DHTheme.Col("accent") end
+    local r0 = DHTheme.R0[o]
+    if r0 then
+        o.CornerRadius = UDim.new(0, math.floor(r0 * DHTheme.Cur.round / 100 + 0.5))
+    end
+end
+
+function DHTheme.Engage()
+    if DHTheme.On then return end
+    DHTheme.On = true
+    DHTheme.AddConn = Main.DescendantAdded:Connect(function(o)
+        task.defer(function()
+            if not DHTheme.On then return end
+            DHTheme.Busy = true
+            pcall(DHTheme.Tag, o)
+            pcall(DHTheme.Paint, o)
+            DHTheme.Busy = false
+        end)
+    end)
+    local n = 0
+    pcall(DHTheme.Tag, Main)
+    for _, o in ipairs(Main:GetDescendants()) do
+        pcall(DHTheme.Tag, o)
+        n = n + 1
+        if n % 1500 == 0 then task.wait() end
+    end
+end
+
+function DHTheme.Strokes()
+    local list = {}
+    local ms = Main:FindFirstChildOfClass("UIStroke")
+    if ms then list[#list + 1] = ms end
+    local ts = TabFrame:FindFirstChildOfClass("UIStroke")
+    if ts then list[#list + 1] = ts end
+    for _, c in ipairs(TabFrame:GetChildren()) do
+        if c:IsA("TextButton") then
+            local s = c:FindFirstChildOfClass("UIStroke")
+            if s then list[#list + 1] = s end
+        end
+    end
+    return list
+end
+
+function DHTheme.SetRgb(on)
+    if DHTheme.RgbConn then
+        DHTheme.RgbConn:Disconnect()
+        DHTheme.RgbConn = nil
+    end
+    if on then
+        local list = DHTheme.Strokes()
+        local t = 0
+        DHTheme.RgbConn = game:GetService("RunService").Heartbeat:Connect(function(dt)
+            t = t + dt * DHTheme.Cur.rgbSpd * 0.15
+            local c = Color3.fromHSV(t % 1, 1, 1)
+            for _, s in ipairs(list) do
+                if s.Parent then s.Color = c end
+            end
+        end)
+    end
+end
+
+function DHTheme.Apply()
+    local C = DHTheme.Cur
+    DHTheme.Engage()
+    DHTheme.Busy = true
+
+    for o in pairs(DHTheme.RoleOf) do pcall(DHTheme.Paint, o) end
+    for o in pairs(DHTheme.TRole) do pcall(DHTheme.Paint, o) end
+    for o in pairs(DHTheme.R0) do pcall(DHTheme.Paint, o) end
+
+    local bc = DHTheme.Col("border")
+    for _, s in ipairs(DHTheme.Strokes()) do
+        s.Thickness = C.bdThick
+        s.Transparency = C.bdTrans
+        if not C.rgb then s.Color = bc end
+    end
+    DHTheme.SetRgb(C.rgb)
+
+    -- window size, keeping the window centered where it is
+    local cur = Main.Size
+    local dw, dh = C.w - cur.X.Offset, C.h - cur.Y.Offset
+    if dw ~= 0 or dh ~= 0 then
+        Main.Size = UDim2.new(0, C.w, 0, C.h)
+        local p = Main.Position
+        Main.Position = UDim2.new(p.X.Scale, p.X.Offset - dw / 2, p.Y.Scale, p.Y.Offset - dh / 2)
+    end
+
+    DHTheme.Busy = false
+end
+
+-- many slider moves in a row only repaint a few times per second
+function DHTheme.Queue()
+    if DHTheme.Pending then return end
+    DHTheme.Pending = true
+    task.delay(0.05, function()
+        DHTheme.Pending = false
+        pcall(DHTheme.Apply)
+    end)
+end
+
+function DHTheme.Say(text)
+    if DHTheme.Status then
+        DHTheme.Status.Text = text
+        task.delay(3, function()
+            if DHTheme.Status and DHTheme.Status.Text == text then DHTheme.Status.Text = "" end
+        end)
+    end
+end
+
+function DHTheme.Save()
+    local ok = pcall(function()
+        if not (writefile and makefolder and isfolder) then error("no file access") end
+        if not isfolder("Daffzhub_file") then makefolder("Daffzhub_file") end
+        if not isfolder("Daffzhub_file/Setting") then makefolder("Daffzhub_file/Setting") end
+        writefile(DHTheme.Path, game:GetService("HttpService"):JSONEncode(DHTheme.Cur))
+    end)
+    DHTheme.Say(ok and "Theme saved" or "Could not save (no file access)")
+end
+
+function DHTheme.Load()
+    local found = false
+    pcall(function()
+        if not (isfile and readfile and isfile(DHTheme.Path)) then return end
+        local data = game:GetService("HttpService"):JSONDecode(readfile(DHTheme.Path))
+        if type(data) ~= "table" then return end
+        for k, d in pairs(DHTheme.Def) do
+            local v = data[k]
+            if type(d) == "table" then
+                if type(v) == "table" and tonumber(v[1]) and tonumber(v[2]) and tonumber(v[3]) then
+                    DHTheme.Cur[k] = {math.clamp(v[1], 0, 255), math.clamp(v[2], 0, 255), math.clamp(v[3], 0, 255)}
+                end
+            elseif type(v) == type(d) then
+                DHTheme.Cur[k] = v
+            end
+        end
+        found = true
+    end)
+    return found
+end
+
+-- a slider row; returns {Set = function(value)} (Set does not call the callback)
+function DHTheme.Slider(parent, y, name, min, max, step, fmt, init, cb)
+    local row = Instance.new("Frame", parent)
+    row.Size = UDim2.new(1, -20, 0, 36)
+    row.Position = UDim2.new(0, 10, 0, y)
+    row.BackgroundTransparency = 1
+    DHTheme.Skip[row] = true
+
+    local nm = Instance.new("TextLabel", row)
+    nm.Size = UDim2.new(1, -70, 0, 16)
+    nm.BackgroundTransparency = 1
+    nm.Text = name
+    nm.Font = Enum.Font.GothamBold
+    nm.TextSize = 12
+    nm.TextColor3 = Color3.new(1, 1, 1)
+    nm.TextXAlignment = Enum.TextXAlignment.Left
+
+    local val = Instance.new("TextLabel", row)
+    val.Size = UDim2.new(0, 64, 0, 16)
+    val.Position = UDim2.new(1, -64, 0, 0)
+    val.BackgroundTransparency = 1
+    val.Font = Enum.Font.GothamBold
+    val.TextSize = 12
+    val.TextColor3 = Color3.fromRGB(100, 200, 255)
+    val.TextXAlignment = Enum.TextXAlignment.Right
+
+    local bar = Instance.new("Frame", row)
+    bar.Size = UDim2.new(1, -8, 0, 6)
+    bar.Position = UDim2.new(0, 4, 0, 26)
+    bar.BackgroundColor3 = Color3.fromRGB(50, 50, 50)
+    bar.BorderSizePixel = 0
+    Instance.new("UICorner", bar).CornerRadius = UDim.new(0, 3)
+    local fill = Instance.new("Frame", bar)
+    fill.Size = UDim2.new(0, 0, 1, 0)
+    fill.BackgroundColor3 = Color3.fromRGB(35, 160, 90)
+    fill.BorderSizePixel = 0
+    Instance.new("UICorner", fill).CornerRadius = UDim.new(0, 3)
+    local knob = Instance.new("Frame", bar)
+    knob.Size = UDim2.new(0, 14, 0, 14)
+    knob.AnchorPoint = Vector2.new(0.5, 0.5)
+    knob.BackgroundColor3 = Color3.new(1, 1, 1)
+    knob.BorderSizePixel = 0
+    Instance.new("UICorner", knob).CornerRadius = UDim.new(1, 0)
+    DHTheme.Skip[knob] = true
+
+    -- a wide invisible area so the bar is easy to hit with a thumb
+    local hit = Instance.new("TextButton", row)
+    hit.Size = UDim2.new(1, 0, 0, 26)
+    hit.Position = UDim2.new(0, 0, 0, 14)
+    hit.BackgroundTransparency = 1
+    hit.Text = ""
+    DHTheme.Skip[hit] = true
+
+    local api = {}
+    local function Show(v)
+        v = math.clamp(v, min, max)
+        local r = (v - min) / (max - min)
+        fill.Size = UDim2.new(r, 0, 1, 0)
+        knob.Position = UDim2.new(r, 0, 0.5, 0)
+        local shown = v
+        if string.find(fmt, "%d", 1, true) then shown = math.floor(v + 0.5) end
+        val.Text = string.format(fmt, shown)
+    end
+    function api.Set(v) Show(v) end
+
+    local dragging = false
+    local function FromInput(input)
+        local r = math.clamp((input.Position.X - bar.AbsolutePosition.X) / math.max(1, bar.AbsoluteSize.X), 0, 1)
+        local v = min + (max - min) * r
+        v = math.floor(v / step + 0.5) * step
+        Show(v)
+        pcall(cb, v)
+    end
+    hit.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+            dragging = true
+            SettingScroll.ScrollingEnabled = false
+            FromInput(input)
+        end
+    end)
+    UIS.InputChanged:Connect(function(input)
+        if dragging and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
+            FromInput(input)
+        end
+    end)
+    UIS.InputEnded:Connect(function(input)
+        if dragging and (input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch) then
+            dragging = false
+            SettingScroll.ScrollingEnabled = true
+        end
+    end)
+    Show(init)
+    return api
+end
+
+function DHTheme.Build()
+    if not (SettingScroll and SettingsContainer) then return end
+    local C = DHTheme.Cur
+
+    local box = Instance.new("Frame", SettingScroll)
+    box.Name = "DH_Theme"
+    box.Size = UDim2.new(1, 0, 0, 640)
+    box.Position = UDim2.new(0, 0, 0, 0)
+    box.BackgroundColor3 = Color3.fromRGB(25, 25, 25)
+    box.ClipsDescendants = true
+    Instance.new("UICorner", box).CornerRadius = UDim.new(0, 8)
+    -- the old Setting container moves below the theme box
+    SettingsContainer.Position = UDim2.new(0, 0, 0, 650)
+    
+    -- other containers of the Setting tab (e.g. Other Settings) sit at fixed heights: move them down too
+    for _, o in ipairs(SettingScroll:GetChildren()) do
+        if o:IsA("Frame") and o ~= box and o ~= SettingsContainer and o.Position.Y.Offset >= 1000 then
+            o.Position = UDim2.new(0, 0, 0, o.Position.Y.Offset + 650)
+        end
+    end
+    SettingScroll.ChildAdded:Connect(function(o)
+        task.defer(function()
+            if o:IsA("Frame") and o ~= box and o ~= SettingsContainer and o.Position.Y.Offset >= 1000 and o.Position.Y.Offset < 1650 then
+                o.Position = UDim2.new(0, 0, 0, o.Position.Y.Offset + 650)
+            end
+        end)
+    end)
+
+    local function Label(text, y, size, color)
+        local l = Instance.new("TextLabel", box)
+        l.Size = UDim2.new(1, -20, 0, 20)
+        l.Position = UDim2.new(0, 10, 0, y)
+        l.BackgroundTransparency = 1
+        l.Text = text
+        l.Font = Enum.Font.GothamBold
+        l.TextSize = size
+        l.TextColor3 = color
+        l.TextXAlignment = Enum.TextXAlignment.Left
+        return l
+    end
+    local function Btn(text, x0, w0, y, h, color, parent)
+        local b = Instance.new("TextButton", parent or box)
+        b.Position = UDim2.new(x0, 0, 0, y)
+        b.Size = UDim2.new(w0, -4, 0, h)
+        b.Text = text
+        b.Font = Enum.Font.GothamBold
+        b.TextSize = 11
+        b.TextColor3 = Color3.new(1, 1, 1)
+        b.BackgroundColor3 = color
+        Instance.new("UICorner", b).CornerRadius = UDim.new(0, 6)
+        return b
+    end
+
+    Label("THEME", 6, 16, Color3.fromRGB(100, 200, 255))
+
+    -- color editor: pick what to color, then slide R / G / B
+    Label("Color of:", 34, 12, Color3.fromRGB(200, 200, 200))
+    local targets = {{"border", "Border"}, {"bg", "Back"}, {"panel", "Panel"}, {"card", "Card"}, {"accent", "Accent"}}
+    local tbtns = {}
+    local sw = Instance.new("Frame", box)
+    DHTheme.Skip[sw] = true
+    local hex = Instance.new("TextLabel", box)
+    local sl = {}
+
+    local function Refresh()
+        for key, b in pairs(tbtns) do
+            b.BackgroundColor3 = (key == DHTheme.Target) and Color3.fromRGB(70, 110, 200) or Color3.fromRGB(45, 45, 45)
+        end
+        local v = C[DHTheme.Target]
+        sw.BackgroundColor3 = Color3.fromRGB(v[1], v[2], v[3])
+        hex.Text = string.format("R %d   G %d   B %d", v[1], v[2], v[3])
+        for i = 1, 3 do sl[i].Set(v[i]) end
+    end
+
+    local trow = Instance.new("Frame", box)
+    trow.Size = UDim2.new(1, -20, 0, 28)
+    trow.Position = UDim2.new(0, 10, 0, 56)
+    trow.BackgroundTransparency = 1
+    for i, t in ipairs(targets) do
+        local b = Btn(t[2], (i - 1) / 5, 0.2, 0, 28, Color3.fromRGB(45, 45, 45), trow)
+        DHTheme.Skip[b] = true
+        tbtns[t[1]] = b
+        b.MouseButton1Click:Connect(function()
+            DHTheme.Target = t[1]
+            Refresh()
+        end)
+    end
+
+    sw.Size = UDim2.new(0, 36, 0, 22)
+    sw.Position = UDim2.new(0, 10, 0, 92)
+    sw.BorderSizePixel = 0
+    Instance.new("UICorner", sw).CornerRadius = UDim.new(0, 5)
+    local sws = Instance.new("UIStroke", sw)
+    sws.Color = Color3.new(1, 1, 1)
+    sws.Transparency = 0.5
+    hex.Size = UDim2.new(1, -60, 0, 22)
+    hex.Position = UDim2.new(0, 54, 0, 92)
+    hex.BackgroundTransparency = 1
+    hex.Font = Enum.Font.GothamBold
+    hex.TextSize = 12
+    hex.TextColor3 = Color3.new(1, 1, 1)
+    hex.TextXAlignment = Enum.TextXAlignment.Left
+
+    local names = {"Red", "Green", "Blue"}
+    for i = 1, 3 do
+        sl[i] = DHTheme.Slider(box, 118 + (i - 1) * 38, names[i], 0, 255, 1, "%d", C[DHTheme.Target][i], function(v)
+            C[DHTheme.Target][i] = v
+            local c = C[DHTheme.Target]
+            sw.BackgroundColor3 = Color3.fromRGB(c[1], c[2], c[3])
+            hex.Text = string.format("R %d   G %d   B %d", c[1], c[2], c[3])
+            DHTheme.Queue()
+        end)
+    end
+
+    Label("Border", 236, 13, Color3.fromRGB(100, 200, 255))
+    local sThick = DHTheme.Slider(box, 258, "Thickness", 0, 4, 0.5, "%.1f", C.bdThick, function(v)
+        C.bdThick = v
+        DHTheme.Queue()
+    end)
+    local sBdT = DHTheme.Slider(box, 296, "Border Transparency", 0, 100, 5, "%d%%", C.bdTrans * 100, function(v)
+        C.bdTrans = v / 100
+        DHTheme.Queue()
+    end)
+    local rgbBtn = Btn("RGB Border | OFF", 0, 1, 336, 30, Color3.fromRGB(45, 45, 45))
+    rgbBtn.Position = UDim2.new(0, 10, 0, 336)
+    rgbBtn.Size = UDim2.new(1, -20, 0, 30)
+    DHTheme.Skip[rgbBtn] = true
+    local function RgbLook()
+        rgbBtn.Text = C.rgb and "RGB Border | ON" or "RGB Border | OFF"
+        rgbBtn.BackgroundColor3 = C.rgb and Color3.fromRGB(120, 80, 255) or Color3.fromRGB(45, 45, 45)
+    end
+    rgbBtn.MouseButton1Click:Connect(function()
+        C.rgb = not C.rgb
+        RgbLook()
+        DHTheme.Queue()
+    end)
+    local sSpd = DHTheme.Slider(box, 372, "RGB Speed", 0.2, 5, 0.2, "%.1f", C.rgbSpd, function(v)
+        C.rgbSpd = v
+    end)
+
+    Label("Shape", 414, 13, Color3.fromRGB(100, 200, 255))
+    local sBg = DHTheme.Slider(box, 436, "Background Transparency", 0, 100, 5, "%d%%", C.bgTrans * 100, function(v)
+        C.bgTrans = v / 100
+        DHTheme.Queue()
+    end)
+    local sRound = DHTheme.Slider(box, 474, "Roundness", 0, 200, 10, "%d%%", C.round, function(v)
+        C.round = v
+        DHTheme.Queue()
+    end)
+    local sW = DHTheme.Slider(box, 512, "Window Width", 440, 640, 10, "%d", C.w, function(v)
+        C.w = v
+        DHTheme.Queue()
+    end)
+    local sH = DHTheme.Slider(box, 550, "Window Height", 300, 440, 10, "%d", C.h, function(v)
+        C.h = v
+        DHTheme.Queue()
+    end)
+
+    local save = Btn("Save Theme", 0, 0.5, 594, 32, Color3.fromRGB(35, 160, 90))
+    save.Position = UDim2.new(0, 10, 0, 594)
+    save.Size = UDim2.new(0.5, -14, 0, 32)
+    local reset = Btn("Reset to Default", 0.5, 0.5, 594, 32, Color3.fromRGB(170, 55, 55))
+    reset.Position = UDim2.new(0.5, 4, 0, 594)
+    reset.Size = UDim2.new(0.5, -14, 0, 32)
+    DHTheme.Status = Label("", 624, 11, Color3.fromRGB(180, 180, 180))
+    DHTheme.Status.Font = Enum.Font.Gotham
+    DHTheme.Status.Size = UDim2.new(1, -20, 0, 14)
+
+    local function Sync()
+        sThick.Set(C.bdThick)
+        sBdT.Set(C.bdTrans * 100)
+        sSpd.Set(C.rgbSpd)
+        sBg.Set(C.bgTrans * 100)
+        sRound.Set(C.round)
+        sW.Set(C.w)
+        sH.Set(C.h)
+        RgbLook()
+        Refresh()
+    end
+
+    save.MouseButton1Click:Connect(DHTheme.Save)
+    reset.MouseButton1Click:Connect(function()
+        local d = DHTheme.Copy(DHTheme.Def)
+        for k, v in pairs(d) do C[k] = v end
+        Sync()
+        DHTheme.Apply()
+        DHTheme.Say("Back to default (tap Save Theme to keep it)")
+    end)
+
+    Sync()
+    -- a saved theme is applied when the hub starts
+    if DHTheme.Load() then
+        Sync()
+        task.spawn(function()
+            task.wait(1)
+            pcall(DHTheme.Apply)
+        end)
+    end
+    ScreenGui.Destroying:Connect(function()
+        if DHTheme.RgbConn then DHTheme.RgbConn:Disconnect() end
+        if DHTheme.AddConn then DHTheme.AddConn:Disconnect() end
+    end)
+end
+pcall(DHTheme.Build)
+
+
 CheckLoadingHalt()
 SetLoadProgress(96)
 
@@ -25245,17 +27624,21 @@ DHChangelogTags = {
 }
 
 DHChangelog = {
+    {id = 19, date = "2026-10-28", title = "What's New", items = {
+        {"Added", "Setting tab: Theme, change the Border, Back, Panel, Card and Accent colors with RGB sliders, border thickness and transparency, RGB border, background transparency, roundness and window size. Save Theme keeps everything for next time."},
+        {"Added", "Mods tab: Dummy, spawn gray dummies, rename them, take control, climb ladders, play emotes and use Dummy ESP (Highlight, Line, Distance, NameTag)."},
+        {"Added", "Troll tab: Desync Marker, a purple pillar that shows where TP Spawn takes you."},
+        {"Added", "Visual tab: Crosshair with position, rotation, spinning and colors."},
+        {"Added", "Info tab: Calculator. Music tab: a visualizer (Bars or Wave) that follows the volume and effects."},
+        {"Fixed", "Refresh no longer sends you back to the Refresh spot after a normal respawn."},
+    }},
+    {id = 18, date = "2026-10-25", title = "What's New", items = {
+        {"Added", "Music tab: Sound Effects, presets (Echo, Reverb, Slowed, Sped Up, Nightcore, Bass Boost, 8D, Lo-fi, Phonk and more) and sliders for Bass, Treble, Speed, Pitch, Reverb and Echo."},
+        {"Added", "Info tab: 3D Preview, tap 3D on a player in the Player List to see their avatar, drag to rotate and use + / - to zoom."},
+        {"Changed", "Setting tab: Jump Button settings no longer apply by themselves, use Saved Jump Settings to save and use a setup."},
+    }},
     {id = 17, date = "2026-10-24", title = "What's New", items = {
         {"Added", "Setting tab: Saved Jump Settings, save your Jump Button size and position under a name, then pick one from the list to use it again."},
-    }},
-    {id = 16, date = "2026-10-24", title = "What's New", items = {
-        {"Added", "Setting tab: Jump Button settings (size and position) are now saved in the Setting folder and stay after you rejoin."},
-        {"Removed", "Visual tab: the Alpha badge next to the title."},
-    }},
-    {id = 15, date = "2026-10-22", title = "What's New", items = {
-        {"Changed", "What's New is now a list in the Credit tab (under Version) instead of a popup."},
-        {"Fixed", "Invisible: turning it off now always removes the ghost and puts the camera back on you."},
-        {"Fixed", "Safe Zone: no more error when teleporting back."},
     }},
 }
 
