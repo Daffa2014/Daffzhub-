@@ -16152,6 +16152,609 @@ ESavedTab.MouseButton1Click:Connect(function()
     ERefreshSavedPanel()
 end)
 
+-- ================================================
+-- MOOD FACE: face animations (moods) in a third sub-tab of the Emote tab
+-- ================================================
+DHMood = {
+    Path = "Daffzhub_file/Setting/MoodList.json",
+    List = {},
+    Cards = {},
+    Loop = true,   -- keep the face animation repeating
+    Keep = true,   -- play the mood again after you respawn
+    Cur = nil,     -- id of the mood that is on
+    Track = nil,
+    Built = false,
+    Token = 0,
+    FetchN = 0,
+}
+
+-- {asset id, name}; moods without a name get their name from the catalog the first time the tab opens
+DHMood.Defaults = {
+    {14618207727, "Default Mood"},
+    {11163856931, "The Winning Smile - MoodAnimation"},
+    {11822637523, "Classic M"},
+    {14532855772, "Skeptic"},
+    {11236428476, "Chill"},
+    {11308848181, "Err..."},
+    {13692973305, "Friendly Smile"},
+    {12936976200, "Big Grin"},
+    {121076841749094, "Digital Artist"},
+    {140640344101974, "Green Starry Sight"},
+    {140674747936185, "Punk Face"},
+    {140618689743432, "Gritty Bombo"},
+    {140480905079474, "Angelic"},
+    {140044533863949, ":-/"},
+    {139474716430273, "Winning Smile"},
+    {139316725131015, "Epic Vampire Face"},
+    {139953850337831, "Sad Clown"},
+    {139526093746720, "Toothless"},
+    {137609125548926, "Woebegone"},
+    {138185630136605, "Disapproving Unibrow"},
+    {140052496463742, "Blue Goof"},
+    {136879820533259, "Exclamation Face"},
+    {136546654719224, "I <3 New Site Theme"},
+    {137408517878226, "Look At My Nose"},
+    {134291162215057, "Red Lip - Tate McRae"},
+    {130561088322232, "Mr. Bubbles"},
+    {130497284519819, "Classic Male"},
+    {128421511488094, "Blizzard Beast Mode"},
+    {128407337644177, "Visual Studio Seized Up For 45 Seconds"},
+    {128134603526623, "Gamin the Scaled Sorcerer"},
+    {126528619438701, "Eyes of Azurewrath"},
+    {124996118032440, "$.$"},
+    {125691365606754, "Vampire"},
+    {124025238726707, "Suspicious"},
+    {124888276087842, "FragmentedNoob-MoodAnimation"},
+    {124706365042112, "Nouveau George"},
+    {124258266581596, "You ated my caik!"},
+    {11573370910, "Anime Mood"},
+    {12939349434, "MoodAnimation"},
+    {7715145252, "moods_11_FaceAnimation"},
+    {13823254132, "I <3 New Site Theme"},
+    {134419765247655},
+    {107730729807187},
+    {120553760947068},
+    {118643418731536},
+    {79346395723524},
+    {76510106017408},
+    {91978833431789},
+    {101688041825708},
+    {101129638946940},
+    {123180368705441},
+    {91151555508302},
+    {89840927035490},
+    {78343337775421},
+    {101181418263903},
+    {83904137934334},
+    {100651230653468},
+    {128335781600842},
+    {128122013895135},
+    {132819723961701},
+    {120583250906926},
+    {100464614086897},
+    {76691628978545},
+    {114212689731002},
+    {120963099526858},
+    {130940389771481},
+    {75052027130388},
+    {86626081697396},
+    {97714690779642},
+    {116484803023213},
+    {102787301148676},
+    {107063727266904},
+    {112168273527580},
+    {103859657203422},
+    {115978284002225},
+    {105599066955614},
+    {106488236631979},
+    {135691439511406},
+    {129327232961037},
+    {108254418440729},
+    {121106082705060},
+    {98230008978401},
+    {134732357298188},
+    {72329268435782},
+    {126431603201618},
+    {113384897583144},
+    {104569705232659},
+    {107317685859402},
+    {125824414343139},
+    {96617149266845},
+    {84656447841369},
+    {106071295675734},
+    {102294387193896},
+    {109016325316032},
+}
+
+function DHMood.Say(text)
+    if DHMood.Status then DHMood.Status.Text = text end
+end
+
+function DHMood.Load()
+    local data
+    pcall(function()
+        if isfile and readfile and isfile(DHMood.Path) then
+            data = game:GetService("HttpService"):JSONDecode(readfile(DHMood.Path))
+        end
+    end)
+    DHMood.List = {}
+    if type(data) == "table" and type(data.moods) == "table" then
+        for _, e in ipairs(data.moods) do
+            if type(e) == "table" and type(e.id) == "number" then
+                DHMood.List[#DHMood.List + 1] = {id = e.id, name = type(e.name) == "string" and e.name or nil}
+            end
+        end
+        if type(data.loop) == "boolean" then DHMood.Loop = data.loop end
+        if type(data.keep) == "boolean" then DHMood.Keep = data.keep end
+    end
+    if #DHMood.List == 0 then
+        for _, d in ipairs(DHMood.Defaults) do
+            DHMood.List[#DHMood.List + 1] = {id = d[1], name = d[2]}
+        end
+    end
+end
+
+-- waits a moment so many changes write the file only once
+function DHMood.Save()
+    DHMood.Token = DHMood.Token + 1
+    local my = DHMood.Token
+    task.delay(0.8, function()
+        if my ~= DHMood.Token then return end
+        pcall(function()
+            if not (writefile and makefolder and isfolder) then return end
+            if not isfolder("Daffzhub_file") then makefolder("Daffzhub_file") end
+            if not isfolder("Daffzhub_file/Setting") then makefolder("Daffzhub_file/Setting") end
+            local moods = {}
+            for _, e in ipairs(DHMood.List) do moods[#moods + 1] = {id = e.id, name = e.name} end
+            writefile(DHMood.Path, game:GetService("HttpService"):JSONEncode({moods = moods, loop = DHMood.Loop, keep = DHMood.Keep}))
+        end)
+    end)
+end
+
+-- the real animation id behind a catalog asset
+function DHMood.AnimId(id)
+    local ok, obj = pcall(function() return game:GetObjects("rbxassetid://" .. tostring(id)) end)
+    if ok and obj and #obj > 0 then
+        local r = obj[1]
+        if r:IsA("Animation") and r.AnimationId ~= "" then return r.AnimationId end
+        for _, d in ipairs(r:GetDescendants()) do
+            if d:IsA("Animation") and d.AnimationId ~= "" then return d.AnimationId end
+        end
+    end
+    return "rbxassetid://" .. tostring(id)
+end
+
+function DHMood.Mark()
+    for _, c in ipairs(DHMood.Cards) do
+        c.stroke.Transparency = (DHMood.Cur == c.entry.id) and 0 or 1
+    end
+end
+
+function DHMood.StopTrack()
+    local t = DHMood.Track
+    DHMood.Track = nil
+    if t then pcall(function() t:Stop(0.1) end) end
+end
+
+function DHMood.Play(id)
+    DHMood.StopTrack()
+    local char = Player.Character
+    local hum = char and char:FindFirstChildOfClass("Humanoid")
+    local animator = hum and hum:FindFirstChildOfClass("Animator")
+    if not animator then
+        DHMood.Say("No character")
+        return
+    end
+    DHMood.Cur = id
+    DHMood.Mark()
+    task.spawn(function()
+        local a = Instance.new("Animation")
+        a.AnimationId = DHMood.AnimId(id)
+        -- another mood was picked while this one was loading
+        if DHMood.Cur ~= id then return end
+        local ok, t = pcall(function() return animator:LoadAnimation(a) end)
+        if not ok or not t then
+            DHMood.Say("Could not load this mood")
+            return
+        end
+        t.Priority = Enum.AnimationPriority.Action4
+        t.Looped = DHMood.Loop
+        local w = ESettings["Weight"] or 1
+        if w <= 0 then w = 0.001 end
+        t:Play(0.1, w, ESettings["Speed"] or 1)
+        DHMood.Track = t
+        DHMood.Say("Mood playing")
+    end)
+end
+
+function DHMood.Stop()
+    DHMood.Cur = nil
+    DHMood.StopTrack()
+    DHMood.Mark()
+    DHMood.Say("Mood stopped")
+end
+
+function DHMood.Fetch(card)
+    DHMood.FetchN = DHMood.FetchN + 1
+    local delay = DHMood.FetchN * 0.15
+    task.spawn(function()
+        task.wait(delay)
+        local e = card.entry
+        if e.name then return end
+        local ok, res = pcall(function() return game:GetService("MarketplaceService"):GetProductInfo(e.id) end)
+        local n
+        if ok and res and res.Name then
+            n = string.gsub(res.Name, "%s*%-?%s*[Mm]ood%s*$", "")
+        else
+            n = string.sub(tostring(e.id), -4)
+        end
+        e.name = n
+        if card.label.Parent then card.label.Text = n end
+        DHMood.Save()
+    end)
+end
+
+function DHMood.AddCard(entry)
+    local btn = Instance.new("ImageButton", DHMood.Grid)
+    btn.BackgroundColor3 = Color3.fromRGB(35, 35, 35)
+    btn.BorderSizePixel = 0
+    btn.ScaleType = Enum.ScaleType.Crop
+    btn.ClipsDescendants = true
+    btn.Image = "rbxthumb://type=Asset&id=" .. entry.id .. "&w=150&h=150"
+    Instance.new("UICorner", btn).CornerRadius = UDim.new(0, 4)
+    local stroke = Instance.new("UIStroke", btn)
+    stroke.Color = Color3.fromRGB(40, 170, 80)
+    stroke.Thickness = 2
+    stroke.Transparency = 1
+
+    local lb = Instance.new("TextLabel", btn)
+    lb.Size = UDim2.new(1, 0, 0, 14)
+    lb.Position = UDim2.new(0, 0, 1, -14)
+    lb.BackgroundColor3 = Color3.new(0, 0, 0)
+    lb.BackgroundTransparency = 0.35
+    lb.BorderSizePixel = 0
+    lb.Text = entry.name or "..."
+    lb.TextColor3 = Color3.new(1, 1, 1)
+    lb.TextScaled = true
+    lb.Font = Enum.Font.GothamBold
+
+    local card = {btn = btn, label = lb, stroke = stroke, entry = entry}
+    DHMood.Cards[#DHMood.Cards + 1] = card
+    if not entry.name then DHMood.Fetch(card) end
+
+    local edit = Instance.new("TextButton", btn)
+    edit.Size = UDim2.new(0, 16, 0, 16)
+    edit.Position = UDim2.new(1, -17, 0, 1)
+    edit.BackgroundColor3 = Color3.fromRGB(60, 120, 200)
+    edit.BackgroundTransparency = 0.2
+    edit.BorderSizePixel = 0
+    edit.Text = "E"
+    edit.TextSize = 9
+    edit.Font = Enum.Font.GothamBold
+    edit.TextColor3 = Color3.new(1, 1, 1)
+    edit.ZIndex = 3
+    Instance.new("UICorner", edit).CornerRadius = UDim.new(0, 3)
+
+    local del = Instance.new("TextButton", btn)
+    del.Size = UDim2.new(0, 16, 0, 16)
+    del.Position = UDim2.new(0, 1, 0, 1)
+    del.BackgroundColor3 = Color3.fromRGB(190, 55, 55)
+    del.BackgroundTransparency = 0.2
+    del.BorderSizePixel = 0
+    del.Text = "X"
+    del.TextSize = 9
+    del.Font = Enum.Font.GothamBold
+    del.TextColor3 = Color3.new(1, 1, 1)
+    del.ZIndex = 3
+    Instance.new("UICorner", del).CornerRadius = UDim.new(0, 3)
+
+    btn.MouseButton1Click:Connect(function() DHMood.Play(entry.id) end)
+    edit.MouseButton1Click:Connect(function() DHMood.Dialog(card) end)
+
+    -- tap X twice to delete (the first tap turns it into "?")
+    local armed = false
+    del.MouseButton1Click:Connect(function()
+        if not armed then
+            armed = true
+            del.Text = "?"
+            task.delay(2, function()
+                armed = false
+                if del.Parent then del.Text = "X" end
+            end)
+            return
+        end
+        for i, x in ipairs(DHMood.List) do
+            if x == entry then table.remove(DHMood.List, i) break end
+        end
+        for i, x in ipairs(DHMood.Cards) do
+            if x == card then table.remove(DHMood.Cards, i) break end
+        end
+        btn:Destroy()
+        DHMood.Save()
+        DHMood.Say("Mood removed")
+    end)
+end
+
+-- add (card = nil) or edit a mood
+function DHMood.Dialog(card)
+    if DHMood.Dlg then DHMood.Dlg:Destroy() end
+    local d = Instance.new("Frame", DHMood.Panel)
+    d.Size = UDim2.new(1, -8, 0, 124)
+    d.Position = UDim2.new(0, 4, 0, 30)
+    d.BackgroundColor3 = Color3.fromRGB(20, 20, 20)
+    d.BorderSizePixel = 0
+    d.ZIndex = 20
+    Instance.new("UICorner", d).CornerRadius = UDim.new(0, 8)
+    local st = Instance.new("UIStroke", d)
+    st.Color = Color3.fromRGB(80, 80, 80)
+    DHMood.Dlg = d
+
+    local function Box(y, hint, text)
+        local tb = Instance.new("TextBox", d)
+        tb.Size = UDim2.new(1, -16, 0, 26)
+        tb.Position = UDim2.new(0, 8, 0, y)
+        tb.BackgroundColor3 = Color3.fromRGB(35, 35, 35)
+        tb.BorderSizePixel = 0
+        tb.PlaceholderText = hint
+        tb.Text = text
+        tb.ClearTextOnFocus = false
+        tb.TextColor3 = Color3.new(1, 1, 1)
+        tb.Font = Enum.Font.Gotham
+        tb.TextSize = 12
+        tb.ZIndex = 21
+        Instance.new("UICorner", tb).CornerRadius = UDim.new(0, 5)
+        return tb
+    end
+    local title = Instance.new("TextLabel", d)
+    title.Size = UDim2.new(1, -16, 0, 20)
+    title.Position = UDim2.new(0, 8, 0, 4)
+    title.BackgroundTransparency = 1
+    title.Text = card and "Edit Mood" or "Add Mood"
+    title.TextColor3 = Color3.new(1, 1, 1)
+    title.Font = Enum.Font.GothamBold
+    title.TextSize = 13
+    title.TextXAlignment = Enum.TextXAlignment.Left
+    title.ZIndex = 21
+    local idBox = Box(28, "Asset ID (example: 14618207727)", card and tostring(card.entry.id) or "")
+    local nmBox = Box(58, "Name (optional)", card and card.entry.name or "")
+
+    local function Btn(text, x, color)
+        local b = Instance.new("TextButton", d)
+        b.Size = UDim2.new(0.5, -12, 0, 28)
+        b.Position = UDim2.new(x, x == 0 and 8 or 4, 0, 90)
+        b.BackgroundColor3 = color
+        b.BorderSizePixel = 0
+        b.Text = text
+        b.TextColor3 = Color3.new(1, 1, 1)
+        b.Font = Enum.Font.GothamBold
+        b.TextSize = 12
+        b.ZIndex = 21
+        Instance.new("UICorner", b).CornerRadius = UDim.new(0, 5)
+        return b
+    end
+    local ok = Btn(card and "Save" or "Add", 0, Color3.fromRGB(40, 170, 80))
+    local no = Btn("Cancel", 0.5, Color3.fromRGB(70, 70, 70))
+    no.MouseButton1Click:Connect(function() d:Destroy() DHMood.Dlg = nil end)
+    ok.MouseButton1Click:Connect(function()
+        local id = tonumber(idBox.Text)
+        local name = string.match(nmBox.Text, "^%s*(.-)%s*$")
+        if not id or id <= 0 or id ~= math.floor(id) then
+            DHMood.Say("The Asset ID must be a number")
+            return
+        end
+        for _, e in ipairs(DHMood.List) do
+            if e.id == id and (not card or e ~= card.entry) then
+                DHMood.Say("That ID is already in the list")
+                return
+            end
+        end
+        if card then
+            card.entry.id = id
+            card.entry.name = (name ~= "") and name or card.entry.name
+            card.label.Text = card.entry.name or "..."
+            card.btn.Image = "rbxthumb://type=Asset&id=" .. id .. "&w=150&h=150"
+        else
+            local e = {id = id, name = (name ~= "") and name or nil}
+            DHMood.List[#DHMood.List + 1] = e
+            DHMood.AddCard(e)
+        end
+        DHMood.Save()
+        d:Destroy()
+        DHMood.Dlg = nil
+    end)
+end
+
+function DHMood.Filter(text)
+    local s = string.lower(text)
+    for _, c in ipairs(DHMood.Cards) do
+        local n = string.lower(c.entry.name or "")
+        c.btn.Visible = (s == "") or (string.find(n, s, 1, true) ~= nil) or (string.find(tostring(c.entry.id), s, 1, true) ~= nil)
+    end
+end
+
+-- brings back the default moods that were deleted (your own moods stay)
+function DHMood.Reset()
+    local have = {}
+    for _, e in ipairs(DHMood.List) do have[e.id] = true end
+    local n = 0
+    for _, d in ipairs(DHMood.Defaults) do
+        if not have[d[1]] then
+            DHMood.List[#DHMood.List + 1] = {id = d[1], name = d[2]}
+            n = n + 1
+        end
+    end
+    if DHMood.Built then
+        for _, c in ipairs(DHMood.Cards) do
+            pcall(function() c.btn:Destroy() end)
+        end
+        DHMood.Cards = {}
+        DHMood.Built = false
+        DHMood.BuildCards()
+    end
+    DHMood.Save()
+    DHMood.Say(n > 0 and ("Restored " .. n .. " moods") or "Nothing to restore")
+end
+
+function DHMood.BuildCards()
+    if DHMood.Built then return end
+    DHMood.Built = true
+    for _, e in ipairs(DHMood.List) do DHMood.AddCard(e) end
+    DHMood.Mark()
+end
+
+function DHMood.Build()
+    DHMood.Load()
+
+    local tab = Instance.new("TextButton", ELeftPanel)
+    tab.Size = UDim2.new(0.4, -2, 0, 24)
+    tab.Position = UDim2.new(0.6, 2, 0, 2)
+    tab.BackgroundColor3 = Color3.fromRGB(25, 25, 25)
+    tab.BackgroundTransparency = 0.2
+    tab.Text = "Mood"
+    tab.TextColor3 = Color3.new(1, 1, 1)
+    tab.Font = Enum.Font.GothamBold
+    tab.TextSize = 12
+    Instance.new("UICorner", tab).CornerRadius = UDim.new(0, 4)
+
+    local panel = Instance.new("Frame", ELeftPanel)
+    panel.Size = UDim2.new(1, 0, 1, -30)
+    panel.Position = UDim2.new(0, 0, 0, 30)
+    panel.BackgroundTransparency = 1
+    panel.Visible = false
+    DHMood.Panel = panel
+
+    local function Small(text, x0, w0, y, color)
+        local b = Instance.new("TextButton", panel)
+        b.Size = UDim2.new(w0, -4, 0, 24)
+        b.Position = UDim2.new(x0, 4, 0, y)
+        b.BackgroundColor3 = color
+        b.BorderSizePixel = 0
+        b.Text = text
+        b.TextColor3 = Color3.new(1, 1, 1)
+        b.Font = Enum.Font.GothamBold
+        b.TextSize = 11
+        Instance.new("UICorner", b).CornerRadius = UDim.new(0, 4)
+        return b
+    end
+
+    local search = Instance.new("TextBox", panel)
+    search.Size = UDim2.new(0.4, -4, 0, 24)
+    search.Position = UDim2.new(0, 4, 0, 0)
+    search.BackgroundColor3 = Color3.fromRGB(25, 25, 25)
+    search.PlaceholderText = "Search mood..."
+    search.Text = ""
+    search.ClearTextOnFocus = false
+    search.TextColor3 = Color3.new(1, 1, 1)
+    search.Font = Enum.Font.Gotham
+    search.TextSize = 12
+    Instance.new("UICorner", search).CornerRadius = UDim.new(0, 4)
+    search:GetPropertyChangedSignal("Text"):Connect(function() DHMood.Filter(search.Text) end)
+
+    local add = Small("+ Add", 0.4, 0.2, 0, Color3.fromRGB(40, 170, 80))
+    local stop = Small("Stop", 0.6, 0.2, 0, Color3.fromRGB(190, 55, 55))
+    local reset = Small("Reset", 0.8, 0.2, 0, Color3.fromRGB(60, 60, 60))
+    add.MouseButton1Click:Connect(function() DHMood.Dialog(nil) end)
+    stop.MouseButton1Click:Connect(DHMood.Stop)
+    -- tap twice: brings the default moods back
+    local armed = false
+    reset.MouseButton1Click:Connect(function()
+        if not armed then
+            armed = true
+            reset.Text = "Sure?"
+            task.delay(2, function()
+                armed = false
+                if reset.Parent then reset.Text = "Reset" end
+            end)
+            return
+        end
+        armed = false
+        reset.Text = "Reset"
+        DHMood.Reset()
+    end)
+
+    local loop = Small("", 0, 0.5, 28, Color3.fromRGB(60, 60, 60))
+    local keep = Small("", 0.5, 0.5, 28, Color3.fromRGB(60, 60, 60))
+    local function Look()
+        loop.Text = DHMood.Loop and "Loop | ON" or "Loop | OFF"
+        loop.BackgroundColor3 = DHMood.Loop and Color3.fromRGB(35, 160, 90) or Color3.fromRGB(60, 60, 60)
+        keep.Text = DHMood.Keep and "After Respawn | ON" or "After Respawn | OFF"
+        keep.BackgroundColor3 = DHMood.Keep and Color3.fromRGB(35, 160, 90) or Color3.fromRGB(60, 60, 60)
+    end
+    Look()
+    loop.MouseButton1Click:Connect(function()
+        DHMood.Loop = not DHMood.Loop
+        if DHMood.Track then DHMood.Track.Looped = DHMood.Loop end
+        Look()
+        DHMood.Save()
+    end)
+    keep.MouseButton1Click:Connect(function()
+        DHMood.Keep = not DHMood.Keep
+        Look()
+        DHMood.Save()
+    end)
+
+    DHMood.Status = Instance.new("TextLabel", panel)
+    DHMood.Status.Size = UDim2.new(1, -8, 0, 14)
+    DHMood.Status.Position = UDim2.new(0, 4, 0, 54)
+    DHMood.Status.BackgroundTransparency = 1
+    DHMood.Status.Text = "Tap a face to play it. Weight and Speed come from Settings."
+    DHMood.Status.Font = Enum.Font.Gotham
+    DHMood.Status.TextSize = 10
+    DHMood.Status.TextColor3 = Color3.fromRGB(150, 150, 150)
+    DHMood.Status.TextXAlignment = Enum.TextXAlignment.Left
+    DHMood.Status.TextTruncate = Enum.TextTruncate.AtEnd
+
+    local grid = Instance.new("ScrollingFrame", panel)
+    grid.Size = UDim2.new(1, -4, 1, -72)
+    grid.Position = UDim2.new(0, 2, 0, 70)
+    grid.BackgroundTransparency = 1
+    grid.BorderSizePixel = 0
+    grid.ScrollBarThickness = 2
+    grid.CanvasSize = UDim2.new(0, 0, 0, 0)
+    grid.AutomaticCanvasSize = Enum.AutomaticSize.Y
+    local gl = Instance.new("UIGridLayout", grid)
+    gl.CellSize = UDim2.new(0, 68, 0, 68)
+    gl.CellPadding = UDim2.new(0, 4, 0, 4)
+    gl.HorizontalAlignment = Enum.HorizontalAlignment.Center
+    gl.SortOrder = Enum.SortOrder.LayoutOrder
+    DHMood.Grid = grid
+
+    -- switching between Catalog / Saved / Mood
+    tab.MouseButton1Click:Connect(function()
+        ECatalogPanel.Visible = false
+        ESavedPanel.Visible = false
+        panel.Visible = true
+        ECatalogTab.BackgroundColor3 = Color3.fromRGB(25, 25, 25)
+        ESavedTab.BackgroundColor3 = Color3.fromRGB(25, 25, 25)
+        tab.BackgroundColor3 = Color3.fromRGB(40, 170, 80)
+        DHMood.BuildCards()
+    end)
+    local function Away()
+        panel.Visible = false
+        tab.BackgroundColor3 = Color3.fromRGB(25, 25, 25)
+    end
+    ECatalogTab.MouseButton1Click:Connect(Away)
+    ESavedTab.MouseButton1Click:Connect(Away)
+
+    -- after a respawn the mood is played again (or forgotten when "After Respawn" is OFF)
+    Player.CharacterAdded:Connect(function(char)
+        DHMood.Track = nil
+        if not DHMood.Cur then return end
+        if not DHMood.Keep then
+            DHMood.Cur = nil
+            DHMood.Mark()
+            return
+        end
+        task.spawn(function()
+            local h = char:WaitForChild("Humanoid", 10)
+            if h then h:WaitForChild("Animator", 10) end
+            task.wait(0.5)
+            if DHMood.Cur and Player.Character == char then DHMood.Play(DHMood.Cur) end
+        end)
+    end)
+end
+pcall(DHMood.Build)
+
 end
 
 CheckLoadingHalt()
@@ -23086,8 +23689,6 @@ function DHDum.Spawn()
         DHDum.Say("Maximum 10 dummies")
         return
     end
-    DHDum.N = DHDum.N + 1
-    local n = DHDum.N
     local cf = root.CFrame
     task.spawn(function()
         local d = Instance.new("HumanoidDescription")
@@ -23120,6 +23721,19 @@ function DHDum.Spawn()
         end
         h.DisplayDistanceType = Enum.HumanoidDisplayDistanceType.None
         h.HealthDisplayType = Enum.HumanoidHealthDisplayType.AlwaysOff
+        -- the lowest free number, so a removed Dummy 1 is used again
+        local n = 1
+        local taken = true
+        while taken do
+            taken = false
+            for _, x in ipairs(DHDum.List) do
+                if x.Id == n then
+                    taken = true
+                    n = n + 1
+                    break
+                end
+            end
+        end
         local a = n * 1.3
         local pos = cf.Position + Vector3.new(math.cos(a) * 4, 0, math.sin(a) * 4)
         m.Parent = workspace
@@ -23127,10 +23741,10 @@ function DHDum.Spawn()
 
         local animator = h:FindFirstChildOfClass("Animator") or Instance.new("Animator", h)
         local entry = {Id = n, Name = "Dummy " .. n, Model = m, Hum = h, Root = r, Tracks = {}, Home = pos}
+        DHDum.List[#DHDum.List + 1] = entry
         for key, id in pairs(DHDum.Anims) do
             DHDum.Track(entry, key, id, key ~= "jump")
         end
-        DHDum.List[#DHDum.List + 1] = entry
         DHDum.Start()
         DHDum.Fill()
         DHDum.Say(entry.Name .. " spawned (only you can see it)")
@@ -26485,12 +27099,16 @@ featureItems = {
     "     Players, Memory, Net Out)",
     "   • Exploiter Watch: suspects list (Speed, Fly,",
     "     Teleport, Noclip, Fling)",
+    "   • 3D Preview of a player (drag to rotate, zoom)",
+    "   • Calculator",
     "",
     "🎵 MUSIC TAB",
     "   • Audio ID player with volume control, seek bar and search",
     "   • Saved music list (search, rename, auto execute)",
     "   • YouTube music player",
     "   • Loop button (repeat the current track)",
+    "   • Sound Effects (Echo, Reverb, Slowed, Nightcore, Bass Boost & more)",
+    "   • Visualizer (Bars or Wave)",
     "",
     "👤 PLAYER TAB",
     "   • WalkSpeed & JumpPower modifier",
@@ -26510,6 +27128,7 @@ featureItems = {
     "   • Professional templates",
     "   • Search reports",
     "   • Copy text function",
+    "   • Report Details (player, what happened, when) in the copied text",
     "",
     "🧲 BRING & MOVE PARTS",
     "   • Bring parts to player",
@@ -26527,7 +27146,7 @@ featureItems = {
     "😈 TROLL TAB",
     "   • Touch Fling & Fling specific players",
     "   • Select / deselect all targets",
-    "   • Desync with Speed & TP Spawn",
+    "   • Desync with Speed, TP Spawn & Marker",
     "   • Spin, Orbit Player, Click Fling & Lag Switch",
     "   • Anti Admin Abuse: Unfreeze / Un-Ice & Un-Jail",
     "",
@@ -26535,6 +27154,7 @@ featureItems = {
     "   • Online emote catalog search",
     "   • Saved emotes list",
     "   • Emote settings",
+    "   • Mood Face: 90+ face animations (add, edit, delete, reset, loop & replay after respawn)",
     "",
     "🔍 SEARCH TAB",
     "   • Search scripts from Scriptblox & RawScripts",
@@ -26553,6 +27173,7 @@ featureItems = {
     "     atmosphere, bloom, DOF & more)",
     "   • Effect: Sun Flare, Motion Blur, Soft GI",
     "   • Camera: custom FOV slider",
+    "   • Crosshair (position, rotation, spin & colors)",
     "",
     "🕺 ANIMATION TAB (beta)",
     "   • Search animation packs online",
@@ -26574,10 +27195,13 @@ featureItems = {
     "   • Hitbox (Box, Torso or Root) with size slider",
     "   • Fly (camera direction, speed slider)",
     "   • Invisible (ghost): your body waits in the Safe Zone",
+    "   • Dummy: spawn, rename, control, climb ladders, emotes & Dummy ESP",
     "",
     "⚙️ SETTING TAB",
     "   • Instant Prompt toggle",
     "   • Jump Button setting",
+    "   • Saved Jump Settings (save your Jump Button setup)",
+    "   • Theme (colors, RGB border, transparency, roundness & size, savable)",
     "   • Camera Mode & Camera Sensitivity",
     "   • Other Settings: Low Graphics, No Audio,",
     "     FPS Counter, Ping Display, Full Bright,",
@@ -27076,6 +27700,7 @@ DHTheme = {
     Def = {
         border = {255, 255, 255}, bdThick = 1, bdTrans = 0.2, rgb = false, rgbSpd = 1,
         bg = {15, 15, 15}, panel = {20, 20, 20}, card = {25, 25, 25}, accent = {35, 160, 90},
+        text = {100, 200, 255},
         bgTrans = 0, round = 100, w = 500, h = 330,
     },
     Cur = {},
@@ -27151,6 +27776,10 @@ function DHTheme.Tag(o)
                     o.BackgroundColor3 = DHTheme.Col(r)
                     o.BackgroundTransparency = DHTheme.Trans(o, r)
                     DHTheme.Busy = false
+                                elseif DHTheme.RoleOf[o] then
+                    -- the button left the theme colors (for example Touch Fling went back to red): forget it
+                    DHTheme.RoleOf[o] = nil
+                    o.BackgroundTransparency = DHTheme.T0[o] or 0
                 end
             end)
         end
@@ -27167,7 +27796,7 @@ function DHTheme.Paint(o)
         o.BackgroundColor3 = DHTheme.Col(r)
         o.BackgroundTransparency = DHTheme.Trans(o, r)
     end
-    if DHTheme.TRole[o] then o.TextColor3 = DHTheme.Col("accent") end
+   if DHTheme.TRole[o] then o.TextColor3 = DHTheme.Col("text") end
     local r0 = DHTheme.R0[o]
     if r0 then
         o.CornerRadius = UDim.new(0, math.floor(r0 * DHTheme.Cur.round / 100 + 0.5))
@@ -27459,7 +28088,7 @@ function DHTheme.Build()
 
     -- color editor: pick what to color, then slide R / G / B
     Label("Color of:", 34, 12, Color3.fromRGB(200, 200, 200))
-    local targets = {{"border", "Border"}, {"bg", "Back"}, {"panel", "Panel"}, {"card", "Card"}, {"accent", "Accent"}}
+    local targets = {{"border", "Border"}, {"bg", "Back"}, {"panel", "Panel"}, {"card", "Card"}, {"accent", "Accent"}, {"text", "Title"}}
     local tbtns = {}
     local sw = Instance.new("Frame", box)
     DHTheme.Skip[sw] = true
@@ -27481,7 +28110,7 @@ function DHTheme.Build()
     trow.Position = UDim2.new(0, 10, 0, 56)
     trow.BackgroundTransparency = 1
     for i, t in ipairs(targets) do
-        local b = Btn(t[2], (i - 1) / 5, 0.2, 0, 28, Color3.fromRGB(45, 45, 45), trow)
+        local b = Btn(t[2], (i - 1) / 6, 1 / 6, 0, 28, Color3.fromRGB(45, 45, 45), trow)
         DHTheme.Skip[b] = true
         tbtns[t[1]] = b
         b.MouseButton1Click:Connect(function()
@@ -27716,6 +28345,7 @@ DHChangelog = {
         {"Added", "Mods tab: Dummy, spawn gray dummies, rename them, take control, climb ladders, play emotes and use Dummy ESP (Highlight, Line, Distance, NameTag)."},
         {"Added", "Troll tab: Desync Marker, a purple pillar that shows where TP Spawn takes you."},
         {"Added", "Visual tab: Crosshair with position, rotation, spinning and colors."},
+        {"Added", "Emote tab: new Mood tab with 94 face animations. Tap one to play it, add your own by ID, edit or delete them, Reset brings the defaults back, and Loop and After Respawn buttons."},
         {"Added", "Info tab: Calculator. Music tab: a visualizer (Bars or Wave) that follows the volume and effects."},
         {"Changed", "Report tab: clearer, more specific report texts. New Report Details boxes (player, what happened, when / where) are added to the text you copy, and the card border now matches its severity color."},
         {"Fixed", "Refresh no longer sends you back to the Refresh spot after a normal respawn."},
