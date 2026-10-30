@@ -455,7 +455,7 @@ TabFrame.BackgroundColor3 = Color3.fromRGB(20,20,20)
 TabFrame.BorderSizePixel = 0
 TabFrame.ScrollBarThickness = 1
 TabFrame.ScrollBarImageColor3 = Color3.fromRGB(60,60,60)
-TabFrame.CanvasSize = UDim2.new(0, 0, 0, 900)
+TabFrame.CanvasSize = UDim2.new(0, 0, 0, 960)
 Instance.new("UICorner", TabFrame).CornerRadius = UDim.new(0, 12)
 
 CheckLoadingHalt()
@@ -11119,6 +11119,19 @@ local function PopulateBringPlayerList(list, search)
     end
 end
 
+-- finds a player by (part of) name or display name
+function GetPlayer(q)
+    q = string.lower(tostring(q or ""))
+    if q == "" then return nil end
+    for _, p in ipairs(Players:GetPlayers()) do
+        if string.lower(p.Name) == q or string.lower(p.DisplayName) == q then return p end
+    end
+    for _, p in ipairs(Players:GetPlayers()) do
+        if string.find(string.lower(p.Name), q, 1, true) or string.find(string.lower(p.DisplayName), q, 1, true) then return p end
+    end
+    return nil
+end
+
 -- BUTTON CONNECTIONS BRING PARTS
 PlayerBox.FocusLost:Connect(function(enter)
     if enter then
@@ -12420,7 +12433,7 @@ PlacesListLayout.Padding = UDim.new(0, 4)
 -- ================================================
 -- UPDATE JOBS LIST
 -- ================================================
-local function updateJobsList()
+function updateJobsList()
     for _, child in ipairs(JobsList:GetChildren()) do
         if child:IsA("Frame") then child:Destroy() end
     end
@@ -12595,7 +12608,7 @@ end
 -- ================================================
 -- UPDATE PLACES LIST
 -- ================================================
-local function updatePlacesList()
+function updatePlacesList()
     for _, child in ipairs(PlacesList:GetChildren()) do
         if child:IsA("Frame") then child:Destroy() end
     end
@@ -13847,7 +13860,7 @@ end
 -- ================================================
 -- UPDATE STATUS
 -- ================================================
-local function UpdateFlingStatus()
+function UpdateFlingStatus()
     local count = CountSelectedTargets()
     if FlingActive then
         FlingStatus.Text = "Flinging " .. count .. " target(s)"
@@ -16156,7 +16169,7 @@ end)
 -- MOOD FACE: face animations (moods) in a third sub-tab of the Emote tab
 -- ================================================
 DHMood = {
-    Path = "Daffzhub_file/Setting/MoodList.json",
+    Path = "Daffzhub_file/MoodList.json",
     List = {},
     Cards = {},
     Loop = true,   -- keep the face animation repeating
@@ -16870,15 +16883,14 @@ end)
 -- SAVED SCRIPTS
 -- ================================================
 
+local SB_SAVED_FILE = "Daffzhub_file/search_saved.json"
+local SBSavedScripts = {}
+
 local function SBSaveSaved()
     pcall(function()
         writefile(SB_SAVED_FILE, HttpService:JSONEncode(SBSavedScripts))
     end)
 end
-
-
-local SB_SAVED_FILE = "Daffzhub_file/search_saved.json"
-local SBSavedScripts = {}
 
 local function SBLoadSaved()
     if isfile(SB_SAVED_FILE) then
@@ -21397,6 +21409,703 @@ end
 pcall(BuildModsTab)
 
 -- ================================================
+-- CHATBOT TAB (button + page; the chat itself is built later in the DHBot section)
+-- ================================================
+function BuildChatBotTab()
+    ChatBotTab = Instance.new("TextButton", TabFrame)
+    ChatBotTab.Size = UDim2.new(1, -20, 0, 40)
+    ChatBotTab.Position = UDim2.new(0, 10, 0, 770)
+    ChatBotTab.Text = "ChatBot"
+    ChatBotTab.BackgroundColor3 = Color3.fromRGB(25,25,25)
+    ChatBotTab.Font = Enum.Font.GothamBold
+    ChatBotTab.TextSize = 14
+    ChatBotTab.TextColor3 = Color3.new(1,1,1)
+    Instance.new("UICorner", ChatBotTab).CornerRadius = UDim.new(0, 8)
+
+    ChatBotContent = Instance.new("Frame", ContentFrame)
+    ChatBotContent.Size = UDim2.new(1, 0, 1, 0)
+    ChatBotContent.Position = UDim2.new(0, 0, 0, 0)
+    ChatBotContent.BackgroundColor3 = Color3.fromRGB(20,20,20)
+    ChatBotContent.Visible = false
+    ChatBotContent.ClipsDescendants = true
+    Instance.new("UICorner", ChatBotContent).CornerRadius = UDim.new(0, 10)
+end
+
+pcall(BuildChatBotTab)
+
+-- ================================================
+-- CHATBOT TAB: chat with an AI inside the hub (Gemini, with your own API key)
+-- The key stays in Daffzhub_file/ChatBot.json on your device and is only sent to Google.
+-- ================================================
+DHBot = {
+    Path = "Daffzhub_file/ChatBot.json",
+    Key = "", Model = "gemini-flash-lite-latest", Persona = 1,
+    Proxy = "https://iridescent-kringle-f20c39.netlify.app/.netlify/functions/chat",
+    CtxGame = false, CtxPlayers = false, CtxSelf = false, CtxHub = false, UseOwn = false,
+    History = {}, Busy = false, Order = 1,
+    Personas = {
+        {"Normal", "You are a helpful assistant inside a Roblox script hub called DaffzHub. Answer clearly and briefly."},
+        {"Casual", "You are a friendly, relaxed chat buddy inside a Roblox script hub called DaffzHub. Keep replies short and casual, like a friend texting."},
+        {"Lua Coder", "You are an expert Roblox Luau scripter inside a Roblox script hub called DaffzHub. Explain clearly and write clean, working Luau code in code blocks. Say when something only works on the client."},
+    },
+}
+
+function DHBot.Load()
+    pcall(function()
+        if not (isfile and readfile and isfile(DHBot.Path)) then return end
+        local d = game:GetService("HttpService"):JSONDecode(readfile(DHBot.Path))
+        if type(d) ~= "table" then return end
+        if type(d.key) == "string" then DHBot.Key = d.key end
+      if type(d.model) == "string" and d.model ~= "" and d.model ~= "gemini-flash-latest" then DHBot.Model = d.model end
+        if type(d.persona) == "number" and DHBot.Personas[d.persona] then DHBot.Persona = d.persona end
+        DHBot.CtxGame = d.game == true
+        DHBot.CtxPlayers = d.players == true
+        DHBot.CtxSelf = d.self == true
+        DHBot.CtxHub = d.hub == true
+        if d.own ~= nil then DHBot.UseOwn = d.own == true else DHBot.UseOwn = DHBot.Key ~= "" end
+        if type(d.history) == "table" then
+            for _, m in ipairs(d.history) do
+                if type(m) == "table" and (m.role == "user" or m.role == "model") and type(m.text) == "string" then
+                    DHBot.History[#DHBot.History + 1] = {role = m.role, text = m.text}
+                end
+            end
+        end
+    end)
+end
+
+function DHBot.Save()
+    pcall(function()
+        if not (writefile and makefolder and isfolder) then return end
+        if not isfolder("Daffzhub_file") then makefolder("Daffzhub_file") end
+        while #DHBot.History > 20 do table.remove(DHBot.History, 1) end
+        writefile(DHBot.Path, game:GetService("HttpService"):JSONEncode({
+            key = DHBot.Key, model = DHBot.Model, persona = DHBot.Persona,
+            game = DHBot.CtxGame, players = DHBot.CtxPlayers, self = DHBot.CtxSelf, hub = DHBot.CtxHub, own = DHBot.UseOwn,
+            history = DHBot.History,
+        }))
+    end)
+end
+
+-- only what the user switched on is added to the system prompt
+function DHBot.Context()
+    local t = {}
+    local P = game:GetService("Players")
+    if DHBot.CtxGame then
+        if not DHBot.GameName then
+            DHBot.GameName = "unknown"
+            pcall(function() DHBot.GameName = game:GetService("MarketplaceService"):GetProductInfo(game.PlaceId).Name end)
+        end
+        t[#t + 1] = "Current game: " .. DHBot.GameName .. " (" .. #P:GetPlayers() .. "/" .. P.MaxPlayers .. " players)."
+    end
+    if DHBot.CtxPlayers then
+        local names = {}
+        for i, p in ipairs(P:GetPlayers()) do
+            if i > 25 then break end
+            names[#names + 1] = (p.DisplayName == p.Name) and p.Name or (p.DisplayName .. " (@" .. p.Name .. ")")
+        end
+        t[#t + 1] = "Players in the server: " .. table.concat(names, ", ") .. "."
+    end
+    if DHBot.CtxSelf then
+        local ch = Player.Character
+        local hum = ch and ch:FindFirstChildOfClass("Humanoid")
+        local root = ch and ch:FindFirstChild("HumanoidRootPart")
+        local tool = ch and ch:FindFirstChildOfClass("Tool")
+        local s = "The user is " .. Player.Name .. "."
+        if hum then s = s .. " Health " .. math.floor(hum.Health) .. "/" .. math.floor(hum.MaxHealth) .. "." end
+        if root then
+            local p = root.Position
+            s = s .. " Position " .. math.floor(p.X) .. ", " .. math.floor(p.Y) .. ", " .. math.floor(p.Z) .. "."
+        end
+        if tool then s = s .. " Holding " .. tool.Name .. "." end
+        t[#t + 1] = s
+    end
+    if DHBot.CtxHub then
+        local s = "DaffzHub info (read only):"
+        pcall(function() s = s .. " hub " .. tostring(VersionText.Text) .. "." end)
+        s = s .. " Server JobId " .. tostring(game.JobId) .. ", PlaceId " .. tostring(game.PlaceId) .. "."
+        pcall(function()
+            local hum = Player.Character and Player.Character:FindFirstChildOfClass("Humanoid")
+            if hum then
+                s = s .. " The user's WalkSpeed " .. math.floor(hum.WalkSpeed * 100 + 0.5) / 100
+                if hum.UseJumpPower then
+                    s = s .. ", JumpPower " .. math.floor(hum.JumpPower * 100 + 0.5) / 100 .. "."
+                else
+                    s = s .. ", JumpHeight " .. math.floor(hum.JumpHeight * 100 + 0.5) / 100 .. "."
+                end
+            end
+        end)
+        t[#t + 1] = s
+    end
+    return table.concat(t, " ")
+end
+
+-- returns reply, nil on success or nil, errorText on failure
+function DHBot.Ask(text, useHistory)
+    local req = (syn and syn.request) or (http and http.request) or http_request or request
+    if not req then return nil, "Your executor has no request function." end
+    local HS = game:GetService("HttpService")
+    local model = string.gsub(DHBot.Model, "[^%w%.%-_]", "")
+    if model == "" then model = "gemini-flash-lite-latest" end
+    local contents = {}
+    if useHistory then
+        for i = math.max(1, #DHBot.History - 15), #DHBot.History do
+            local m = DHBot.History[i]
+            contents[#contents + 1] = {role = m.role, parts = {{text = m.text}}}
+        end
+        while contents[1] and contents[1].role ~= "user" do table.remove(contents, 1) end
+    end
+    contents[#contents + 1] = {role = "user", parts = {{text = text}}}
+    local sys = DHBot.Personas[DHBot.Persona][2] .. " Reply in the same language the user writes in. Keep replies under about 1200 characters unless the user asks for long code. Do not use LaTeX; write math with plain symbols like ×, ÷, √, ², π."
+    local ctx = DHBot.Context()
+    if ctx ~= "" then sys = sys .. " Extra info the user chose to share: " .. ctx end
+    local bodyJson = HS:JSONEncode({
+        systemInstruction = {parts = {{text = sys}}},
+        contents = contents,
+        generationConfig = {temperature = 0.8, maxOutputTokens = 1024},
+    })
+    -- busy servers (500/503/504): try again once, then fall back to the lighter model
+    local spare = (model ~= "gemini-flash-lite-latest") and "gemini-flash-lite-latest" or "gemini-flash-latest"
+    local res, okj, data, code
+    for attempt = 1, 3 do
+        local useModel = (attempt == 3) and spare or model
+        local url, hdr, body
+        if DHBot.UseOwn and DHBot.Key ~= "" then
+            url = "https://generativelanguage.googleapis.com/v1beta/models/" .. useModel .. ":generateContent"
+            hdr = {["Content-Type"] = "application/json", ["x-goog-api-key"] = DHBot.Key}
+            body = bodyJson
+        else
+            url = DHBot.Proxy
+            hdr = {["Content-Type"] = "application/json"}
+            body = HS:JSONEncode({model = useModel, systemInstruction = {parts = {{text = sys}}}, contents = contents})
+        end
+        local ok, r = pcall(req, {Url = url, Method = "POST", Headers = hdr, Body = body})
+        if not ok or type(r) ~= "table" then return nil, "Request failed. Check your connection." end
+        res = r
+        okj, data = pcall(function() return HS:JSONDecode(res.Body or "") end)
+        code = res.StatusCode
+        if code ~= 500 and code ~= 503 and code ~= 504 then break end
+       if attempt < 3 then task.wait(1) end
+    end
+
+    if code ~= 200 then
+        if code == 429 then return nil, "Rate limit reached. Wait a minute and try again." end
+        local msg = okj and type(data) == "table" and type(data.error) == "table" and data.error.message
+        return nil, "Gemini error " .. tostring(code) .. ": " .. string.sub(tostring(msg or "unknown"), 1, 150)
+    end
+    if not okj or type(data) ~= "table" then return nil, "Could not read the reply." end
+    local cand = data.candidates and data.candidates[1]
+    local parts = cand and cand.content and cand.content.parts
+    local out = {}
+    if parts then
+        for _, p in ipairs(parts) do
+            if type(p.text) == "string" then out[#out + 1] = p.text end
+        end
+    end
+    local reply = table.concat(out)
+    if reply == "" then
+        if cand and cand.finishReason == "SAFETY" then return nil, "Blocked by the safety filter. Try rephrasing." end
+        return nil, "Empty reply. Try again."
+    end
+    return reply, nil
+end
+
+-- sends a reply to the game chat (only called after the user confirms)
+function DHBot.ToChat(text)
+    task.spawn(function()
+        local one = string.gsub(DHBot.Plain(text), "%c+", " ")
+        local ch, legacy
+        pcall(function()
+            local c = game:GetService("TextChatService"):FindFirstChild("TextChannels")
+            ch = c and c:FindFirstChild("RBXGeneral")
+        end)
+        pcall(function()
+            local f = game:GetService("ReplicatedStorage"):FindFirstChild("DefaultChatSystemChatEvents")
+            legacy = f and f:FindFirstChild("SayMessageRequest")
+        end)
+        for i = 1, 3 do
+            local piece = string.sub(one, (i - 1) * 190 + 1, i * 190)
+            if piece == "" then break end
+            if ch then
+                pcall(function() ch:SendAsync(piece) end)
+            elseif legacy then
+                pcall(function() legacy:FireServer(piece, "All") end)
+            end
+            task.wait(1.3)
+        end
+    end)
+end
+
+-- ---------- reply formatting: markdown -> Roblox rich text, LaTeX -> plain symbols ----------
+DHBot.Sup = {["0"] = "⁰", ["1"] = "¹", ["2"] = "²", ["3"] = "³", ["4"] = "⁴", ["5"] = "⁵", ["6"] = "⁶", ["7"] = "⁷", ["8"] = "⁸", ["9"] = "⁹", ["n"] = "ⁿ", ["+"] = "⁺", ["-"] = "⁻"}
+DHBot.Sub = {["0"] = "₀", ["1"] = "₁", ["2"] = "₂", ["3"] = "₃", ["4"] = "₄", ["5"] = "₅", ["6"] = "₆", ["7"] = "₇", ["8"] = "₈", ["9"] = "₉"}
+DHBot.Tex = {
+    ["\\times"] = "×", ["\\div"] = "÷", ["\\cdot"] = "·", ["\\pm"] = "±", ["\\leq"] = "≤", ["\\le"] = "≤",
+    ["\\geq"] = "≥", ["\\ge"] = "≥", ["\\neq"] = "≠", ["\\ne"] = "≠", ["\\approx"] = "≈", ["\\infty"] = "∞",
+    ["\\pi"] = "π", ["\\theta"] = "θ", ["\\alpha"] = "α", ["\\beta"] = "β", ["\\gamma"] = "γ", ["\\delta"] = "δ",
+    ["\\Delta"] = "Δ", ["\\sigma"] = "σ", ["\\mu"] = "μ", ["\\lambda"] = "λ", ["\\omega"] = "ω", ["\\Omega"] = "Ω",
+    ["\\sum"] = "Σ", ["\\int"] = "∫", ["\\rightarrow"] = "→", ["\\to"] = "→", ["\\circ"] = "°", ["\\degree"] = "°",
+    ["\\left"] = "", ["\\right"] = "", ["\\quad"] = " ", ["\\,"] = " ",
+}
+
+function DHBot.Esc(s)
+    s = string.gsub(s, "&", "&amp;")
+    s = string.gsub(s, "<", "&lt;")
+    s = string.gsub(s, ">", "&gt;")
+    return s
+end
+
+function DHBot.Math(s)
+    -- drop the $ ... $ and \( \) \[ \] wrappers, but only around real math (so prices like $5 stay)
+    s = string.gsub(s, "%$([^%$\n]-)%$", function(m)
+        if string.find(m, "[\\%^_{}]") then return m end
+        return nil
+    end)
+    s = string.gsub(s, "\\%((.-)\\%)", "%1")
+    s = string.gsub(s, "\\%[(.-)\\%]", "%1")
+    s = string.gsub(s, "\\text{([^{}]*)}", "%1")
+    s = string.gsub(s, "\\frac%s*{([^{}]*)}%s*{([^{}]*)}", "(%1)/(%2)")
+    s = string.gsub(s, "\\sqrt%s*{([^{}]*)}", "√(%1)")
+    s = string.gsub(s, "([%w%)])%^{([%dn%+%-]+)}", function(a, b)
+        return a .. string.gsub(b, ".", DHBot.Sup)
+    end)
+    s = string.gsub(s, "([%w%)])%^([%dn])", function(a, b) return a .. DHBot.Sup[b] end)
+    s = string.gsub(s, "_{(%d+)}", function(b) return (string.gsub(b, ".", DHBot.Sub)) end)
+    s = string.gsub(s, "\\[%a,]+", function(cmd) return DHBot.Tex[cmd] end)
+    return s
+end
+
+function DHBot.Rich(text)
+    local s = DHBot.Math(tostring(text))
+    local codes = {}
+    local function keep(c)
+        codes[#codes + 1] = '<font face="RobotoMono" color="#9fd8ff">' .. DHBot.Esc(c) .. "</font>"
+        return "\1" .. #codes .. "\2"
+    end
+    -- code is set aside first so nothing inside it is changed
+    s = string.gsub(s, "```[%w_]*\n?(.-)```", function(c) return keep((string.gsub(c, "\n$", ""))) end)
+    s = string.gsub(s, "`([^`\n]+)`", keep)
+    s = DHBot.Esc(s)
+    s = string.gsub(s, "\n#+%s*([^\n]*)", "\n<b>%1</b>")
+    s = string.gsub(s, "^#+%s*([^\n]*)", "<b>%1</b>")
+    s = string.gsub(s, "\n%s*[%*%-]%s+", "\n• ")
+    s = string.gsub(s, "^%s*[%*%-]%s+", "• ")
+    s = string.gsub(s, "%*%*(.-)%*%*", "<b>%1</b>")
+    s = string.gsub(s, "__(.-)__", "<b>%1</b>")
+    s = string.gsub(s, "%*([^%*\n]+)%*", "<i>%1</i>")
+    s = string.gsub(s, "%[([^%]\n]+)%]%(([^%)\n]+)%)", "%1 (%2)")
+    s = string.gsub(s, "\1(%d+)\2", function(i) return codes[tonumber(i)] end)
+    return s
+end
+
+-- plain text for the game chat (no markdown symbols)
+function DHBot.Plain(text)
+    local s = DHBot.Math(tostring(text))
+    s = string.gsub(s, "```[%w_]*\n?", "")
+    s = string.gsub(s, "%*%*", "")
+    s = string.gsub(s, "`", "")
+    s = string.gsub(s, "\n#+%s*", "\n")
+    s = string.gsub(s, "^#+%s*", "")
+    s = string.gsub(s, "%*([^%*\n]+)%*", "%1")
+    return s
+end
+
+function DHBot.Build()
+    local Content = ChatBotContent
+
+    local function Btn(parent, text, w, h, x, y)
+        local b = Instance.new("TextButton", parent)
+        b.Size = UDim2.new(0, w, 0, h)
+        b.Position = UDim2.new(0, x or 0, 0, y or 0)
+        b.BackgroundColor3 = Color3.fromRGB(30, 30, 40)
+        b.Font = Enum.Font.GothamBold
+        b.TextSize = 11
+        b.TextColor3 = Color3.new(1, 1, 1)
+        b.Text = text
+        b.AutoButtonColor = true
+        Instance.new("UICorner", b).CornerRadius = UDim.new(0, 6)
+        return b
+    end
+
+    local function Trim(s)
+        s = string.gsub(s, "^%s+", "")
+        s = string.gsub(s, "%s+$", "")
+        return s
+    end
+
+    local title = Instance.new("TextLabel", Content)
+    title.Size = UDim2.new(0, 120, 0, 30)
+    title.Position = UDim2.new(0, 14, 0, 6)
+    title.BackgroundTransparency = 1
+    title.Text = "ChatBot"
+    title.Font = Enum.Font.GothamBold
+    title.TextSize = 20
+    title.TextColor3 = Color3.fromRGB(100, 200, 255)
+    title.TextXAlignment = Enum.TextXAlignment.Left
+
+    local ApiBtn = Btn(Content, "API", 44, 24, 0, 9)
+    ApiBtn.AnchorPoint = Vector2.new(1, 0)
+    ApiBtn.Position = UDim2.new(1, -60, 0, 9)
+    local ClearBtn = Btn(Content, "Clear", 44, 24, 0, 9)
+    ClearBtn.AnchorPoint = Vector2.new(1, 0)
+    ClearBtn.Position = UDim2.new(1, -10, 0, 9)
+
+    -- chat area
+    local Scroll = Instance.new("ScrollingFrame", Content)
+    Scroll.Size = UDim2.new(1, -20, 1, -84)
+    Scroll.Position = UDim2.new(0, 10, 0, 40)
+    Scroll.BackgroundTransparency = 1
+    Scroll.BorderSizePixel = 0
+    Scroll.ScrollBarThickness = 1
+    Scroll.CanvasSize = UDim2.new(0, 0, 0, 0)
+    Scroll.AutomaticCanvasSize = Enum.AutomaticSize.Y
+    local sl = Instance.new("UIListLayout", Scroll)
+    sl.Padding = UDim.new(0, 8)
+    sl.SortOrder = Enum.SortOrder.LayoutOrder
+
+    local Input = Instance.new("TextBox", Content)
+    Input.Size = UDim2.new(1, -78, 0, 30)
+    Input.Position = UDim2.new(0, 10, 1, -38)
+    Input.BackgroundColor3 = Color3.fromRGB(30, 30, 40)
+    Input.Font = Enum.Font.Gotham
+    Input.TextSize = 12
+    Input.TextColor3 = Color3.new(1, 1, 1)
+    Input.PlaceholderText = "Ask anything..."
+    Input.PlaceholderColor3 = Color3.fromRGB(130, 130, 140)
+    Input.Text = ""
+    Input.ClearTextOnFocus = false
+    Input.TextXAlignment = Enum.TextXAlignment.Left
+    Instance.new("UICorner", Input).CornerRadius = UDim.new(0, 6)
+    Instance.new("UIPadding", Input).PaddingLeft = UDim.new(0, 8)
+    local SendBtn = Btn(Content, "Send", 56, 30, 0, 0)
+    SendBtn.AnchorPoint = Vector2.new(1, 0)
+    SendBtn.Position = UDim2.new(1, -10, 1, -38)
+    SendBtn.BackgroundColor3 = Color3.fromRGB(35, 160, 90)
+
+    local function ToBottom()
+        task.defer(function()
+            task.wait()
+            Scroll.CanvasPosition = Vector2.new(0, math.max(0, Scroll.AbsoluteCanvasSize.Y))
+        end)
+    end
+
+    local function Bubble(role, text)
+        local row = Instance.new("Frame", Scroll)
+        row.BackgroundTransparency = 1
+        row.Size = UDim2.new(1, 0, 0, 0)
+        row.AutomaticSize = Enum.AutomaticSize.Y
+        row.LayoutOrder = DHBot.Order
+        DHBot.Order = DHBot.Order + 1
+        local rl = Instance.new("UIListLayout", row)
+        rl.Padding = UDim.new(0, 3)
+        rl.SortOrder = Enum.SortOrder.LayoutOrder
+        rl.HorizontalAlignment = (role == "user") and Enum.HorizontalAlignment.Right or Enum.HorizontalAlignment.Left
+        local b = Instance.new("Frame", row)
+        b.Size = UDim2.new(0.86, 0, 0, 0)
+        b.AutomaticSize = Enum.AutomaticSize.Y
+        b.BackgroundColor3 = (role == "user") and Color3.fromRGB(38, 92, 160) or Color3.fromRGB(34, 34, 40)
+        b.BorderSizePixel = 0
+        Instance.new("UICorner", b).CornerRadius = UDim.new(0, 10)
+        local pad = Instance.new("UIPadding", b)
+        pad.PaddingTop = UDim.new(0, 6)
+        pad.PaddingBottom = UDim.new(0, 6)
+        pad.PaddingLeft = UDim.new(0, 9)
+        pad.PaddingRight = UDim.new(0, 9)
+        local lb = Instance.new("TextLabel", b)
+        lb.Size = UDim2.new(1, 0, 0, 0)
+        lb.AutomaticSize = Enum.AutomaticSize.Y
+        lb.BackgroundTransparency = 1
+        lb.Font = Enum.Font.Gotham
+        lb.TextSize = 12
+        lb.TextColor3 = Color3.new(1, 1, 1)
+        lb.TextWrapped = true
+        lb.TextXAlignment = Enum.TextXAlignment.Left
+        lb.TextYAlignment = Enum.TextYAlignment.Top
+        lb.RichText = true
+        lb.Text = (role == "user") and DHBot.Esc(text) or DHBot.Rich(text)
+        lb:SetAttribute("Raw", text)
+        return row, lb
+    end
+
+    -- Copy and "to game chat" buttons under an AI reply
+    local function Actions(row, lb)
+        local bar = Instance.new("Frame", row)
+        bar.Size = UDim2.new(1, 0, 0, 20)
+        bar.BackgroundTransparency = 1
+        bar.LayoutOrder = 2
+        local copy = Btn(bar, "Copy", 52, 20, 0, 0)
+        local game2 = Btn(bar, "To game chat", 92, 20, 58, 0)
+        copy.MouseButton1Click:Connect(function()
+            pcall(function()
+                if setclipboard then
+                    setclipboard(lb:GetAttribute("Raw") or lb.Text)
+                    copy.Text = "Copied"
+                    task.delay(1.2, function() copy.Text = "Copy" end)
+                end
+            end)
+        end)
+        game2.MouseButton1Click:Connect(function()
+            ShowConfirmPopup("Send this reply to the game chat?", Color3.fromRGB(30, 120, 200), function()
+                DHBot.ToChat(lb:GetAttribute("Raw") or lb.Text)
+            end)
+        end)
+    end
+
+    local function Welcome()
+        Bubble("ai", "Hi! I'm your DaffzHub assistant. Ask me anything.")
+    end
+
+    if #DHBot.History == 0 then
+        Welcome()
+    else
+        for _, m in ipairs(DHBot.History) do
+            local row, lb = Bubble(m.role == "user" and "user" or "ai", m.text)
+            if m.role ~= "user" then Actions(row, lb) end
+        end
+    end
+    ToBottom()
+
+    -- API / settings panel (covers the chat area while open)
+    local Panel = Instance.new("ScrollingFrame", Content)
+    Panel.Size = UDim2.new(1, -20, 1, -48)
+    Panel.Position = UDim2.new(0, 10, 0, 40)
+    Panel.BackgroundColor3 = Color3.fromRGB(20, 20, 20)
+    Panel.BorderSizePixel = 0
+    Panel.ScrollBarThickness = 1
+    Panel.CanvasSize = UDim2.new(0, 0, 0, 0)
+    Panel.AutomaticCanvasSize = Enum.AutomaticSize.Y
+    Panel.Visible = false
+    local pl = Instance.new("UIListLayout", Panel)
+    pl.Padding = UDim.new(0, 6)
+    pl.SortOrder = Enum.SortOrder.LayoutOrder
+
+    local order = 0
+    local function Row(h)
+        order = order + 1
+        local f = Instance.new("Frame", Panel)
+        f.Size = UDim2.new(1, -4, 0, h)
+        f.BackgroundTransparency = 1
+        f.LayoutOrder = order
+        return f
+    end
+    local function Note(text, h, color)
+        local f = Row(h)
+        local l = Instance.new("TextLabel", f)
+        l.Size = UDim2.new(1, 0, 1, 0)
+        l.BackgroundTransparency = 1
+        l.Font = Enum.Font.Gotham
+        l.TextSize = 11
+        l.TextColor3 = color or Color3.fromRGB(150, 150, 160)
+        l.TextWrapped = true
+        l.TextXAlignment = Enum.TextXAlignment.Left
+        l.TextYAlignment = Enum.TextYAlignment.Top
+        l.Text = text
+        return l
+    end
+
+    local function Mask(k)
+        if k == "" then return "" end
+        if #k <= 8 then return "****" end
+        return string.sub(k, 1, 4) .. "****" .. string.sub(k, -3)
+    end
+
+    Note("AI works out of the box. You can paste your own Gemini key (free at aistudio.google.com/apikey) to skip the shared server.", 30)
+    local keyRow = Row(30)
+    local KeyBox = Instance.new("TextBox", keyRow)
+    KeyBox.Size = UDim2.new(1, -66, 1, 0)
+    KeyBox.BackgroundColor3 = Color3.fromRGB(30, 30, 40)
+    KeyBox.Font = Enum.Font.Gotham
+    KeyBox.TextSize = 12
+    KeyBox.TextColor3 = Color3.new(1, 1, 1)
+    KeyBox.PlaceholderText = "Own API key (optional)"
+    KeyBox.PlaceholderColor3 = Color3.fromRGB(130, 130, 140)
+    KeyBox.ClearTextOnFocus = true
+    KeyBox.Text = Mask(DHBot.Key)
+    KeyBox.TextXAlignment = Enum.TextXAlignment.Left
+    Instance.new("UICorner", KeyBox).CornerRadius = UDim.new(0, 6)
+    Instance.new("UIPadding", KeyBox).PaddingLeft = UDim.new(0, 8)
+    local TestBtn = Btn(keyRow, "Test", 60, 30, 0, 0)
+    TestBtn.AnchorPoint = Vector2.new(1, 0)
+    TestBtn.Position = UDim2.new(1, 0, 0, 0)
+    local Status = Note("", 28)
+
+    KeyBox.FocusLost:Connect(function()
+        local k = Trim(KeyBox.Text)
+        if k ~= "" and not string.find(k, "%*%*%*%*", 1) then
+            if #k >= 20 and not string.find(k, "%s") then
+                DHBot.Key = k
+                DHBot.UseOwn = true
+                DHBot.Save()
+                Status.Text = "Key saved on this device. Tap Test to check it."
+                Status.TextColor3 = Color3.fromRGB(100, 220, 140)
+                if DHBot.PaintSrc then DHBot.PaintSrc() end
+            else
+                Status.Text = "That does not look like an API key."
+                Status.TextColor3 = Color3.fromRGB(255, 120, 120)
+            end
+        end
+        KeyBox.Text = Mask(DHBot.Key)
+    end)
+
+    TestBtn.MouseButton1Click:Connect(function()
+        Status.Text = "Testing..."
+        Status.TextColor3 = Color3.fromRGB(150, 150, 160)
+        task.spawn(function()
+            local r, e = DHBot.Ask("Reply with the single word OK.", false)
+            if r then
+                Status.Text = "Key works."
+                Status.TextColor3 = Color3.fromRGB(100, 220, 140)
+            else
+                Status.Text = e
+                Status.TextColor3 = Color3.fromRGB(255, 120, 120)
+            end
+        end)
+    end)
+
+    local srcBtn = Btn(Row(30), "", 200, 30, 0, 0)
+    function DHBot.PaintSrc()
+        local own = DHBot.UseOwn and DHBot.Key ~= ""
+        srcBtn.Text = "AI source | " .. (own and "My own key" or "DaffzHub AI")
+        srcBtn.BackgroundColor3 = own and Color3.fromRGB(35, 120, 200) or Color3.fromRGB(35, 160, 90)
+    end
+    DHBot.PaintSrc()
+    srcBtn.MouseButton1Click:Connect(function()
+        if DHBot.UseOwn then
+            DHBot.UseOwn = false
+        elseif DHBot.Key ~= "" then
+            DHBot.UseOwn = true
+        else
+            Status.Text = "Paste your own key above first."
+            Status.TextColor3 = Color3.fromRGB(255, 120, 120)
+            return
+        end
+        DHBot.PaintSrc()
+        DHBot.Save()
+    end)
+
+    local modelRow = Row(30)
+    local ml = Instance.new("TextLabel", modelRow)
+    ml.Size = UDim2.new(0, 50, 1, 0)
+    ml.BackgroundTransparency = 1
+    ml.Font = Enum.Font.GothamBold
+    ml.TextSize = 11
+    ml.TextColor3 = Color3.fromRGB(190, 190, 200)
+    ml.TextXAlignment = Enum.TextXAlignment.Left
+    ml.Text = "Model"
+    local ModelBox = Instance.new("TextBox", modelRow)
+    ModelBox.Size = UDim2.new(1, -56, 1, 0)
+    ModelBox.Position = UDim2.new(0, 56, 0, 0)
+    ModelBox.BackgroundColor3 = Color3.fromRGB(30, 30, 40)
+    ModelBox.Font = Enum.Font.Gotham
+    ModelBox.TextSize = 12
+    ModelBox.TextColor3 = Color3.new(1, 1, 1)
+    ModelBox.ClearTextOnFocus = false
+    ModelBox.Text = DHBot.Model
+    ModelBox.TextXAlignment = Enum.TextXAlignment.Left
+    Instance.new("UICorner", ModelBox).CornerRadius = UDim.new(0, 6)
+    Instance.new("UIPadding", ModelBox).PaddingLeft = UDim.new(0, 8)
+    ModelBox.FocusLost:Connect(function()
+        local m = Trim(ModelBox.Text)
+       if m == "" then m = "gemini-flash-lite-latest" end
+        DHBot.Model = m
+        ModelBox.Text = m
+        DHBot.Save()
+    end)
+
+    local perBtn = Btn(Row(30), "Persona | " .. DHBot.Personas[DHBot.Persona][1], 200, 30, 0, 0)
+    perBtn.MouseButton1Click:Connect(function()
+        DHBot.Persona = DHBot.Persona % #DHBot.Personas + 1
+        perBtn.Text = "Persona | " .. DHBot.Personas[DHBot.Persona][1]
+        DHBot.Save()
+    end)
+
+    Note("Share with the AI (all off by default):", 18, Color3.fromRGB(190, 190, 200))
+    local function Toggle(label, field)
+        local b = Btn(Row(30), "", 200, 30, 0, 0)
+        local function paint()
+            local on = DHBot[field]
+            b.Text = label .. " | " .. (on and "ON" or "OFF")
+            b.BackgroundColor3 = on and Color3.fromRGB(35, 160, 90) or Color3.fromRGB(30, 30, 40)
+        end
+        paint()
+        b.MouseButton1Click:Connect(function()
+            DHBot[field] = not DHBot[field]
+            paint()
+            DHBot.Save()
+        end)
+    end
+    Toggle("Game name + player count", "CtxGame")
+    Toggle("Player names", "CtxPlayers")
+    Toggle("My character info", "CtxSelf")
+    Toggle("DaffzHub info", "CtxHub")
+
+    Note("Without your own key, messages go through the DaffzHub AI server to Google (Gemini). With your own key they go straight to Google. Anything switched on above is included. Player IDs, friends and backpacks are never sent. Replies only go to the game chat when you press To game chat and confirm.", 90)
+
+    local delBtn = Btn(Row(30), "Remove key", 200, 30, 0, 0)
+    delBtn.BackgroundColor3 = Color3.fromRGB(180, 40, 40)
+    delBtn.MouseButton1Click:Connect(function()
+        DHBot.Key = ""
+        DHBot.UseOwn = false
+        KeyBox.Text = ""
+        DHBot.Save()
+        Status.Text = "Key removed from this device."
+        Status.TextColor3 = Color3.fromRGB(150, 150, 160)
+        if DHBot.PaintSrc then DHBot.PaintSrc() end
+    end)
+
+    ApiBtn.MouseButton1Click:Connect(function()
+        Panel.Visible = not Panel.Visible
+        ApiBtn.Text = Panel.Visible and "Back" or "API"
+    end)
+
+    ClearBtn.MouseButton1Click:Connect(function()
+        ShowConfirmPopup("Clear the chat history?", Color3.fromRGB(180, 40, 40), function()
+            for _, c in ipairs(Scroll:GetChildren()) do
+                if c:IsA("Frame") then c:Destroy() end
+            end
+            DHBot.History = {}
+            DHBot.Save()
+            Welcome()
+        end)
+    end)
+
+    local function Send()
+        if DHBot.Busy then return end
+        local text = Trim(Input.Text)
+        if text == "" then return end
+        DHBot.Busy = true
+        SendBtn.Text = "..."
+        Input.Text = ""
+        Bubble("user", text)
+        local row, lb = Bubble("ai", "Thinking...")
+        ToBottom()
+        task.spawn(function()
+            local reply, err = DHBot.Ask(text, true)
+            if reply then
+                                lb.Text = DHBot.Rich(reply)
+                lb:SetAttribute("Raw", reply)
+                Actions(row, lb)
+                DHBot.History[#DHBot.History + 1] = {role = "user", text = text}
+                DHBot.History[#DHBot.History + 1] = {role = "model", text = reply}
+                DHBot.Save()
+            else
+                lb.Text = DHBot.Esc(err or "Something went wrong.")
+                lb.TextColor3 = Color3.fromRGB(255, 130, 130)
+            end
+            DHBot.Busy = false
+            SendBtn.Text = "Send"
+            ToBottom()
+        end)
+    end
+    SendBtn.MouseButton1Click:Connect(Send)
+    Input.FocusLost:Connect(function(enter) if enter then Send() end end)
+
+    DHBot.OnShow = ToBottom
+end
+
+DHBot.Load()
+pcall(DHBot.Build)
+
+-- ================================================
 -- MODS TAB (part 2): Float, Infinite Jump, Noclip (built in, safe on respawn)
 -- ================================================
 DHMods.N = 0
@@ -24388,7 +25097,7 @@ do
 -- ================================================
 SettingTab = Instance.new("TextButton", TabFrame)
 SettingTab.Size = UDim2.new(1, -20, 0, 40)
-SettingTab.Position = UDim2.new(0, 10, 0, 770)
+SettingTab.Position = UDim2.new(0, 10, 0, 820)
 SettingTab.Text = "Setting"
 SettingTab.BackgroundColor3 = Color3.fromRGB(25,25,25)
 SettingTab.Font = Enum.Font.GothamBold
@@ -25046,7 +25755,7 @@ CamResetBtn.TextSize = 12
 CamResetBtn.TextColor3 = Color3.new(1,1,1)
 Instance.new("UICorner", CamResetBtn).CornerRadius = UDim.new(0, 6)
 
-local function stopCamMode()
+function stopCamMode()
     if camLockConnection then
         camLockConnection:Disconnect()
         camLockConnection = nil
@@ -25753,7 +26462,7 @@ function BuildOtherSettings()
     alertHolder.Name = "DH_AlertHolder"
     alertHolder.AnchorPoint = Vector2.new(1, 0)
     alertHolder.Position = UDim2.new(1, -8, 0, 40)
-    alertHolder.Size = UDim2.new(0, 230, 0, 24)
+    alertHolder.Size = UDim2.new(0, 250, 0, 44)
     alertHolder.BackgroundTransparency = 1
     alertHolder.Active = false
     pcall(function() alertHolder.Interactable = false end) -- touches go straight through to the game
@@ -25768,35 +26477,92 @@ function BuildOtherSettings()
         if not item then return end
         alertBusy = true
 
-        local t = Instance.new("TextLabel")
-        t.Size = UDim2.new(1, 0, 1, 0)
-        t.BackgroundColor3 = Color3.fromRGB(25, 25, 25)
-        t.BackgroundTransparency = 1
-        t.Font = Enum.Font.GothamBold
-        t.TextSize = 11
-        t.TextColor3 = Color3.new(1, 1, 1)
-        t.TextTransparency = 1
-        t.TextTruncate = Enum.TextTruncate.AtEnd
-        t.Text = item.text
-        t.Active = false
-        pcall(function() t.Interactable = false end)
-        Instance.new("UICorner", t).CornerRadius = UDim.new(0, 8)
-        local st = Instance.new("UIStroke", t)
-        st.Color = item.color
-        st.Thickness = 1.2
-        st.Transparency = 1
-        t.Parent = alertHolder
+        -- split the old "+ name joined" style text into icon, title and a small second line
+        local raw = tostring(item.text)
+        local icon = string.sub(raw, 1, 1)
+        local title, sub = raw, ""
+        if string.sub(raw, 2, 2) == " " and (icon == "+" or icon == "-" or icon == "!") then
+            title = string.sub(raw, 3)
+            if icon == "+" and string.sub(title, -7) == " joined" then
+                title = string.sub(title, 1, -8); sub = "Joined the server"
+            elseif icon == "-" and string.sub(title, -5) == " left" then
+                title = string.sub(title, 1, -6); sub = "Left the server"
+            elseif icon == "!" then
+                local a, b = string.find(title, ": ", 1, true)
+                if a then sub = string.sub(title, b + 1); title = string.sub(title, 1, a - 1) end
+            end
+        else
+            icon = "i"
+        end
+        if icon == "-" then icon = "×" end
 
         local Tween = game:GetService("TweenService")
-        local fade = TweenInfo.new(0.2)
-        Tween:Create(t, fade, {BackgroundTransparency = 0.25, TextTransparency = 0}):Play()
-        Tween:Create(st, fade, {Transparency = 0}):Play()
+        local card = Instance.new("Frame")
+        card.Size = UDim2.new(1, 0, 1, 0)
+        card.Position = UDim2.new(1.2, 0, 0, 0)
+        card.BackgroundColor3 = Color3.fromRGB(18, 18, 22)
+        card.BackgroundTransparency = 0.08
+        card.BorderSizePixel = 0
+        card.ClipsDescendants = true
+        card.Active = false
+        pcall(function() card.Interactable = false end)
+        Instance.new("UICorner", card).CornerRadius = UDim.new(0, 10)
+        local st = Instance.new("UIStroke", card)
+        st.Color = item.color
+        st.Thickness = 1.2
+        st.Transparency = 0.35
+
+        local badge = Instance.new("TextLabel", card)
+        badge.Size = UDim2.new(0, 28, 0, 28)
+        badge.Position = UDim2.new(0, 8, 0.5, -14)
+        badge.BackgroundColor3 = item.color
+        badge.BackgroundTransparency = 0.75
+        badge.Font = Enum.Font.GothamBold
+        badge.TextSize = 16
+        badge.TextColor3 = item.color
+        badge.Text = icon
+        Instance.new("UICorner", badge).CornerRadius = UDim.new(1, 0)
+
+        local nameLb = Instance.new("TextLabel", card)
+        nameLb.BackgroundTransparency = 1
+        nameLb.Position = UDim2.new(0, 44, 0, sub ~= "" and 6 or 0)
+        nameLb.Size = UDim2.new(1, -52, 0, sub ~= "" and 18 or 44)
+        nameLb.Font = Enum.Font.GothamBold
+        nameLb.TextSize = 12
+        nameLb.TextColor3 = Color3.new(1, 1, 1)
+        nameLb.TextXAlignment = Enum.TextXAlignment.Left
+        nameLb.TextTruncate = Enum.TextTruncate.AtEnd
+        nameLb.Text = title
+
+        if sub ~= "" then
+            local subLb = Instance.new("TextLabel", card)
+            subLb.BackgroundTransparency = 1
+            subLb.Position = UDim2.new(0, 44, 0, 23)
+            subLb.Size = UDim2.new(1, -52, 0, 14)
+            subLb.Font = Enum.Font.Gotham
+            subLb.TextSize = 10
+            subLb.TextColor3 = Color3.fromRGB(170, 170, 180)
+            subLb.TextXAlignment = Enum.TextXAlignment.Left
+            subLb.TextTruncate = Enum.TextTruncate.AtEnd
+            subLb.Text = sub
+        end
+
+        -- thin bar at the bottom that drains while the notice is visible
+        local bar = Instance.new("Frame", card)
+        bar.Size = UDim2.new(1, 0, 0, 2)
+        bar.Position = UDim2.new(0, 0, 1, -2)
+        bar.BackgroundColor3 = item.color
+        bar.BackgroundTransparency = 0.2
+        bar.BorderSizePixel = 0
+
+        card.Parent = alertHolder
+        Tween:Create(card, TweenInfo.new(0.25, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {Position = UDim2.new(0, 0, 0, 0)}):Play()
+        Tween:Create(bar, TweenInfo.new(item.life, Enum.EasingStyle.Linear), {Size = UDim2.new(0, 0, 0, 2)}):Play()
 
         task.delay(item.life, function()
-            Tween:Create(t, fade, {BackgroundTransparency = 1, TextTransparency = 1}):Play()
-            Tween:Create(st, fade, {Transparency = 1}):Play()
+            Tween:Create(card, TweenInfo.new(0.22, Enum.EasingStyle.Quad, Enum.EasingDirection.In), {Position = UDim2.new(1.2, 0, 0, 0)}):Play()
             task.wait(0.25)
-            t:Destroy()
+            card:Destroy()
             alertBusy = false
             AlertNext()
         end)
@@ -26962,7 +27728,7 @@ SetLoadProgress(84)
 -- Credit Tab Button
 CreditTab = Instance.new("TextButton", TabFrame)
 CreditTab.Size = UDim2.new(1, -20, 0, 40)
-CreditTab.Position = UDim2.new(0, 10, 0, 820)
+CreditTab.Position = UDim2.new(0, 10, 0, 870)
 CreditTab.Text = "Credit"
 CreditTab.BackgroundColor3 = Color3.fromRGB(25,25,25)
 CreditTab.Font = Enum.Font.GothamBold
@@ -27197,6 +27963,14 @@ featureItems = {
     "   • Invisible (ghost): your body waits in the Safe Zone",
     "   • Dummy: spawn, rename, control, climb ladders, emotes & Dummy ESP",
     "",
+    "🤖 CHATBOT TAB",
+    "   • AI chat inside the hub (DaffzHub AI or your own Gemini key)",
+    "   • Bold, italic & code formatting, readable math symbols",
+    "   • Copy a reply or send it to the game chat (asks first)",
+    "   • Personas: Normal, Casual & Lua Coder",
+    "   • Choose what the AI sees: game, players, you, DaffzHub info",
+    "   • Saved chat history",
+    "",
     "⚙️ SETTING TAB",
     "   • Instant Prompt toggle",
     "   • Jump Button setting",
@@ -27293,6 +28067,8 @@ function HideAllContent()
     if AnimTab then AnimTab.BackgroundColor3 = Color3.fromRGB(25,25,25) end
     if ModsContent then ModsContent.Visible = false end
     if ModsTab then ModsTab.BackgroundColor3 = Color3.fromRGB(25,25,25) end
+    if ChatBotContent then ChatBotContent.Visible = false end
+    if ChatBotTab then ChatBotTab.BackgroundColor3 = Color3.fromRGB(25,25,25) end
 end
 
 -- SHOW SCRIPT TAB
@@ -27579,6 +28355,18 @@ function ShowModsTab()
     end
     if ModsTab then ModsTab.BackgroundColor3 = Color3.fromRGB(30,30,30) end
 end
+-- SHOW CHATBOT TAB
+function ShowChatBotTab()
+    HideAllContent()
+    if ChatBotContent then ChatBotContent.Visible = true end
+    for _, b in ipairs(TabFrame:GetChildren()) do
+        if b:IsA("TextButton") then
+            b.BackgroundColor3 = Color3.fromRGB(25,25,25)
+        end
+    end
+    if ChatBotTab then ChatBotTab.BackgroundColor3 = Color3.fromRGB(30,30,30) end
+    if DHBot and DHBot.OnShow then DHBot.OnShow() end
+end
 
 -- SHOW SETTING TAB
 function ShowSettingTab()
@@ -27650,6 +28438,7 @@ ScriptSearchTab.MouseButton1Click:Connect(ShowSearchTab)
 if VisualTab then VisualTab.MouseButton1Click:Connect(ShowVisualTab) end
 if AnimTab then AnimTab.MouseButton1Click:Connect(ShowAnimationTab) end
 if ModsTab then ModsTab.MouseButton1Click:Connect(ShowModsTab) end
+if ChatBotTab then ChatBotTab.MouseButton1Click:Connect(ShowChatBotTab) end
 SettingTab.MouseButton1Click:Connect(ShowSettingTab)
 CreditTab.MouseButton1Click:Connect(ShowCreditTab)
 
@@ -27688,8 +28477,11 @@ addTabButtonBorder(ScriptSearchTab)
 addTabButtonBorder(VisualTab)
 addTabButtonBorder(AnimTab)
 if ModsTab then addTabButtonBorder(ModsTab) end
+if ChatBotTab then addTabButtonBorder(ChatBotTab) end
 addTabButtonBorder(SettingTab)
 addTabButtonBorder(CreditTab)
+
+
 
 
 -- ================================================
@@ -28340,6 +29132,14 @@ DHChangelogTags = {
 }
 
 DHChangelog = {
+    {id = 20, date = "2026-10-31", title = "What's New", items = {
+        {"Added", "ChatBot tab: chat with an AI inside the hub. It works right away with the DaffzHub AI, or paste your own free Gemini key in API and choose AI source. Replies show bold, italic and code, math symbols stay readable, and every reply has Copy and To game chat (it asks first). Pick a persona (Normal, Casual, Lua Coder), and your chat history is saved."},
+        {"Added", "ChatBot sharing: you choose what the AI can see, Game name + player count, Player names, My character info and DaffzHub info (version, JobId, WalkSpeed). Everything is off by default."},
+        {"Changed", "Join / Leave alerts and exploiter notices have a new look: a card with an icon, the name, a short line and a timer bar."},
+        {"Changed", "Emote tab: the Mood list now has its own file, so your old list goes back to the defaults once."},
+        {"Fixed", "Freecam no longer errors when a Camera Mode is on, and the Troll tab player checkboxes work again."},
+        {"Fixed", "Search tab: Saved scripts are really saved now. Bring Parts: pressing Enter in the player name box works. Joiner tab: the lists refresh when you open it."},
+    }},
     {id = 19, date = "2026-10-28", title = "What's New", items = {
         {"Added", "Setting tab: Theme, change the Border, Back, Panel, Card and Accent colors with RGB sliders, border thickness and transparency, RGB border, background transparency, roundness and window size. Save Theme keeps everything for next time."},
         {"Added", "Mods tab: Dummy, spawn gray dummies, rename them, take control, climb ladders, play emotes and use Dummy ESP (Highlight, Line, Distance, NameTag)."},
@@ -28354,9 +29154,6 @@ DHChangelog = {
         {"Added", "Music tab: Sound Effects, presets (Echo, Reverb, Slowed, Sped Up, Nightcore, Bass Boost, 8D, Lo-fi, Phonk and more) and sliders for Bass, Treble, Speed, Pitch, Reverb and Echo."},
         {"Added", "Info tab: 3D Preview, tap 3D on a player in the Player List to see their avatar, drag to rotate and use + / - to zoom."},
         {"Changed", "Setting tab: Jump Button settings no longer apply by themselves, use Saved Jump Settings to save and use a setup."},
-    }},
-    {id = 17, date = "2026-10-24", title = "What's New", items = {
-        {"Added", "Setting tab: Saved Jump Settings, save your Jump Button size and position under a name, then pick one from the list to use it again."},
     }},
 }
 
