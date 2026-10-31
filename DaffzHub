@@ -22105,9 +22105,8 @@ end
 DHBot.Load()
 pcall(DHBot.Build)
 
-
 -- ================================================
--- MESSAGE TAB: chat with other DaffzHub users on the same server.
+-- MESSAGE TAB: chat with other DaffzHub users (modes: Server, Map, Global, Private)
 -- Messages travel through a small server (Netlify -> Supabase). Opt-in: nothing is sent or read before the user agrees.
 -- ================================================
 MsgTab = Instance.new("TextButton", TabFrame)
@@ -22131,20 +22130,36 @@ Instance.new("UICorner", MsgContent).CornerRadius = UDim.new(0, 10)
 DHMsg = {
     Path = "Daffzhub_file/Message.json",
     Proxy = "https://iridescent-kringle-f20c39.netlify.app/.netlify/functions/msg",
-    Agreed = false, Mute = {}, LastId = nil, Busy = false, Sending = false,
-    LastSend = 0, Seen = {}, Rows = {}, Looping = false,
+    ConsentV = 2, -- raise this number when the data that is sent changes: everyone is asked again
+    Agreed = false, Mute = {}, On = {}, Partner = nil,
+    Cur = "server", Busy = false, Sending = false, Looping = false, LastSend = 0,
+    Seen = {}, Last = {}, Loaded = {}, Unread = {}, Rows = {}, RoomOf = {}, Scrolls = {}, Empties = {}, TabBtns = {},
+    Modes = {
+        {key = "server", label = "Server", gap = 3, color = Color3.fromRGB(100, 200, 255)},
+        {key = "map", label = "Map", gap = 3, color = Color3.fromRGB(255, 190, 90)},
+        {key = "global", label = "Global", gap = 10, color = Color3.fromRGB(255, 120, 160)},
+        {key = "private", label = "Private", gap = 3, color = Color3.fromRGB(190, 140, 255)},
+    },
+    M = {},
 }
+for _, m in ipairs(DHMsg.Modes) do DHMsg.M[m.key] = m end
 
 function DHMsg.Load()
     pcall(function()
         if not (isfile and readfile and isfile(DHMsg.Path)) then return end
         local d = game:GetService("HttpService"):JSONDecode(readfile(DHMsg.Path))
         if type(d) ~= "table" then return end
-        DHMsg.Agreed = d.agreed == true
+        DHMsg.Agreed = d.consent == DHMsg.ConsentV
         if type(d.mute) == "table" then
             for _, n in ipairs(d.mute) do
                 if type(n) == "string" then DHMsg.Mute[n] = true end
             end
+        end
+        if type(d.on) == "table" then
+            for k in pairs(DHMsg.M) do DHMsg.On[k] = d.on[k] == true end
+        end
+        if type(d.partner) == "table" and type(d.partner.uid) == "number" and type(d.partner.name) == "string" then
+            DHMsg.Partner = {uid = d.partner.uid, name = d.partner.name}
         end
     end)
 end
@@ -22155,16 +22170,29 @@ function DHMsg.Save()
         if not isfolder("Daffzhub_file") then makefolder("Daffzhub_file") end
         local list = {}
         for n in pairs(DHMsg.Mute) do list[#list + 1] = n end
-        writefile(DHMsg.Path, game:GetService("HttpService"):JSONEncode({agreed = DHMsg.Agreed, mute = list}))
+        writefile(DHMsg.Path, game:GetService("HttpService"):JSONEncode({
+            consent = DHMsg.Agreed and DHMsg.ConsentV or 0, mute = list, on = DHMsg.On, partner = DHMsg.Partner,
+        }))
     end)
 end
 
--- one room per server (the JobId); other rooms can be added later with the same function
-function DHMsg.Room()
-    local j = game.JobId
-    if j == nil or j == "" then j = "studio" end
-    j = string.gsub(j, "[^%w_%-]", "")
-    return "s:" .. j
+-- room name of a mode (nil when it cannot be used yet)
+function DHMsg.Room(key)
+    if key == "server" then
+        local j = game.JobId
+        if j == nil or j == "" then j = "studio" end
+        return "s:" .. string.gsub(j, "[^%w_%-]", "")
+    elseif key == "map" then
+        return "m:" .. tostring(game.PlaceId)
+    elseif key == "global" then
+        return "g"
+    elseif key == "private" then
+        if not DHMsg.Partner then return nil end
+        local me = game:GetService("Players").LocalPlayer.UserId
+        local a, b = math.min(me, DHMsg.Partner.uid), math.max(me, DHMsg.Partner.uid)
+        return "p:" .. a .. "_" .. b
+    end
+    return nil
 end
 
 function DHMsg.MyName()
@@ -22172,6 +22200,11 @@ function DHMsg.MyName()
     local n = p.DisplayName
     if n == nil or n == "" then n = p.Name end
     return n
+end
+
+function DHMsg.IsMine(m)
+    if type(m.uid) == "number" then return m.uid == game:GetService("Players").LocalPlayer.UserId end
+    return m.name == DHMsg.MyName()
 end
 
 -- returns data, nil   |   nil, errorText
@@ -22198,37 +22231,105 @@ function DHMsg.SetStatus(text, color)
     end
 end
 
-function DHMsg.Poll()
+-- forget everything we know about one mode (used when it is switched Off or its room changes)
+function DHMsg.ClearMode(key)
+    DHMsg.Last[key] = nil
+    DHMsg.Loaded[key] = nil
+    DHMsg.Unread[key] = 0
+    for sid in pairs(DHMsg.Seen) do
+        if string.sub(sid, 1, #key + 1) == key .. ":" then DHMsg.Seen[sid] = nil end
+    end
+    for _, e in ipairs(DHMsg.Rows[key] or {}) do pcall(function() e.row:Destroy() end) end
+    DHMsg.Rows[key] = {}
+    if DHMsg.ResetEmpty then DHMsg.ResetEmpty(key) end
+    if DHMsg.PaintTabs then DHMsg.PaintTabs() end
+end
+
+function DHMsg.Notify(key, n, m)
+    local mode = DHMsg.M[key]
+    local watching = MsgContent and MsgContent.Visible and DHMsg.Cur == key and Main and Main.Visible
+    if watching then
+        if DHMsg.ToBottom then DHMsg.ToBottom() end
+        return
+    end
+    DHMsg.Unread[key] = (DHMsg.Unread[key] or 0) + n
+    if DHMsg.PaintTabs then DHMsg.PaintTabs() end
+    if DHAlertToast then
+        local text
+        if n == 1 then
+            local body = m.body
+            if #body > 50 then body = string.sub(body, 1, 47) .. "..." end
+            text = mode.label .. " | " .. m.name .. ": " .. body
+        else
+            text = n .. " new messages in " .. mode.label
+        end
+        pcall(DHAlertToast, text, mode.color)
+    end
+end
+
+function DHMsg.Take(key, list)
+    local firstLoad = not DHMsg.Loaded[key]
+    local n, lastMsg = 0, nil
+    for _, m in ipairs(list) do
+        if type(m) == "table" and type(m.id) == "number" and type(m.name) == "string" and type(m.body) == "string" then
+            if not DHMsg.Last[key] or m.id > DHMsg.Last[key] then DHMsg.Last[key] = m.id end
+            local sid = key .. ":" .. m.id
+            if not DHMsg.Seen[sid] and not DHMsg.Mute[m.name] then
+                DHMsg.Seen[sid] = true
+                local mine = DHMsg.IsMine(m)
+                if DHMsg.AddMsg then DHMsg.AddMsg(key, m, mine) end
+                if not mine then
+                    n = n + 1
+                    lastMsg = m
+                end
+            end
+        end
+    end
+    DHMsg.Loaded[key] = true
+    if DHMsg.ToBottom and DHMsg.Cur == key then DHMsg.ToBottom() end
+    if n > 0 and not firstLoad then DHMsg.Notify(key, n, lastMsg) end
+end
+
+-- ONE request checks every mode that is On
+function DHMsg.Pull()
     if DHMsg.Busy or not DHMsg.Agreed then return end
+    local rooms, after, any = {}, {}, false
+    for _, m in ipairs(DHMsg.Modes) do
+        if DHMsg.On[m.key] then
+            local r = DHMsg.Room(m.key)
+            if r then
+                if DHMsg.RoomOf[m.key] ~= r then
+                    DHMsg.RoomOf[m.key] = r
+                    DHMsg.ClearMode(m.key)
+                end
+                rooms[m.key] = r
+                after[m.key] = DHMsg.Last[m.key]
+                any = true
+            end
+        end
+    end
+    if not any then return end
     DHMsg.Busy = true
-    local data, err = DHMsg.Call({action = "get", room = DHMsg.Room(), after = DHMsg.LastId})
+    local data, err = DHMsg.Call({action = "pull", rooms = rooms, after = after})
     DHMsg.Busy = false
     if not data then
         DHMsg.SetStatus(err, Color3.fromRGB(255, 120, 120))
         return
     end
-    DHMsg.SetStatus("Server chat, DaffzHub users only", Color3.fromRGB(150, 150, 160))
-    local list = data.messages
-    if type(list) ~= "table" then return end
-    local added = false
-    for _, m in ipairs(list) do
-        if type(m) == "table" and type(m.id) == "number" and type(m.name) == "string" and type(m.body) == "string" then
-            if not DHMsg.LastId or m.id > DHMsg.LastId then DHMsg.LastId = m.id end
-            if not DHMsg.Seen[m.id] and not DHMsg.Mute[m.name] then
-                DHMsg.Seen[m.id] = true
-                if DHMsg.AddMsg then DHMsg.AddMsg(m) added = true end
-            end
-        end
+    DHMsg.SetStatus("Connected", Color3.fromRGB(110, 200, 140))
+    if type(data.rooms) ~= "table" then return end
+    for key, list in pairs(data.rooms) do
+        if type(list) == "table" and DHMsg.M[key] and DHMsg.On[key] then DHMsg.Take(key, list) end
     end
-    if added and DHMsg.ToBottom then DHMsg.ToBottom() end
 end
 
+-- background loop: every 3 seconds, only does something while a mode is On
 function DHMsg.Start()
     if DHMsg.Looping then return end
     DHMsg.Looping = true
     task.spawn(function()
         while MsgContent and MsgContent.Parent do
-            if MsgContent.Visible and DHMsg.Agreed then pcall(DHMsg.Poll) end
+            pcall(DHMsg.Pull)
             task.wait(3)
         end
         DHMsg.Looping = false
@@ -22237,6 +22338,7 @@ end
 
 function DHMsg.Build()
     local Content = MsgContent
+    local GRAY = Color3.fromRGB(150, 150, 160)
 
     local function Btn(parent, text, w, h)
         local b = Instance.new("TextButton", parent)
@@ -22250,57 +22352,128 @@ function DHMsg.Build()
         Instance.new("UICorner", b).CornerRadius = UDim.new(0, 6)
         return b
     end
+    local function Label(parent, text, size, color)
+        local l = Instance.new("TextLabel", parent)
+        l.BackgroundTransparency = 1
+        l.Font = Enum.Font.Gotham
+        l.TextSize = size
+        l.TextColor3 = color
+        l.TextXAlignment = Enum.TextXAlignment.Left
+        l.TextYAlignment = Enum.TextYAlignment.Top
+        l.TextWrapped = true
+        l.Text = text
+        return l
+    end
 
-    local title = Instance.new("TextLabel", Content)
-    title.Size = UDim2.new(0, 90, 0, 30)
-    title.Position = UDim2.new(0, 14, 0, 6)
-    title.BackgroundTransparency = 1
-    title.Text = "Message"
-    title.Font = Enum.Font.GothamBold
-    title.TextSize = 20
-    title.TextColor3 = Color3.fromRGB(100, 220, 140)
-    title.TextXAlignment = Enum.TextXAlignment.Left
+    -- ---------- top: mode tabs ----------
+    for i, m in ipairs(DHMsg.Modes) do
+        local b = Btn(Content, m.label, 88, 26)
+        b.Position = UDim2.new(0, 10 + (i - 1) * 92, 0, 4)
+        DHMsg.TabBtns[m.key] = b
+    end
 
+    -- ---------- control row: On/Off, status, Rules, Unmute ----------
+    local OnBtn = Btn(Content, "OFF", 52, 24)
+    OnBtn.Position = UDim2.new(0, 10, 0, 34)
     local status = Instance.new("TextLabel", Content)
-    status.Size = UDim2.new(1, -232, 0, 24)
-    status.Position = UDim2.new(0, 108, 0, 9)
+    status.Size = UDim2.new(1, -208, 0, 24)
+    status.Position = UDim2.new(0, 68, 0, 34)
     status.BackgroundTransparency = 1
     status.Font = Enum.Font.Gotham
     status.TextSize = 10
-    status.TextColor3 = Color3.fromRGB(150, 150, 160)
+    status.TextColor3 = GRAY
     status.TextXAlignment = Enum.TextXAlignment.Left
     status.TextTruncate = Enum.TextTruncate.AtEnd
-    status.Text = "Server chat, DaffzHub users only"
+    status.Text = ""
     DHMsg.StatusLabel = status
-
-    local OffBtn = Btn(Content, "Off", 36, 24)
-    OffBtn.AnchorPoint = Vector2.new(1, 0)
-    OffBtn.Position = UDim2.new(1, -10, 0, 9)
-    local UnmuteBtn = Btn(Content, "Unmute", 60, 24)
+    local UnmuteBtn = Btn(Content, "Unmute", 58, 24)
     UnmuteBtn.AnchorPoint = Vector2.new(1, 0)
-    UnmuteBtn.Position = UDim2.new(1, -52, 0, 9)
+    UnmuteBtn.Position = UDim2.new(1, -10, 0, 34)
+    local RulesBtn = Btn(Content, "Rules", 48, 24)
+    RulesBtn.AnchorPoint = Vector2.new(1, 0)
+    RulesBtn.Position = UDim2.new(1, -72, 0, 34)
 
-    local Scroll = Instance.new("ScrollingFrame", Content)
-    Scroll.Size = UDim2.new(1, -20, 1, -84)
-    Scroll.Position = UDim2.new(0, 10, 0, 40)
-    Scroll.BackgroundTransparency = 1
-    Scroll.BorderSizePixel = 0
-    Scroll.ScrollBarThickness = 1
-    Scroll.CanvasSize = UDim2.new(0, 0, 0, 0)
-    Scroll.AutomaticCanvasSize = Enum.AutomaticSize.Y
-    local sl = Instance.new("UIListLayout", Scroll)
-    sl.Padding = UDim.new(0, 6)
-    sl.SortOrder = Enum.SortOrder.LayoutOrder
+    -- ---------- one chat list per mode ----------
+    for _, m in ipairs(DHMsg.Modes) do
+        local isPriv = m.key == "private"
+        local sc = Instance.new("ScrollingFrame", Content)
+        sc.Size = UDim2.new(1, -20, 1, isPriv and -138 or -106)
+        sc.Position = UDim2.new(0, 10, 0, isPriv and 92 or 62)
+        sc.BackgroundTransparency = 1
+        sc.BorderSizePixel = 0
+        sc.ScrollBarThickness = 1
+        sc.CanvasSize = UDim2.new(0, 0, 0, 0)
+        sc.AutomaticCanvasSize = Enum.AutomaticSize.Y
+        sc.Visible = false
+        local sl = Instance.new("UIListLayout", sc)
+        sl.Padding = UDim.new(0, 8)
+        sl.SortOrder = Enum.SortOrder.LayoutOrder
+        DHMsg.Scrolls[m.key] = sc
+        DHMsg.Rows[m.key] = {}
 
-    local Empty = Instance.new("TextLabel", Scroll)
-    Empty.Size = UDim2.new(1, 0, 0, 40)
-    Empty.LayoutOrder = 0
-    Empty.BackgroundTransparency = 1
-    Empty.Font = Enum.Font.Gotham
-    Empty.TextSize = 12
-    Empty.TextColor3 = Color3.fromRGB(130, 130, 140)
-    Empty.Text = "No messages yet. Say hi!"
+        local e = Label(sc, "", 12, Color3.fromRGB(130, 130, 140))
+        e.Size = UDim2.new(1, 0, 0, 44)
+        e.LayoutOrder = 0
+        e.TextXAlignment = Enum.TextXAlignment.Center
+        DHMsg.Empties[m.key] = e
+    end
+    DHMsg.ResetEmpty = function(key)
+        local e = DHMsg.Empties[key]
+        if not e then return end
+        if not e.Parent then
+            e = Instance.new("TextLabel", DHMsg.Scrolls[key])
+            e.BackgroundTransparency = 1
+            e.Font = Enum.Font.Gotham
+            e.TextSize = 12
+            e.TextColor3 = Color3.fromRGB(130, 130, 140)
+            e.TextWrapped = true
+            e.Size = UDim2.new(1, 0, 0, 44)
+            e.LayoutOrder = 0
+            DHMsg.Empties[key] = e
+        end
+        if not DHMsg.On[key] then
+            e.Text = "This mode is Off. Tap OFF to turn it on."
+        elseif key == "private" and not DHMsg.Partner then
+            e.Text = "Set a partner above. Your friend must set YOUR username too."
+        else
+            e.Text = "No messages yet. Say hi!"
+        end
+    end
 
+    -- Private: partner row
+    local pRow = Instance.new("Frame", Content)
+    pRow.Size = UDim2.new(1, -20, 0, 26)
+    pRow.Position = UDim2.new(0, 10, 0, 62)
+    pRow.BackgroundTransparency = 1
+    pRow.Visible = false
+    local pBox = Instance.new("TextBox", pRow)
+    pBox.Size = UDim2.new(1, -112, 1, 0)
+    pBox.BackgroundColor3 = Color3.fromRGB(30, 30, 40)
+    pBox.Font = Enum.Font.Gotham
+    pBox.TextSize = 11
+    pBox.TextColor3 = Color3.new(1, 1, 1)
+    pBox.PlaceholderText = "Partner's Roblox username"
+    pBox.PlaceholderColor3 = Color3.fromRGB(130, 130, 140)
+    pBox.Text = ""
+    pBox.ClearTextOnFocus = false
+    pBox.TextXAlignment = Enum.TextXAlignment.Left
+    Instance.new("UICorner", pBox).CornerRadius = UDim.new(0, 6)
+    Instance.new("UIPadding", pBox).PaddingLeft = UDim.new(0, 8)
+    local pSet = Btn(pRow, "Set", 46, 26)
+    pSet.AnchorPoint = Vector2.new(1, 0)
+    pSet.Position = UDim2.new(1, -62, 0, 0)
+    pSet.BackgroundColor3 = Color3.fromRGB(110, 70, 190)
+    local pNow = Label(pRow, "", 10, GRAY)
+    pNow.Size = UDim2.new(0, 58, 1, 0)
+    pNow.AnchorPoint = Vector2.new(1, 0)
+    pNow.Position = UDim2.new(1, 0, 0, 0)
+    pNow.TextYAlignment = Enum.TextYAlignment.Center
+    pNow.TextTruncate = Enum.TextTruncate.AtEnd
+    local function PaintPartner()
+        pNow.Text = DHMsg.Partner and DHMsg.Partner.name or "no partner"
+    end
+
+    -- ---------- input row ----------
     local Input = Instance.new("TextBox", Content)
     Input.Size = UDim2.new(1, -78, 0, 30)
     Input.Position = UDim2.new(0, 10, 1, -38)
@@ -22323,31 +22496,123 @@ function DHMsg.Build()
     DHMsg.ToBottom = function()
         task.defer(function()
             task.wait()
-            Scroll.CanvasPosition = Vector2.new(0, math.max(0, Scroll.AbsoluteCanvasSize.Y))
+            local sc = DHMsg.Scrolls[DHMsg.Cur]
+            if sc then sc.CanvasPosition = Vector2.new(0, math.max(0, sc.AbsoluteCanvasSize.Y)) end
         end)
     end
 
-    -- one chat bubble (the text is plain text, never rich text, so nobody can inject markup)
-    DHMsg.AddMsg = function(m)
-        if Empty and Empty.Parent then Empty:Destroy() end
-        local mine = (m.name == DHMsg.MyName())
-        local row = Instance.new("Frame", Scroll)
-        row.BackgroundColor3 = mine and Color3.fromRGB(38, 92, 160) or Color3.fromRGB(34, 34, 40)
-        row.BorderSizePixel = 0
+    -- tab buttons: selected mode is highlighted, On modes have white text, unread shows (n)
+    DHMsg.PaintTabs = function()
+        for _, m in ipairs(DHMsg.Modes) do
+            local b = DHMsg.TabBtns[m.key]
+            local n = DHMsg.Unread[m.key] or 0
+            b.Text = m.label .. (n > 0 and (" (" .. (n > 9 and "9+" or n) .. ")") or "")
+            b.BackgroundColor3 = (DHMsg.Cur == m.key) and Color3.fromRGB(55, 55, 78) or Color3.fromRGB(30, 30, 40)
+            b.TextColor3 = DHMsg.On[m.key] and m.color or Color3.fromRGB(120, 120, 130)
+        end
+        local on = DHMsg.On[DHMsg.Cur] == true
+        OnBtn.Text = on and "ON" or "OFF"
+        OnBtn.BackgroundColor3 = on and Color3.fromRGB(35, 160, 90) or Color3.fromRGB(150, 50, 50)
+    end
+
+    DHMsg.Select = function(key)
+        DHMsg.Cur = key
+        DHMsg.Unread[key] = 0
+        for _, m in ipairs(DHMsg.Modes) do DHMsg.Scrolls[m.key].Visible = (m.key == key) end
+        pRow.Visible = (key == "private")
+        PaintPartner()
+        DHMsg.ResetEmpty(key)
+        DHMsg.PaintTabs()
+        DHMsg.ToBottom()
+        if DHMsg.On[key] and DHMsg.Agreed then task.spawn(function() pcall(DHMsg.Pull) end) end
+    end
+    for _, m in ipairs(DHMsg.Modes) do
+        DHMsg.TabBtns[m.key].MouseButton1Click:Connect(function() DHMsg.Select(m.key) end)
+    end
+
+    OnBtn.MouseButton1Click:Connect(function()
+        local k = DHMsg.Cur
+        DHMsg.On[k] = not DHMsg.On[k]
+        DHMsg.Save()
+        if not DHMsg.On[k] then DHMsg.RoomOf[k] = nil end
+        DHMsg.ClearMode(k)
+        DHMsg.ResetEmpty(k)
+        DHMsg.PaintTabs()
+        DHMsg.SetStatus(DHMsg.M[k].label .. (DHMsg.On[k] and " is On" or " is Off"), GRAY)
+        if DHMsg.On[k] then task.spawn(function() pcall(DHMsg.Pull) end) end
+    end)
+
+    -- ---------- one chat bubble: profile photo, arrow, name, text (plain text only, never rich text) ----------
+    DHMsg.AddMsg = function(key, m, mine)
+        local sc = DHMsg.Scrolls[key]
+        if not sc then return end
+        local emp = DHMsg.Empties[key]
+        if emp and emp.Parent then emp:Destroy() end
+        local bubbleColor = mine and Color3.fromRGB(38, 92, 160) or Color3.fromRGB(38, 38, 46)
+
+        local row = Instance.new("Frame", sc)
+        row.BackgroundTransparency = 1
         row.Size = UDim2.new(1, 0, 0, 0)
         row.AutomaticSize = Enum.AutomaticSize.Y
         row.LayoutOrder = m.id
-        Instance.new("UICorner", row).CornerRadius = UDim.new(0, 8)
-        local pad = Instance.new("UIPadding", row)
+        local rl = Instance.new("UIListLayout", row)
+        rl.FillDirection = Enum.FillDirection.Horizontal
+        rl.Padding = UDim.new(0, 9)
+        rl.SortOrder = Enum.SortOrder.LayoutOrder
+        rl.HorizontalAlignment = mine and Enum.HorizontalAlignment.Right or Enum.HorizontalAlignment.Left
+        rl.VerticalAlignment = Enum.VerticalAlignment.Top
+
+        -- profile photo (Roblox headshot of the sender)
+        local photo = Instance.new("Frame", row)
+        photo.Size = UDim2.new(0, 30, 0, 30)
+        photo.BackgroundColor3 = Color3.fromRGB(55, 55, 68)
+        photo.BorderSizePixel = 0
+        photo.LayoutOrder = mine and 2 or 1
+        Instance.new("UICorner", photo).CornerRadius = UDim.new(1, 0)
+        local first = string.upper(string.sub(m.name, 1, (utf8.offset(m.name, 2) or 2) - 1))
+        local fl = Instance.new("TextLabel", photo)
+        fl.Size = UDim2.new(1, 0, 1, 0)
+        fl.BackgroundTransparency = 1
+        fl.Font = Enum.Font.GothamBold
+        fl.TextSize = 13
+        fl.TextColor3 = Color3.new(1, 1, 1)
+        fl.Text = first
+        if type(m.uid) == "number" and m.uid > 0 then
+            local img = Instance.new("ImageLabel", photo)
+            img.Size = UDim2.new(1, 0, 1, 0)
+            img.BackgroundTransparency = 1
+            img.Image = "rbxthumb://type=AvatarHeadShot&id=" .. m.uid .. "&w=48&h=48"
+            Instance.new("UICorner", img).CornerRadius = UDim.new(1, 0)
+        end
+
+        -- holder = bubble + the arrow that points to the photo
+        local holder = Instance.new("Frame", row)
+        holder.Size = UDim2.new(1, -39, 0, 0)
+        holder.AutomaticSize = Enum.AutomaticSize.Y
+        holder.BackgroundTransparency = 1
+        holder.LayoutOrder = mine and 1 or 2
+        local tail = Instance.new("Frame", holder)
+        tail.Size = UDim2.new(0, 10, 0, 10)
+        tail.Rotation = 45
+        tail.BorderSizePixel = 0
+        tail.BackgroundColor3 = bubbleColor
+        tail.Position = mine and UDim2.new(1, -6, 0, 11) or UDim2.new(0, -4, 0, 11)
+        local bub = Instance.new("Frame", holder)
+        bub.Size = UDim2.new(1, 0, 0, 0)
+        bub.AutomaticSize = Enum.AutomaticSize.Y
+        bub.BackgroundColor3 = bubbleColor
+        bub.BorderSizePixel = 0
+        Instance.new("UICorner", bub).CornerRadius = UDim.new(0, 8)
+        local pad = Instance.new("UIPadding", bub)
         pad.PaddingTop = UDim.new(0, 4)
         pad.PaddingBottom = UDim.new(0, 5)
         pad.PaddingLeft = UDim.new(0, 8)
         pad.PaddingRight = UDim.new(0, 8)
-        local rl = Instance.new("UIListLayout", row)
-        rl.Padding = UDim.new(0, 2)
-        rl.SortOrder = Enum.SortOrder.LayoutOrder
+        local bl = Instance.new("UIListLayout", bub)
+        bl.Padding = UDim.new(0, 2)
+        bl.SortOrder = Enum.SortOrder.LayoutOrder
 
-        local head = Instance.new("Frame", row)
+        local head = Instance.new("Frame", bub)
         head.Size = UDim2.new(1, 0, 0, 16)
         head.BackgroundTransparency = 1
         head.LayoutOrder = 1
@@ -22370,73 +22635,100 @@ function DHMsg.Build()
             mb.MouseButton1Click:Connect(function()
                 DHMsg.Mute[m.name] = true
                 DHMsg.Save()
-                for i = #DHMsg.Rows, 1, -1 do
-                    local e = DHMsg.Rows[i]
-                    if e.name == m.name then
-                        pcall(function() e.row:Destroy() end)
-                        table.remove(DHMsg.Rows, i)
+                for _, list in pairs(DHMsg.Rows) do
+                    for i = #list, 1, -1 do
+                        if list[i].name == m.name then
+                            pcall(function() list[i].row:Destroy() end)
+                            table.remove(list, i)
+                        end
                     end
                 end
                 DHMsg.SetStatus("Muted " .. m.name, Color3.fromRGB(100, 220, 140))
             end)
         end
 
-        local body = Instance.new("TextLabel", row)
+        local body = Label(bub, m.body, 12, Color3.new(1, 1, 1))
         body.Size = UDim2.new(1, 0, 0, 0)
         body.AutomaticSize = Enum.AutomaticSize.Y
-        body.BackgroundTransparency = 1
         body.LayoutOrder = 2
-        body.Font = Enum.Font.Gotham
-        body.TextSize = 12
-        body.TextColor3 = Color3.new(1, 1, 1)
-        body.TextWrapped = true
         body.RichText = false
-        body.TextXAlignment = Enum.TextXAlignment.Left
-        body.TextYAlignment = Enum.TextYAlignment.Top
-        body.Text = m.body
 
-        DHMsg.Rows[#DHMsg.Rows + 1] = {row = row, name = m.name}
-        while #DHMsg.Rows > 80 do
-            local old = table.remove(DHMsg.Rows, 1)
+        local list = DHMsg.Rows[key]
+        list[#list + 1] = {row = row, name = m.name}
+        while #list > 60 do
+            local old = table.remove(list, 1)
             pcall(function() old.row:Destroy() end)
         end
     end
 
-    -- consent panel (covers everything until the user agrees)
+    -- ---------- consent panel (covers everything until the user agrees) ----------
     local Consent = Instance.new("Frame", Content)
     Consent.Size = UDim2.new(1, 0, 1, 0)
     Consent.BackgroundColor3 = Color3.fromRGB(20, 20, 20)
     Consent.BorderSizePixel = 0
     Consent.ZIndex = 5
     Consent.Visible = not DHMsg.Agreed
-    local ct = Instance.new("TextLabel", Consent)
+    local ct = Label(Consent, "Message lets you chat with other DaffzHub users: same server, same map, everywhere (Global), or one friend (Private).\n\n- Your text, your Roblox display name and your user ID (for your profile photo) are sent to a DaffzHub server and shown to other DaffzHub users.\n- Messages are deleted after about 1 day.\n- Messages are NOT filtered by Roblox. Never share personal info. You can Mute anyone.\n\nNothing is sent or read until you tap the button below.", 12, Color3.fromRGB(215, 215, 220))
     ct.Size = UDim2.new(1, -28, 1, -70)
     ct.Position = UDim2.new(0, 14, 0, 10)
-    ct.BackgroundTransparency = 1
     ct.ZIndex = 6
-    ct.Font = Enum.Font.Gotham
-    ct.TextSize = 12
-    ct.TextColor3 = Color3.fromRGB(215, 215, 220)
-    ct.TextWrapped = true
-    ct.TextXAlignment = Enum.TextXAlignment.Left
-    ct.TextYAlignment = Enum.TextYAlignment.Top
-    ct.Text = "Message lets you chat with other DaffzHub users on the same server.\n\n- Your text and your Roblox display name are sent to a DaffzHub server and shown to other DaffzHub users.\n- Messages are deleted after about 1 day.\n- Messages are NOT filtered by Roblox. Never share personal info. Mute anyone who bothers you.\n\nNothing is sent until you tap the button below."
     local AgreeBtn = Btn(Consent, "I understand, turn on", 170, 30)
     AgreeBtn.ZIndex = 6
     AgreeBtn.AnchorPoint = Vector2.new(0.5, 1)
     AgreeBtn.Position = UDim2.new(0.5, 0, 1, -16)
     AgreeBtn.BackgroundColor3 = Color3.fromRGB(35, 160, 90)
 
+    -- ---------- Rules panel: every limit, explained ----------
+    local Rules = Instance.new("Frame", Content)
+    Rules.Size = UDim2.new(1, -20, 1, -68)
+    Rules.Position = UDim2.new(0, 10, 0, 62)
+    Rules.BackgroundColor3 = Color3.fromRGB(24, 24, 28)
+    Rules.BorderSizePixel = 0
+    Rules.ZIndex = 4
+    Rules.Visible = false
+    Instance.new("UICorner", Rules).CornerRadius = UDim.new(0, 8)
+    local rs = Instance.new("ScrollingFrame", Rules)
+    rs.Size = UDim2.new(1, -10, 1, -40)
+    rs.Position = UDim2.new(0, 5, 0, 5)
+    rs.BackgroundTransparency = 1
+    rs.BorderSizePixel = 0
+    rs.ScrollBarThickness = 1
+    rs.ZIndex = 4
+    rs.CanvasSize = UDim2.new(0, 0, 0, 0)
+    rs.AutomaticCanvasSize = Enum.AutomaticSize.Y
+    local rt = Label(rs, "RULES AND LIMITS\n\n- Modes: Server = players in your current server. Map = every server of this game. Global = every server of every game. Private = just 2 people.\n- ON = this mode is checked every 3 seconds and you get a notification for new messages, even when this tab is closed. OFF = nothing is sent or read for that mode.\n- Max 200 characters per message.\n- You can send 1 message every 3 seconds (Global: every 10 seconds).\n- Messages are deleted after about 1 day.\n- Private: both of you must set the OTHER person's username as partner. It is only unlisted, NOT secret or encrypted. Do not share passwords or personal info.\n- Messages are not filtered by Roblox. Names and photos are set by the sender and can be faked.\n- Mute hides a sender by name. Unmute brings everyone back.\n- Only DaffzHub users can see these messages.", 11, Color3.fromRGB(205, 205, 212))
+    rt.Size = UDim2.new(1, -6, 0, 0)
+    rt.AutomaticSize = Enum.AutomaticSize.Y
+    rt.ZIndex = 4
+    local RulesClose = Btn(Rules, "Close", 70, 26)
+    RulesClose.ZIndex = 4
+    RulesClose.AnchorPoint = Vector2.new(0, 1)
+    RulesClose.Position = UDim2.new(0, 8, 1, -6)
+    local Withdraw = Btn(Rules, "Withdraw consent", 120, 26)
+    Withdraw.ZIndex = 4
+    Withdraw.AnchorPoint = Vector2.new(1, 1)
+    Withdraw.Position = UDim2.new(1, -8, 1, -6)
+    Withdraw.BackgroundColor3 = Color3.fromRGB(150, 50, 50)
+
     AgreeBtn.MouseButton1Click:Connect(function()
         DHMsg.Agreed = true
+        if next(DHMsg.On) == nil then DHMsg.On.server = true end
         DHMsg.Save()
         Consent.Visible = false
-        DHMsg.SetStatus("Loading...", Color3.fromRGB(150, 150, 160))
-        task.spawn(function() pcall(DHMsg.Poll) end)
+        DHMsg.Select(DHMsg.Cur)
+        DHMsg.SetStatus("Loading...", GRAY)
     end)
-    OffBtn.MouseButton1Click:Connect(function()
+    RulesBtn.MouseButton1Click:Connect(function() Rules.Visible = not Rules.Visible end)
+    RulesClose.MouseButton1Click:Connect(function() Rules.Visible = false end)
+    Withdraw.MouseButton1Click:Connect(function()
         DHMsg.Agreed = false
+        DHMsg.On = {}
+        for _, m in ipairs(DHMsg.Modes) do
+            DHMsg.RoomOf[m.key] = nil
+            DHMsg.ClearMode(m.key)
+        end
         DHMsg.Save()
+        Rules.Visible = false
         Consent.Visible = true
     end)
     UnmuteBtn.MouseButton1Click:Connect(function()
@@ -22445,12 +22737,55 @@ function DHMsg.Build()
         DHMsg.SetStatus("Unmuted everyone (applies to new messages)", Color3.fromRGB(100, 220, 140))
     end)
 
+    pSet.MouseButton1Click:Connect(function()
+        local n = string.gsub(pBox.Text, "%s", "")
+        if n == "" then
+            DHMsg.SetStatus("Type your friend's username first.", Color3.fromRGB(255, 200, 100))
+            return
+        end
+        DHMsg.SetStatus("Searching " .. n .. "...", GRAY)
+        task.spawn(function()
+            local P = game:GetService("Players")
+            local ok, uid = pcall(function() return P:GetUserIdFromNameAsync(n) end)
+            if not (ok and type(uid) == "number") then
+                DHMsg.SetStatus("User not found.", Color3.fromRGB(255, 120, 120))
+                return
+            end
+            if uid == P.LocalPlayer.UserId then
+                DHMsg.SetStatus("That is you. Pick a friend.", Color3.fromRGB(255, 200, 100))
+                return
+            end
+            local real = n
+            pcall(function() real = P:GetNameFromUserIdAsync(uid) end)
+            DHMsg.Partner = {uid = uid, name = real}
+            DHMsg.Save()
+            pBox.Text = ""
+            DHMsg.RoomOf.private = nil
+            DHMsg.ClearMode("private")
+            PaintPartner()
+            DHMsg.ResetEmpty("private")
+            DHMsg.SetStatus("Partner: " .. real .. ". They must set you too.", Color3.fromRGB(100, 220, 140))
+            if DHMsg.On.private then pcall(DHMsg.Pull) end
+        end)
+    end)
+
+    -- ---------- sending ----------
     local function Send()
+        local key = DHMsg.Cur
         if not DHMsg.Agreed or DHMsg.Sending then return end
+        if not DHMsg.On[key] then
+            DHMsg.SetStatus("Turn " .. DHMsg.M[key].label .. " ON first.", Color3.fromRGB(255, 200, 100))
+            return
+        end
+        local room = DHMsg.Room(key)
+        if not room then
+            DHMsg.SetStatus("Set a partner first.", Color3.fromRGB(255, 200, 100))
+            return
+        end
         local text = string.gsub(Input.Text, "^%s+", "")
         text = string.gsub(text, "%s+$", "")
         if text == "" then return end
-        local left = 3 - (os.clock() - DHMsg.LastSend)
+        local left = DHMsg.M[key].gap - (os.clock() - DHMsg.LastSend)
         if left > 0 then
             DHMsg.SetStatus("Wait " .. math.ceil(left) .. "s before sending again", Color3.fromRGB(255, 200, 100))
             return
@@ -22462,11 +22797,14 @@ function DHMsg.Build()
         Input.Text = ""
         SendBtn.Text = "..."
         task.spawn(function()
-            local data, err = DHMsg.Call({action = "send", room = DHMsg.Room(), name = DHMsg.MyName(), body = text})
+            local data, err = DHMsg.Call({
+                action = "send", room = room, name = DHMsg.MyName(),
+                uid = game:GetService("Players").LocalPlayer.UserId, body = text,
+            })
             DHMsg.Sending = false
             SendBtn.Text = "Send"
             if data then
-                pcall(DHMsg.Poll)
+                pcall(DHMsg.Pull)
             else
                 DHMsg.SetStatus(err, Color3.fromRGB(255, 120, 120))
                 if Input.Text == "" then Input.Text = text end
@@ -22478,9 +22816,11 @@ function DHMsg.Build()
 
     DHMsg.OnShow = function()
         DHMsg.Start()
-        if DHMsg.Agreed then task.spawn(function() pcall(DHMsg.Poll) end) end
-        DHMsg.ToBottom()
+        DHMsg.Select(DHMsg.Cur)
     end
+
+    for _, m in ipairs(DHMsg.Modes) do DHMsg.ResetEmpty(m.key) end
+    DHMsg.Select(DHMsg.Cur)
 end
 
 function ShowMsgTab()
@@ -22498,6 +22838,7 @@ MsgTab.MouseButton1Click:Connect(ShowMsgTab)
 
 DHMsg.Load()
 pcall(DHMsg.Build)
+pcall(DHMsg.Start)
 
 -- ================================================
 -- MODS TAB (part 2): Float, Infinite Jump, Noclip (built in, safe on respawn)
