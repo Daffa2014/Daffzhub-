@@ -455,7 +455,7 @@ TabFrame.BackgroundColor3 = Color3.fromRGB(20,20,20)
 TabFrame.BorderSizePixel = 0
 TabFrame.ScrollBarThickness = 1
 TabFrame.ScrollBarImageColor3 = Color3.fromRGB(60,60,60)
-TabFrame.CanvasSize = UDim2.new(0, 0, 0, 960)
+TabFrame.CanvasSize = UDim2.new(0, 0, 0, 1010)
 Instance.new("UICorner", TabFrame).CornerRadius = UDim.new(0, 12)
 
 CheckLoadingHalt()
@@ -22105,6 +22105,400 @@ end
 DHBot.Load()
 pcall(DHBot.Build)
 
+
+-- ================================================
+-- MESSAGE TAB: chat with other DaffzHub users on the same server.
+-- Messages travel through a small server (Netlify -> Supabase). Opt-in: nothing is sent or read before the user agrees.
+-- ================================================
+MsgTab = Instance.new("TextButton", TabFrame)
+MsgTab.Size = UDim2.new(1, -20, 0, 40)
+MsgTab.Position = UDim2.new(0, 10, 0, 820)
+MsgTab.Text = "Message"
+MsgTab.BackgroundColor3 = Color3.fromRGB(25,25,25)
+MsgTab.Font = Enum.Font.GothamBold
+MsgTab.TextSize = 14
+MsgTab.TextColor3 = Color3.new(1,1,1)
+Instance.new("UICorner", MsgTab).CornerRadius = UDim.new(0, 8)
+
+MsgContent = Instance.new("Frame", ContentFrame)
+MsgContent.Size = UDim2.new(1, 0, 1, 0)
+MsgContent.Position = UDim2.new(0, 0, 0, 0)
+MsgContent.BackgroundColor3 = Color3.fromRGB(20,20,20)
+MsgContent.Visible = false
+MsgContent.ClipsDescendants = true
+Instance.new("UICorner", MsgContent).CornerRadius = UDim.new(0, 10)
+
+DHMsg = {
+    Path = "Daffzhub_file/Message.json",
+    Proxy = "https://iridescent-kringle-f20c39.netlify.app/.netlify/functions/msg",
+    Agreed = false, Mute = {}, LastId = nil, Busy = false, Sending = false,
+    LastSend = 0, Seen = {}, Rows = {}, Looping = false,
+}
+
+function DHMsg.Load()
+    pcall(function()
+        if not (isfile and readfile and isfile(DHMsg.Path)) then return end
+        local d = game:GetService("HttpService"):JSONDecode(readfile(DHMsg.Path))
+        if type(d) ~= "table" then return end
+        DHMsg.Agreed = d.agreed == true
+        if type(d.mute) == "table" then
+            for _, n in ipairs(d.mute) do
+                if type(n) == "string" then DHMsg.Mute[n] = true end
+            end
+        end
+    end)
+end
+
+function DHMsg.Save()
+    pcall(function()
+        if not (writefile and makefolder and isfolder) then return end
+        if not isfolder("Daffzhub_file") then makefolder("Daffzhub_file") end
+        local list = {}
+        for n in pairs(DHMsg.Mute) do list[#list + 1] = n end
+        writefile(DHMsg.Path, game:GetService("HttpService"):JSONEncode({agreed = DHMsg.Agreed, mute = list}))
+    end)
+end
+
+-- one room per server (the JobId); other rooms can be added later with the same function
+function DHMsg.Room()
+    local j = game.JobId
+    if j == nil or j == "" then j = "studio" end
+    j = string.gsub(j, "[^%w_%-]", "")
+    return "s:" .. j
+end
+
+function DHMsg.MyName()
+    local p = game:GetService("Players").LocalPlayer
+    local n = p.DisplayName
+    if n == nil or n == "" then n = p.Name end
+    return n
+end
+
+-- returns data, nil   |   nil, errorText
+function DHMsg.Call(tbl)
+    local req = (syn and syn.request) or (http and http.request) or http_request or request
+    if not req then return nil, "Your executor has no request function." end
+    local HS = game:GetService("HttpService")
+    local ok, r = pcall(req, {Url = DHMsg.Proxy, Method = "POST", Headers = {["Content-Type"] = "application/json"}, Body = HS:JSONEncode(tbl)})
+    if not ok or type(r) ~= "table" then return nil, "Request failed. Check your connection." end
+    local okj, data = pcall(function() return HS:JSONDecode(r.Body or "") end)
+    if r.StatusCode == 429 then return nil, "Too fast, wait a moment." end
+    if r.StatusCode ~= 200 then
+        local m = okj and type(data) == "table" and data.error
+        return nil, "Server error " .. tostring(r.StatusCode) .. (m and (": " .. string.sub(tostring(m), 1, 60)) or "")
+    end
+    if not okj or type(data) ~= "table" then return nil, "Could not read the reply." end
+    return data, nil
+end
+
+function DHMsg.SetStatus(text, color)
+    if DHMsg.StatusLabel then
+        DHMsg.StatusLabel.Text = text
+        DHMsg.StatusLabel.TextColor3 = color or Color3.fromRGB(150, 150, 160)
+    end
+end
+
+function DHMsg.Poll()
+    if DHMsg.Busy or not DHMsg.Agreed then return end
+    DHMsg.Busy = true
+    local data, err = DHMsg.Call({action = "get", room = DHMsg.Room(), after = DHMsg.LastId})
+    DHMsg.Busy = false
+    if not data then
+        DHMsg.SetStatus(err, Color3.fromRGB(255, 120, 120))
+        return
+    end
+    DHMsg.SetStatus("Server chat, DaffzHub users only", Color3.fromRGB(150, 150, 160))
+    local list = data.messages
+    if type(list) ~= "table" then return end
+    local added = false
+    for _, m in ipairs(list) do
+        if type(m) == "table" and type(m.id) == "number" and type(m.name) == "string" and type(m.body) == "string" then
+            if not DHMsg.LastId or m.id > DHMsg.LastId then DHMsg.LastId = m.id end
+            if not DHMsg.Seen[m.id] and not DHMsg.Mute[m.name] then
+                DHMsg.Seen[m.id] = true
+                if DHMsg.AddMsg then DHMsg.AddMsg(m) added = true end
+            end
+        end
+    end
+    if added and DHMsg.ToBottom then DHMsg.ToBottom() end
+end
+
+function DHMsg.Start()
+    if DHMsg.Looping then return end
+    DHMsg.Looping = true
+    task.spawn(function()
+        while MsgContent and MsgContent.Parent do
+            if MsgContent.Visible and DHMsg.Agreed then pcall(DHMsg.Poll) end
+            task.wait(3)
+        end
+        DHMsg.Looping = false
+    end)
+end
+
+function DHMsg.Build()
+    local Content = MsgContent
+
+    local function Btn(parent, text, w, h)
+        local b = Instance.new("TextButton", parent)
+        b.Size = UDim2.new(0, w, 0, h)
+        b.BackgroundColor3 = Color3.fromRGB(30, 30, 40)
+        b.Font = Enum.Font.GothamBold
+        b.TextSize = 11
+        b.TextColor3 = Color3.new(1, 1, 1)
+        b.Text = text
+        b.AutoButtonColor = true
+        Instance.new("UICorner", b).CornerRadius = UDim.new(0, 6)
+        return b
+    end
+
+    local title = Instance.new("TextLabel", Content)
+    title.Size = UDim2.new(0, 90, 0, 30)
+    title.Position = UDim2.new(0, 14, 0, 6)
+    title.BackgroundTransparency = 1
+    title.Text = "Message"
+    title.Font = Enum.Font.GothamBold
+    title.TextSize = 20
+    title.TextColor3 = Color3.fromRGB(100, 220, 140)
+    title.TextXAlignment = Enum.TextXAlignment.Left
+
+    local status = Instance.new("TextLabel", Content)
+    status.Size = UDim2.new(1, -232, 0, 24)
+    status.Position = UDim2.new(0, 108, 0, 9)
+    status.BackgroundTransparency = 1
+    status.Font = Enum.Font.Gotham
+    status.TextSize = 10
+    status.TextColor3 = Color3.fromRGB(150, 150, 160)
+    status.TextXAlignment = Enum.TextXAlignment.Left
+    status.TextTruncate = Enum.TextTruncate.AtEnd
+    status.Text = "Server chat, DaffzHub users only"
+    DHMsg.StatusLabel = status
+
+    local OffBtn = Btn(Content, "Off", 36, 24)
+    OffBtn.AnchorPoint = Vector2.new(1, 0)
+    OffBtn.Position = UDim2.new(1, -10, 0, 9)
+    local UnmuteBtn = Btn(Content, "Unmute", 60, 24)
+    UnmuteBtn.AnchorPoint = Vector2.new(1, 0)
+    UnmuteBtn.Position = UDim2.new(1, -52, 0, 9)
+
+    local Scroll = Instance.new("ScrollingFrame", Content)
+    Scroll.Size = UDim2.new(1, -20, 1, -84)
+    Scroll.Position = UDim2.new(0, 10, 0, 40)
+    Scroll.BackgroundTransparency = 1
+    Scroll.BorderSizePixel = 0
+    Scroll.ScrollBarThickness = 1
+    Scroll.CanvasSize = UDim2.new(0, 0, 0, 0)
+    Scroll.AutomaticCanvasSize = Enum.AutomaticSize.Y
+    local sl = Instance.new("UIListLayout", Scroll)
+    sl.Padding = UDim.new(0, 6)
+    sl.SortOrder = Enum.SortOrder.LayoutOrder
+
+    local Empty = Instance.new("TextLabel", Scroll)
+    Empty.Size = UDim2.new(1, 0, 0, 40)
+    Empty.LayoutOrder = 0
+    Empty.BackgroundTransparency = 1
+    Empty.Font = Enum.Font.Gotham
+    Empty.TextSize = 12
+    Empty.TextColor3 = Color3.fromRGB(130, 130, 140)
+    Empty.Text = "No messages yet. Say hi!"
+
+    local Input = Instance.new("TextBox", Content)
+    Input.Size = UDim2.new(1, -78, 0, 30)
+    Input.Position = UDim2.new(0, 10, 1, -38)
+    Input.BackgroundColor3 = Color3.fromRGB(30, 30, 40)
+    Input.Font = Enum.Font.Gotham
+    Input.TextSize = 12
+    Input.TextColor3 = Color3.new(1, 1, 1)
+    Input.PlaceholderText = "Message (max 200 characters)"
+    Input.PlaceholderColor3 = Color3.fromRGB(130, 130, 140)
+    Input.Text = ""
+    Input.ClearTextOnFocus = false
+    Input.TextXAlignment = Enum.TextXAlignment.Left
+    Instance.new("UICorner", Input).CornerRadius = UDim.new(0, 6)
+    Instance.new("UIPadding", Input).PaddingLeft = UDim.new(0, 8)
+    local SendBtn = Btn(Content, "Send", 56, 30)
+    SendBtn.AnchorPoint = Vector2.new(1, 0)
+    SendBtn.Position = UDim2.new(1, -10, 1, -38)
+    SendBtn.BackgroundColor3 = Color3.fromRGB(35, 160, 90)
+
+    DHMsg.ToBottom = function()
+        task.defer(function()
+            task.wait()
+            Scroll.CanvasPosition = Vector2.new(0, math.max(0, Scroll.AbsoluteCanvasSize.Y))
+        end)
+    end
+
+    -- one chat bubble (the text is plain text, never rich text, so nobody can inject markup)
+    DHMsg.AddMsg = function(m)
+        if Empty and Empty.Parent then Empty:Destroy() end
+        local mine = (m.name == DHMsg.MyName())
+        local row = Instance.new("Frame", Scroll)
+        row.BackgroundColor3 = mine and Color3.fromRGB(38, 92, 160) or Color3.fromRGB(34, 34, 40)
+        row.BorderSizePixel = 0
+        row.Size = UDim2.new(1, 0, 0, 0)
+        row.AutomaticSize = Enum.AutomaticSize.Y
+        row.LayoutOrder = m.id
+        Instance.new("UICorner", row).CornerRadius = UDim.new(0, 8)
+        local pad = Instance.new("UIPadding", row)
+        pad.PaddingTop = UDim.new(0, 4)
+        pad.PaddingBottom = UDim.new(0, 5)
+        pad.PaddingLeft = UDim.new(0, 8)
+        pad.PaddingRight = UDim.new(0, 8)
+        local rl = Instance.new("UIListLayout", row)
+        rl.Padding = UDim.new(0, 2)
+        rl.SortOrder = Enum.SortOrder.LayoutOrder
+
+        local head = Instance.new("Frame", row)
+        head.Size = UDim2.new(1, 0, 0, 16)
+        head.BackgroundTransparency = 1
+        head.LayoutOrder = 1
+        local sum = 0
+        for i = 1, #m.name do sum = (sum + string.byte(m.name, i) * i) % 360 end
+        local nm = Instance.new("TextLabel", head)
+        nm.Size = UDim2.new(1, -44, 1, 0)
+        nm.BackgroundTransparency = 1
+        nm.Font = Enum.Font.GothamBold
+        nm.TextSize = 11
+        nm.TextColor3 = Color3.fromHSV(sum / 360, 0.45, 1)
+        nm.TextXAlignment = Enum.TextXAlignment.Left
+        nm.TextTruncate = Enum.TextTruncate.AtEnd
+        nm.Text = m.name
+        if not mine then
+            local mb = Btn(head, "Mute", 38, 14)
+            mb.AnchorPoint = Vector2.new(1, 0.5)
+            mb.Position = UDim2.new(1, 0, 0.5, 0)
+            mb.TextSize = 9
+            mb.MouseButton1Click:Connect(function()
+                DHMsg.Mute[m.name] = true
+                DHMsg.Save()
+                for i = #DHMsg.Rows, 1, -1 do
+                    local e = DHMsg.Rows[i]
+                    if e.name == m.name then
+                        pcall(function() e.row:Destroy() end)
+                        table.remove(DHMsg.Rows, i)
+                    end
+                end
+                DHMsg.SetStatus("Muted " .. m.name, Color3.fromRGB(100, 220, 140))
+            end)
+        end
+
+        local body = Instance.new("TextLabel", row)
+        body.Size = UDim2.new(1, 0, 0, 0)
+        body.AutomaticSize = Enum.AutomaticSize.Y
+        body.BackgroundTransparency = 1
+        body.LayoutOrder = 2
+        body.Font = Enum.Font.Gotham
+        body.TextSize = 12
+        body.TextColor3 = Color3.new(1, 1, 1)
+        body.TextWrapped = true
+        body.RichText = false
+        body.TextXAlignment = Enum.TextXAlignment.Left
+        body.TextYAlignment = Enum.TextYAlignment.Top
+        body.Text = m.body
+
+        DHMsg.Rows[#DHMsg.Rows + 1] = {row = row, name = m.name}
+        while #DHMsg.Rows > 80 do
+            local old = table.remove(DHMsg.Rows, 1)
+            pcall(function() old.row:Destroy() end)
+        end
+    end
+
+    -- consent panel (covers everything until the user agrees)
+    local Consent = Instance.new("Frame", Content)
+    Consent.Size = UDim2.new(1, 0, 1, 0)
+    Consent.BackgroundColor3 = Color3.fromRGB(20, 20, 20)
+    Consent.BorderSizePixel = 0
+    Consent.ZIndex = 5
+    Consent.Visible = not DHMsg.Agreed
+    local ct = Instance.new("TextLabel", Consent)
+    ct.Size = UDim2.new(1, -28, 1, -70)
+    ct.Position = UDim2.new(0, 14, 0, 10)
+    ct.BackgroundTransparency = 1
+    ct.ZIndex = 6
+    ct.Font = Enum.Font.Gotham
+    ct.TextSize = 12
+    ct.TextColor3 = Color3.fromRGB(215, 215, 220)
+    ct.TextWrapped = true
+    ct.TextXAlignment = Enum.TextXAlignment.Left
+    ct.TextYAlignment = Enum.TextYAlignment.Top
+    ct.Text = "Message lets you chat with other DaffzHub users on the same server.\n\n- Your text and your Roblox display name are sent to a DaffzHub server and shown to other DaffzHub users.\n- Messages are deleted after about 1 day.\n- Messages are NOT filtered by Roblox. Never share personal info. Mute anyone who bothers you.\n\nNothing is sent until you tap the button below."
+    local AgreeBtn = Btn(Consent, "I understand, turn on", 170, 30)
+    AgreeBtn.ZIndex = 6
+    AgreeBtn.AnchorPoint = Vector2.new(0.5, 1)
+    AgreeBtn.Position = UDim2.new(0.5, 0, 1, -16)
+    AgreeBtn.BackgroundColor3 = Color3.fromRGB(35, 160, 90)
+
+    AgreeBtn.MouseButton1Click:Connect(function()
+        DHMsg.Agreed = true
+        DHMsg.Save()
+        Consent.Visible = false
+        DHMsg.SetStatus("Loading...", Color3.fromRGB(150, 150, 160))
+        task.spawn(function() pcall(DHMsg.Poll) end)
+    end)
+    OffBtn.MouseButton1Click:Connect(function()
+        DHMsg.Agreed = false
+        DHMsg.Save()
+        Consent.Visible = true
+    end)
+    UnmuteBtn.MouseButton1Click:Connect(function()
+        DHMsg.Mute = {}
+        DHMsg.Save()
+        DHMsg.SetStatus("Unmuted everyone (applies to new messages)", Color3.fromRGB(100, 220, 140))
+    end)
+
+    local function Send()
+        if not DHMsg.Agreed or DHMsg.Sending then return end
+        local text = string.gsub(Input.Text, "^%s+", "")
+        text = string.gsub(text, "%s+$", "")
+        if text == "" then return end
+        local left = 3 - (os.clock() - DHMsg.LastSend)
+        if left > 0 then
+            DHMsg.SetStatus("Wait " .. math.ceil(left) .. "s before sending again", Color3.fromRGB(255, 200, 100))
+            return
+        end
+        local cut = utf8.offset(text, 201)
+        if cut then text = string.sub(text, 1, cut - 1) end
+        DHMsg.Sending = true
+        DHMsg.LastSend = os.clock()
+        Input.Text = ""
+        SendBtn.Text = "..."
+        task.spawn(function()
+            local data, err = DHMsg.Call({action = "send", room = DHMsg.Room(), name = DHMsg.MyName(), body = text})
+            DHMsg.Sending = false
+            SendBtn.Text = "Send"
+            if data then
+                pcall(DHMsg.Poll)
+            else
+                DHMsg.SetStatus(err, Color3.fromRGB(255, 120, 120))
+                if Input.Text == "" then Input.Text = text end
+            end
+        end)
+    end
+    SendBtn.MouseButton1Click:Connect(Send)
+    Input.FocusLost:Connect(function(enter) if enter then Send() end end)
+
+    DHMsg.OnShow = function()
+        DHMsg.Start()
+        if DHMsg.Agreed then task.spawn(function() pcall(DHMsg.Poll) end) end
+        DHMsg.ToBottom()
+    end
+end
+
+function ShowMsgTab()
+    HideAllContent()
+    if MsgContent then MsgContent.Visible = true end
+    for _, b in ipairs(TabFrame:GetChildren()) do
+        if b:IsA("TextButton") then
+            b.BackgroundColor3 = Color3.fromRGB(25,25,25)
+        end
+    end
+    if MsgTab then MsgTab.BackgroundColor3 = Color3.fromRGB(30,30,30) end
+    if DHMsg and DHMsg.OnShow then DHMsg.OnShow() end
+end
+MsgTab.MouseButton1Click:Connect(ShowMsgTab)
+
+DHMsg.Load()
+pcall(DHMsg.Build)
+
 -- ================================================
 -- MODS TAB (part 2): Float, Infinite Jump, Noclip (built in, safe on respawn)
 -- ================================================
@@ -25097,7 +25491,7 @@ do
 -- ================================================
 SettingTab = Instance.new("TextButton", TabFrame)
 SettingTab.Size = UDim2.new(1, -20, 0, 40)
-SettingTab.Position = UDim2.new(0, 10, 0, 820)
+SettingTab.Position = UDim2.new(0, 10, 0, 870)
 SettingTab.Text = "Setting"
 SettingTab.BackgroundColor3 = Color3.fromRGB(25,25,25)
 SettingTab.Font = Enum.Font.GothamBold
@@ -27728,7 +28122,7 @@ SetLoadProgress(84)
 -- Credit Tab Button
 CreditTab = Instance.new("TextButton", TabFrame)
 CreditTab.Size = UDim2.new(1, -20, 0, 40)
-CreditTab.Position = UDim2.new(0, 10, 0, 870)
+CreditTab.Position = UDim2.new(0, 10, 0, 920)
 CreditTab.Text = "Credit"
 CreditTab.BackgroundColor3 = Color3.fromRGB(25,25,25)
 CreditTab.Font = Enum.Font.GothamBold
@@ -28069,6 +28463,8 @@ function HideAllContent()
     if ModsTab then ModsTab.BackgroundColor3 = Color3.fromRGB(25,25,25) end
     if ChatBotContent then ChatBotContent.Visible = false end
     if ChatBotTab then ChatBotTab.BackgroundColor3 = Color3.fromRGB(25,25,25) end
+    if MsgContent then MsgContent.Visible = false end
+    if MsgTab then MsgTab.BackgroundColor3 = Color3.fromRGB(25,25,25) end
 end
 
 -- SHOW SCRIPT TAB
@@ -28478,11 +28874,9 @@ addTabButtonBorder(VisualTab)
 addTabButtonBorder(AnimTab)
 if ModsTab then addTabButtonBorder(ModsTab) end
 if ChatBotTab then addTabButtonBorder(ChatBotTab) end
+if MsgTab then addTabButtonBorder(MsgTab) end
 addTabButtonBorder(SettingTab)
 addTabButtonBorder(CreditTab)
-
-
-
 
 -- ================================================
 -- THEME: change the look of the hub (border, background, accent, corners, size) in the Setting tab, and save it
