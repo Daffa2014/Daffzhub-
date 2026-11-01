@@ -23991,6 +23991,341 @@ DHTr.HistLoad()
 pcall(DHTr.Build2)
 
 -- ================================================
+-- TRANSLATE TAB v3: "Chat" view. Reads the Roblox chat of the other players in this server and shows a translation
+-- feed (only messages that are NOT in your language). Opt-in: nothing is read or sent while it is OFF.
+-- The text of each chat message is sent to the DaffzHub server, which asks a free translate service.
+-- Feed is saved in Daffzhub_file/TranslateChat.json (max 40, only on your device).
+-- ================================================
+DHTr.Chat = false
+DHTr.ChatPath = "Daffzhub_file/TranslateChat.json"
+DHTr.ChatList = {}
+DHTr.CQ = {}
+DHTr.CWorking = false
+DHTr.ChatHooked = false
+DHTr.Recent = {}
+
+DHTr.LoadBase = DHTr.Load
+function DHTr.Load()
+    DHTr.LoadBase()
+    pcall(function()
+        if not (isfile and readfile and isfile(DHTr.Path)) then return end
+        local d = game:GetService("HttpService"):JSONDecode(readfile(DHTr.Path))
+        if type(d) == "table" then DHTr.Chat = DHTr.Consented and d.chat == true end
+    end)
+end
+
+function DHTr.Save()
+    pcall(function()
+        if not (writefile and makefolder and isfolder) then return end
+        if not isfolder("Daffzhub_file") then makefolder("Daffzhub_file") end
+        writefile(DHTr.Path, game:GetService("HttpService"):JSONEncode({consent = DHTr.Consented and 1 or 0, on = DHTr.On, lang = DHTr.Lang, chat = DHTr.Chat}))
+    end)
+end
+
+function DHTr.ChatLoad()
+    pcall(function()
+        if not (isfile and readfile and isfile(DHTr.ChatPath)) then return end
+        local d = game:GetService("HttpService"):JSONDecode(readfile(DHTr.ChatPath))
+        if type(d) ~= "table" then return end
+        local out = {}
+        for _, e in ipairs(d) do
+            if type(e) == "table" and type(e.n) == "string" and type(e.o) == "string" and type(e.t) == "string" then
+                out[#out + 1] = {n = string.sub(e.n, 1, 30), o = string.sub(e.o, 1, 300), t = string.sub(e.t, 1, 600), l = type(e.l) == "string" and e.l or "?"}
+            end
+        end
+        while #out > 40 do table.remove(out, 1) end
+        DHTr.ChatList = out
+    end)
+end
+
+function DHTr.ChatSave()
+    pcall(function()
+        if not (writefile and makefolder and isfolder) then return end
+        if not isfolder("Daffzhub_file") then makefolder("Daffzhub_file") end
+        writefile(DHTr.ChatPath, game:GetService("HttpService"):JSONEncode(DHTr.ChatList))
+    end)
+end
+
+-- a new chat message of another player arrived
+function DHTr.OnChat(uid, text)
+    if not DHTr.Chat or type(text) ~= "string" then return end
+    local me = game:GetService("Players").LocalPlayer
+    if uid == me.UserId then return end
+    text = string.sub(text, 1, 300)
+    if #text < 2 or not string.find(text, "%a") or string.find(text, "^#+$") then return end
+    -- the same message can arrive from two sources: ignore a repeat within 3 seconds
+    local k = tostring(uid) .. "|" .. text
+    local now = os.clock()
+    if DHTr.Recent[k] and now - DHTr.Recent[k] < 3 then return end
+    DHTr.Recent[k] = now
+    local plr = game:GetService("Players"):GetPlayerByUserId(uid)
+    local name = plr and plr.DisplayName or tostring(uid)
+    while #DHTr.CQ >= 15 do table.remove(DHTr.CQ, 1) end
+    DHTr.CQ[#DHTr.CQ + 1] = {n = name, o = text}
+    DHTr.ChatWork()
+end
+
+function DHTr.ChatWork()
+    if DHTr.CWorking then return end
+    DHTr.CWorking = true
+    task.spawn(function()
+        while #DHTr.CQ > 0 do
+            local job = table.remove(DHTr.CQ, 1)
+            if DHTr.Chat then
+                local key = DHTr.Lang .. "|" .. job.o
+                local hit = DHTr.Cache[key]
+                local function Done(t, src)
+                    if not t then
+                        if DHTr.ChatStat then DHTr.ChatStat.Text = "Error: " .. tostring(src) end
+                        return
+                    end
+                    DHTr.Cache[key] = {t, src}
+                    -- already in your language: nothing to show
+                    if src ~= "" and string.lower(string.sub(src, 1, 2)) == string.lower(string.sub(DHTr.Lang, 1, 2)) then return end
+                    if string.lower(t) == string.lower(job.o) then return end
+                    local e = {n = job.n, o = job.o, t = t, l = DHTr.Lang}
+                    DHTr.ChatList[#DHTr.ChatList + 1] = e
+                    while #DHTr.ChatList > 40 do table.remove(DHTr.ChatList, 1) end
+                    DHTr.ChatSave()
+                    if DHTr.ChatAdd then pcall(DHTr.ChatAdd, e) end
+                    if DHTr.ChatStat then DHTr.ChatStat.Text = "" end
+                    if DHAlertToast then pcall(DHAlertToast, job.n .. ": " .. string.sub(t, 1, 60), DHTr.Accent) end
+                end
+                if hit then
+                    Done(hit[1], hit[2])
+                else
+                    DHTr.Ask(job.o, Done)
+                    task.wait(0.6)
+                end
+            end
+        end
+        DHTr.CWorking = false
+    end)
+end
+
+-- listen to the chat (new TextChatService and old chat), once
+function DHTr.ChatHook()
+    if DHTr.ChatHooked then return end
+    DHTr.ChatHooked = true
+    pcall(function()
+        local TCS = game:GetService("TextChatService")
+        TCS.MessageReceived:Connect(function(m)
+            local src = m.TextSource
+            if src then DHTr.OnChat(src.UserId, m.Text) end
+        end)
+    end)
+    local P = game:GetService("Players")
+    local function Watch(p)
+        p.Chatted:Connect(function(msg) DHTr.OnChat(p.UserId, msg) end)
+    end
+    for _, p in ipairs(P:GetPlayers()) do pcall(Watch, p) end
+    P.PlayerAdded:Connect(function(p) pcall(Watch, p) end)
+end
+
+DHTr.BuildBase = DHTr.Build2
+
+-- adds the third view (Chat) to the tab that Build2 made
+function DHTr.AddChatView()
+    local Content = TransContent
+    local ACC = DHTr.Accent
+    local GRAY = Color3.fromRGB(150, 150, 160)
+    local vSet, vTr, frames = nil, nil, {}
+    for _, c in ipairs(Content:GetChildren()) do
+        if c:IsA("TextButton") and c.Text == "Settings" then vSet = c end
+        if c:IsA("TextButton") and c.Text == "Translate" then vTr = c end
+        if c:IsA("Frame") then frames[#frames + 1] = c end
+    end
+    if not (vSet and vTr and #frames >= 2) then return end
+
+    local function Lbl(parent, text, size, color, bold)
+        local l = Instance.new("TextLabel", parent)
+        l.BackgroundTransparency = 1
+        l.Font = bold and Enum.Font.GothamBold or Enum.Font.Gotham
+        l.TextSize = size
+        l.TextColor3 = color
+        l.TextXAlignment = Enum.TextXAlignment.Left
+        l.TextYAlignment = Enum.TextYAlignment.Top
+        l.TextWrapped = true
+        l.Text = text
+        return l
+    end
+    local function Btn(parent, text, w, h)
+        local b = Instance.new("TextButton", parent)
+        b.Size = UDim2.new(0, w, 0, h)
+        b.BackgroundColor3 = Color3.fromRGB(30, 30, 40)
+        b.Font = Enum.Font.GothamBold
+        b.TextSize = 11
+        b.TextColor3 = Color3.new(1, 1, 1)
+        b.Text = text
+        Instance.new("UICorner", b).CornerRadius = UDim.new(0, 6)
+        return b
+    end
+
+    local vCh = Btn(Content, "Chat", 90, 26)
+    vCh.Position = UDim2.new(0, 198, 0, 4)
+    local ChatView = Instance.new("Frame", Content)
+    ChatView.Size = UDim2.new(1, 0, 1, -34)
+    ChatView.Position = UDim2.new(0, 0, 0, 34)
+    ChatView.BackgroundTransparency = 1
+    ChatView.Visible = false
+
+    -- the other two buttons also have to hide this view
+    local function Hide()
+        ChatView.Visible = false
+        vCh.BackgroundColor3 = Color3.fromRGB(30, 30, 40)
+    end
+    vSet.MouseButton1Click:Connect(Hide)
+    vTr.MouseButton1Click:Connect(Hide)
+    vCh.MouseButton1Click:Connect(function()
+        for _, f in ipairs(frames) do f.Visible = false end
+        vSet.BackgroundColor3 = Color3.fromRGB(30, 30, 40)
+        vTr.BackgroundColor3 = Color3.fromRGB(30, 30, 40)
+        vCh.BackgroundColor3 = Color3.fromRGB(40, 130, 120)
+        ChatView.Visible = true
+    end)
+
+    -- switch row
+    local r1 = Instance.new("Frame", ChatView)
+    r1.Size = UDim2.new(1, -20, 0, 40)
+    r1.Position = UDim2.new(0, 10, 0, 2)
+    r1.BackgroundColor3 = Color3.fromRGB(25, 25, 30)
+    Instance.new("UICorner", r1).CornerRadius = UDim.new(0, 8)
+    local t1 = Lbl(r1, "Translate Roblox chat", 12, Color3.new(1, 1, 1), true)
+    t1.Size = UDim2.new(1, -90, 0, 18)
+    t1.Position = UDim2.new(0, 10, 0, 4)
+    local s1 = Lbl(r1, "Other players' chat in this server. Only foreign text is shown.", 9, GRAY)
+    s1.Size = UDim2.new(1, -90, 0, 14)
+    s1.Position = UDim2.new(0, 10, 0, 22)
+    s1.TextTruncate = Enum.TextTruncate.AtEnd
+    local OnBtn = Btn(r1, "OFF", 60, 26)
+    OnBtn.Position = UDim2.new(1, -70, 0.5, -13)
+    local function PaintOn()
+        OnBtn.Text = DHTr.Chat and "ON" or "OFF"
+        OnBtn.BackgroundColor3 = DHTr.Chat and Color3.fromRGB(30, 180, 30) or Color3.fromRGB(180, 30, 30)
+    end
+    local function Turn(on)
+        DHTr.Chat = on
+        DHTr.Save()
+        PaintOn()
+        if on then DHTr.ChatHook() else DHTr.CQ = {} end
+    end
+    OnBtn.MouseButton1Click:Connect(function()
+        if DHTr.Chat then
+            Turn(false)
+        elseif DHTr.Consented then
+            Turn(true)
+        else
+            ShowConfirmPopup("Chat messages of others are sent to a translate service. Turn on?", ACC, function()
+                DHTr.Consented = true
+                Turn(true)
+            end)
+        end
+    end)
+    PaintOn()
+
+    -- feed
+    local list = Instance.new("ScrollingFrame", ChatView)
+    list.Size = UDim2.new(1, -20, 1, -80)
+    list.Position = UDim2.new(0, 10, 0, 46)
+    list.BackgroundColor3 = Color3.fromRGB(24, 24, 28)
+    list.BorderSizePixel = 0
+    list.ScrollBarThickness = 2
+    list.CanvasSize = UDim2.new(0, 0, 0, 0)
+    list.AutomaticCanvasSize = Enum.AutomaticSize.Y
+    Instance.new("UICorner", list).CornerRadius = UDim.new(0, 8)
+    local ll = Instance.new("UIListLayout", list)
+    ll.SortOrder = Enum.SortOrder.LayoutOrder
+    ll.Padding = UDim.new(0, 5)
+    local lp = Instance.new("UIPadding", list)
+    lp.PaddingTop = UDim.new(0, 5)
+    lp.PaddingBottom = UDim.new(0, 5)
+    lp.PaddingLeft = UDim.new(0, 5)
+    lp.PaddingRight = UDim.new(0, 5)
+    local empty = Lbl(list, "Chat in other languages shows up here, translated.", 11, Color3.fromRGB(110, 110, 120))
+    empty.Size = UDim2.new(1, 0, 0, 30)
+    empty.LayoutOrder = 0
+
+    local n = 0
+    DHTr.ChatAdd = function(e)
+        if not list.Parent then return end
+        n = n + 1
+        empty.Visible = false
+        local row = Instance.new("Frame", list)
+        row.LayoutOrder = n
+        row.Size = UDim2.new(1, 0, 0, 0)
+        row.AutomaticSize = Enum.AutomaticSize.Y
+        row.BackgroundColor3 = Color3.fromRGB(34, 34, 42)
+        row.BorderSizePixel = 0
+        Instance.new("UICorner", row).CornerRadius = UDim.new(0, 8)
+        local pad = Instance.new("UIPadding", row)
+        pad.PaddingTop = UDim.new(0, 4)
+        pad.PaddingBottom = UDim.new(0, 5)
+        pad.PaddingLeft = UDim.new(0, 8)
+        pad.PaddingRight = UDim.new(0, 8)
+        local rl = Instance.new("UIListLayout", row)
+        rl.SortOrder = Enum.SortOrder.LayoutOrder
+        rl.Padding = UDim.new(0, 2)
+        local head = Instance.new("Frame", row)
+        head.Size = UDim2.new(1, 0, 0, 16)
+        head.BackgroundTransparency = 1
+        head.LayoutOrder = 1
+        local who = Lbl(head, e.n, 11, ACC, true)
+        who.Size = UDim2.new(1, -46, 1, 0)
+        who.TextTruncate = Enum.TextTruncate.AtEnd
+        who.TextWrapped = false
+        who.RichText = false
+        local cp = Btn(head, "Copy", 40, 14)
+        cp.AnchorPoint = Vector2.new(1, 0.5)
+        cp.Position = UDim2.new(1, 0, 0.5, 0)
+        cp.TextSize = 9
+        cp.MouseButton1Click:Connect(function()
+            if setclipboard then pcall(setclipboard, e.t) end
+            cp.Text = "Copied"
+            task.delay(1, function() if cp.Parent then cp.Text = "Copy" end end)
+        end)
+        local o = Lbl(row, e.o, 10, GRAY)
+        o.Size = UDim2.new(1, 0, 0, 0)
+        o.AutomaticSize = Enum.AutomaticSize.Y
+        o.LayoutOrder = 2
+        o.RichText = false
+        local tt = Lbl(row, e.t, 12, Color3.new(1, 1, 1))
+        tt.Size = UDim2.new(1, 0, 0, 0)
+        tt.AutomaticSize = Enum.AutomaticSize.Y
+        tt.LayoutOrder = 3
+        tt.RichText = false
+        task.defer(function() pcall(function() list.CanvasPosition = Vector2.new(0, 100000) end) end)
+    end
+    for _, e in ipairs(DHTr.ChatList) do DHTr.ChatAdd(e) end
+
+    local clear = Btn(ChatView, "Clear history", 90, 24)
+    clear.Position = UDim2.new(0, 10, 1, -30)
+    clear.BackgroundColor3 = Color3.fromRGB(150, 50, 50)
+    DHTr.ChatStat = Lbl(ChatView, "", 10, Color3.fromRGB(255, 130, 130))
+    DHTr.ChatStat.Size = UDim2.new(1, -120, 0, 24)
+    DHTr.ChatStat.Position = UDim2.new(0, 108, 1, -30)
+    DHTr.ChatStat.TextYAlignment = Enum.TextYAlignment.Center
+    clear.MouseButton1Click:Connect(function()
+        if #DHTr.ChatList == 0 then return end
+        ShowConfirmPopup("Delete the whole chat translation history?", Color3.fromRGB(200, 70, 70), function()
+            DHTr.ChatList = {}
+            DHTr.ChatSave()
+            DHTr.Build2()
+        end)
+    end)
+end
+
+-- Build2 (also used by "Clear history") now always adds the Chat view too
+function DHTr.Build2()
+    DHTr.BuildBase()
+    pcall(DHTr.AddChatView)
+end
+
+DHTr.Load()
+DHTr.ChatLoad()
+if DHTr.Chat then DHTr.ChatHook() end
+pcall(DHTr.Build2)
+
+-- ================================================
 -- MODS TAB (part 2): Float, Infinite Jump, Noclip (built in, safe on respawn)
 -- ================================================
 DHMods.N = 0
