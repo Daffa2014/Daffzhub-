@@ -3188,6 +3188,255 @@ Players.PlayerRemoving:Connect(function(plr)
     DHExp.Flagged[plr] = nil
 end)
 
+-- ================================================
+-- DAFFZHUB USERS: find other DaffzHub users in this server (opt-in, works both ways)
+-- While ON you also show up for the other users. Every 15 seconds the hub sends your user ID,
+-- your display name and the server ID to the DaffzHub server. Nothing is sent while it is OFF.
+-- ================================================
+DHDet = {
+    Path = "Daffzhub_file/Detect.json",
+    Proxy = "https://iridescent-kringle-f20c39.netlify.app/.netlify/functions/msg",
+    On = false, Consented = false, Users = {}, Told = {}, Tok = 0, Busy = false,
+    Color = Color3.fromRGB(150, 90, 255),
+}
+
+function DHDet.Load()
+    pcall(function()
+        if not (isfile and readfile and isfile(DHDet.Path)) then return end
+        local d = game:GetService("HttpService"):JSONDecode(readfile(DHDet.Path))
+        if type(d) ~= "table" then return end
+        DHDet.Consented = d.consent == 1
+        DHDet.On = DHDet.Consented and d.on == true
+    end)
+end
+
+function DHDet.Save()
+    pcall(function()
+        if not (writefile and makefolder and isfolder) then return end
+        if not isfolder("Daffzhub_file") then makefolder("Daffzhub_file") end
+        writefile(DHDet.Path, game:GetService("HttpService"):JSONEncode({consent = DHDet.Consented and 1 or 0, on = DHDet.On}))
+    end)
+end
+
+function DHDet.Room()
+    local j = game.JobId
+    if j == nil or j == "" then j = "studio" end
+    j = string.gsub(j, "[^%w_%-]", "")
+    return "s:" .. j
+end
+
+-- returns data, nil   |   nil, errorText
+function DHDet.Call(tbl)
+    local req = (syn and syn.request) or (http and http.request) or http_request or request
+    if not req then return nil, "No request function" end
+    local HS = game:GetService("HttpService")
+    local ok, r = pcall(req, {Url = DHDet.Proxy, Method = "POST", Headers = {["Content-Type"] = "application/json"}, Body = HS:JSONEncode(tbl)})
+    if not ok or type(r) ~= "table" then return nil, "Request failed" end
+    if r.StatusCode ~= 200 then return nil, "Server error " .. tostring(r.StatusCode) end
+    local okj, data = pcall(function() return HS:JSONDecode(r.Body or "") end)
+    if not okj or type(data) ~= "table" then return nil, "Bad reply" end
+    return data, nil
+end
+
+function DHDet.Refresh()
+    if not DHDet.Box then return end
+    for _, c in ipairs(DHDet.Box:GetChildren()) do
+        if c:IsA("Frame") then c:Destroy() end
+    end
+    local list = {}
+    for uid, name in pairs(DHDet.Users) do
+        local plr = Players:GetPlayerByUserId(uid)
+        if plr then list[#list + 1] = plr end
+    end
+    DHSortPlayers(list)
+    DHDet.Empty.Visible = (#list == 0)
+    if DHDet.On then
+        DHDet.Status.Text = "On | " .. #list .. " DaffzHub user" .. (#list == 1 and "" or "s") .. " here (they can see you too)"
+    else
+        DHDet.Status.Text = "Off"
+    end
+    for i, plr in ipairs(list) do
+        local row = Instance.new("Frame", DHDet.Box)
+        row.LayoutOrder = i
+        row.Size = UDim2.new(1, 0, 0, 24)
+        row.BackgroundTransparency = 1
+        local nm = Instance.new("TextLabel", row)
+        nm.Size = UDim2.new(0.7, 0, 1, 0)
+        nm.BackgroundTransparency = 1
+        nm.Text = DHExp and DHExp.Name and DHExp.Name(plr) or plr.Name
+        nm.Font = Enum.Font.GothamBold
+        nm.TextSize = 11
+        nm.TextColor3 = DHDet.Color
+        nm.TextXAlignment = Enum.TextXAlignment.Left
+        nm.TextTruncate = Enum.TextTruncate.AtEnd
+        local tg = Instance.new("TextLabel", row)
+        tg.Position = UDim2.new(0.7, 0, 0, 0)
+        tg.Size = UDim2.new(0.3, 0, 1, 0)
+        tg.BackgroundTransparency = 1
+        tg.Text = "DaffzHub"
+        tg.Font = Enum.Font.Code
+        tg.TextSize = 10
+        tg.TextColor3 = Color3.fromRGB(180, 180, 180)
+        tg.TextXAlignment = Enum.TextXAlignment.Right
+    end
+end
+
+-- one round: tell the server we are here, get back who else is here
+function DHDet.Ping()
+    if DHDet.Busy then return end
+    DHDet.Busy = true
+    local name = Player.DisplayName
+    if name == nil or name == "" then name = Player.Name end
+    local data, err = DHDet.Call({action = "presence", room = DHDet.Room(), uid = Player.UserId, name = name})
+    DHDet.Busy = false
+    if not data then
+        if DHDet.Status then DHDet.Status.Text = "On | " .. tostring(err) end
+        return
+    end
+    local users = {}
+    if type(data.users) == "table" then
+        for _, u in ipairs(data.users) do
+            if type(u) == "table" and type(u.uid) == "number" and u.uid ~= Player.UserId and type(u.name) == "string" then
+                users[u.uid] = u.name
+            end
+        end
+    end
+    DHDet.Users = users
+    -- notify once for each user that is really in this server
+    for uid in pairs(users) do
+        local plr = Players:GetPlayerByUserId(uid)
+        if plr and not DHDet.Told[uid] then
+            DHDet.Told[uid] = true
+            if DHAlertToast then
+                pcall(DHAlertToast, "DaffzHub user detected: " .. plr.DisplayName .. " (@" .. plr.Name .. ")", DHDet.Color, 20)
+            end
+        end
+    end
+    for uid in pairs(DHDet.Told) do
+        if not users[uid] then DHDet.Told[uid] = nil end
+    end
+    DHDet.Refresh()
+end
+
+function DHDet.Set(on)
+    DHDet.Tok = DHDet.Tok + 1
+    DHDet.On = on and true or false
+    DHDet.Save()
+    if DHDet.Btn then
+        DHDet.Btn.Text = DHDet.On and "ON" or "OFF"
+        DHDet.Btn.BackgroundColor3 = DHDet.On and Color3.fromRGB(30, 180, 30) or Color3.fromRGB(180, 30, 30)
+    end
+    if not DHDet.On then
+        DHDet.Users, DHDet.Told = {}, {}
+        DHDet.Refresh()
+        return
+    end
+    if DHDet.Status then DHDet.Status.Text = "On | looking..." end
+    local my = DHDet.Tok
+    task.spawn(function()
+        while DHDet.Tok == my and DHDet.On and ScreenGui and ScreenGui.Parent do
+            pcall(DHDet.Ping)
+            task.wait(15)
+        end
+    end)
+end
+
+Players.PlayerRemoving:Connect(function(plr)
+    if DHDet.Users[plr.UserId] then
+        DHDet.Users[plr.UserId] = nil
+        DHDet.Told[plr.UserId] = nil
+        pcall(DHDet.Refresh)
+    end
+end)
+
+-- UI (Info tab)
+CreateSectionLabel("DAFFZHUB USERS")
+
+do
+    local row = Instance.new("Frame", InfoScroll)
+    row.Size = UDim2.new(1, 0, 0, 44)
+    row.BackgroundColor3 = Color3.fromRGB(25, 25, 25)
+    Instance.new("UICorner", row).CornerRadius = UDim.new(0, 10)
+    local lbl = Instance.new("TextLabel", row)
+    lbl.Size = UDim2.new(1, -90, 0, 20)
+    lbl.Position = UDim2.new(0, 10, 0, 4)
+    lbl.BackgroundTransparency = 1
+    lbl.Text = "Detect DaffzHub users"
+    lbl.Font = Enum.Font.GothamBold
+    lbl.TextSize = 12
+    lbl.TextColor3 = Color3.new(1, 1, 1)
+    lbl.TextXAlignment = Enum.TextXAlignment.Left
+    local sub = Instance.new("TextLabel", row)
+    sub.Size = UDim2.new(1, -90, 0, 14)
+    sub.Position = UDim2.new(0, 10, 0, 25)
+    sub.BackgroundTransparency = 1
+    sub.Text = "Sends your user ID + name to DaffzHub. They see you too."
+    sub.Font = Enum.Font.Gotham
+    sub.TextSize = 9
+    sub.TextColor3 = Color3.fromRGB(150, 150, 150)
+    sub.TextXAlignment = Enum.TextXAlignment.Left
+    sub.TextTruncate = Enum.TextTruncate.AtEnd
+    DHDet.Btn = Instance.new("TextButton", row)
+    DHDet.Btn.Size = UDim2.new(0, 60, 0, 28)
+    DHDet.Btn.Position = UDim2.new(1, -70, 0.5, -14)
+    DHDet.Btn.BackgroundColor3 = Color3.fromRGB(180, 30, 30)
+    DHDet.Btn.Text = "OFF"
+    DHDet.Btn.Font = Enum.Font.GothamBold
+    DHDet.Btn.TextSize = 13
+    DHDet.Btn.TextColor3 = Color3.new(1, 1, 1)
+    Instance.new("UICorner", DHDet.Btn).CornerRadius = UDim.new(1, 0)
+    DHDet.Btn.MouseButton1Click:Connect(function()
+        if DHDet.On then
+            DHDet.Set(false)
+        elseif DHDet.Consented then
+            DHDet.Set(true)
+        else
+            ShowConfirmPopup("Turn on? You also become visible to other DaffzHub users.", DHDet.Color, function()
+                DHDet.Consented = true
+                DHDet.Set(true)
+            end)
+        end
+    end)
+end
+
+DHDet.Status = Instance.new("TextLabel", InfoScroll)
+DHDet.Status.Size = UDim2.new(1, 0, 0, 16)
+DHDet.Status.BackgroundTransparency = 1
+DHDet.Status.Text = "Off"
+DHDet.Status.Font = Enum.Font.Gotham
+DHDet.Status.TextSize = 10
+DHDet.Status.TextColor3 = Color3.fromRGB(110, 110, 110)
+DHDet.Status.TextXAlignment = Enum.TextXAlignment.Left
+
+DHDet.Box = Instance.new("Frame", InfoScroll)
+DHDet.Box.Size = UDim2.new(1, 0, 0, 0)
+DHDet.Box.AutomaticSize = Enum.AutomaticSize.Y
+DHDet.Box.BackgroundColor3 = Color3.fromRGB(25, 25, 25)
+Instance.new("UICorner", DHDet.Box).CornerRadius = UDim.new(0, 10)
+do
+    local lay = Instance.new("UIListLayout", DHDet.Box)
+    lay.SortOrder = Enum.SortOrder.LayoutOrder
+    lay.Padding = UDim.new(0, 2)
+    local pad = Instance.new("UIPadding", DHDet.Box)
+    pad.PaddingTop = UDim.new(0, 4)
+    pad.PaddingBottom = UDim.new(0, 4)
+    pad.PaddingLeft = UDim.new(0, 10)
+    pad.PaddingRight = UDim.new(0, 10)
+end
+
+DHDet.Empty = Instance.new("TextLabel", DHDet.Box)
+DHDet.Empty.LayoutOrder = 0
+DHDet.Empty.Size = UDim2.new(1, 0, 0, 24)
+DHDet.Empty.BackgroundTransparency = 1
+DHDet.Empty.Text = "No DaffzHub user found yet"
+DHDet.Empty.Font = Enum.Font.Gotham
+DHDet.Empty.TextSize = 11
+DHDet.Empty.TextColor3 = Color3.fromRGB(110, 110, 110)
+
+DHDet.Load()
+DHDet.Refresh()
+if DHDet.On then DHDet.Set(true) end
+
 -- PLAYER LIST SECTION
 CreateSectionLabel("PLAYER LIST")
 
@@ -3821,6 +4070,10 @@ local function updatePlayerList(search)
                 youLabel.Font = Enum.Font.GothamBold
                 youLabel.TextSize = 10
                 youLabel.TextColor3 = Color3.fromRGB(100, 255, 100)
+            end
+            if DHDet and DHDet.Users and DHDet.Users[p.UserId] then
+                displayLabel.TextColor3 = DHDet.Color
+                avatar.BackgroundColor3 = DHDet.Color
             end
         end
     end
@@ -17859,6 +18112,7 @@ function BuildESP()
     local function ColorOf(plr)
         if typeof(plr) == "Instance" and not plr:IsA("Player") then return cfg.NpcColor end
         if DHExp and DHExp.Flagged and DHExp.Flagged[plr] then return Color3.fromRGB(255, 0, 255) end
+        if DHDet and DHDet.Users and DHDet.Users[plr.UserId] then return DHDet.Color end
         if plr.Team then return plr.TeamColor.Color end
         return cfg.DefaultColor
     end
