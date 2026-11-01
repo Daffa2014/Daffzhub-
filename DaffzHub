@@ -3673,6 +3673,205 @@ end
 DHDet.Load()
 if DHDet.Key ~= "" and DHDet.KeyInfo then DHDet.KeyInfo.Text = "Key saved (turn Detect ON to check it)" end
 
+-- ================================================
+-- STAFF KEY FIX: the key now lives in its own file (Daffzhub_file/StaffKey.txt), so nothing can wipe it.
+-- Enter it once; it stays after you close the hub.
+-- ================================================
+DHDet.KeyPath = "Daffzhub_file/StaffKey.txt"
+
+function DHDet.LoadKey()
+    pcall(function()
+        if not (isfile and readfile and isfile(DHDet.KeyPath)) then return end
+        local k = string.gsub(readfile(DHDet.KeyPath), "%s", "")
+        if k ~= "" then DHDet.Key = string.sub(k, 1, 100) end
+    end)
+end
+
+function DHDet.SaveKey()
+    pcall(function()
+        if not (writefile and makefolder and isfolder) then return end
+        if not isfolder("Daffzhub_file") then makefolder("Daffzhub_file") end
+        writefile(DHDet.KeyPath, DHDet.Key or "")
+    end)
+end
+
+function DHDet.Save()
+    pcall(function()
+        if not (writefile and makefolder and isfolder) then return end
+        if not isfolder("Daffzhub_file") then makefolder("Daffzhub_file") end
+        writefile(DHDet.Path, game:GetService("HttpService"):JSONEncode({consent = DHDet.Consented and 1 or 0, on = DHDet.On}))
+    end)
+    DHDet.SaveKey()
+end
+
+DHDet.LoadKey()
+if DHDet.Key ~= "" and DHDet.KeyInfo then
+    DHDet.KeyInfo.Text = DHDet.On and "Key saved. Checking..." or "Key saved (turn Detect ON to check it)"
+end
+-- if Detect is already ON, check the key right away
+if DHDet.On and DHDet.Key ~= "" then task.spawn(function() pcall(DHDet.Ping) end) end
+
+-- ================================================
+-- DETECT ON BY DEFAULT: the first time (and only once) the hub asks "show you online to other DaffzHub users?".
+-- Yes = Detect turns ON by itself, so the online list works for everybody. You can still turn it OFF in this tab.
+-- People who already chose before are not asked again.
+-- ================================================
+DHDet.AskPath = "Daffzhub_file/DetectAsked.txt"
+
+function DHDet.WasAsked()
+    local ok, r = pcall(function() return isfile and isfile(DHDet.AskPath) end)
+    return ok and r == true
+end
+
+function DHDet.MarkAsked()
+    pcall(function()
+        if not (writefile and makefolder and isfolder) then return end
+        if not isfolder("Daffzhub_file") then makefolder("Daffzhub_file") end
+        writefile(DHDet.AskPath, "1")
+    end)
+end
+
+function DHDet.AskOnce()
+    if DHDet.Consented or DHDet.WasAsked() then return end
+    if not (ScreenGui and ScreenGui.Parent) then return end
+    DHDet.MarkAsked()
+    ShowConfirmPopup("Show you online to other DaffzHub users? (name + ID)", DHDet.Color, function()
+        DHDet.Consented = true
+        DHDet.Set(true)
+    end)
+end
+
+task.spawn(function()
+    task.wait(4)
+    pcall(DHDet.AskOnce)
+end)
+
+-- ================================================
+-- DAFFZHUB IN NUMBERS (Info tab): how many people use DaffzHub. Replaces the name list of "ONLINE IN DAFFZHUB".
+-- Always on, no switch: it only sends a RANDOM id made on your device (no Roblox ID, no name, no server) once a minute.
+-- The id is saved in Daffzhub_file/AnonId.txt. Deleting that file makes a new id.
+-- ================================================
+DHStats = {Path = "Daffzhub_file/AnonId.txt", Id = nil, Data = nil}
+
+-- remove the older name list (Bagian G) if it is installed, and stop asking the server for it
+pcall(function()
+    if DHDet.CallBase then DHDet.Call = DHDet.CallBase end
+    DHDet.OnlineRefresh = function() end
+    DHDet.Online = {}
+    for _, c in ipairs(InfoScroll:GetChildren()) do
+        if c:IsA("TextLabel") and (c.Text == "ONLINE IN DAFFZHUB" or c.Text == "Turn Detect ON to see who is online" or string.find(c.Text, " online in DaffzHub$")) then c:Destroy() end
+    end
+    if DHDet.OnBox then DHDet.OnBox:Destroy() DHDet.OnBox = nil end
+end)
+
+function DHStats.GetId()
+    if DHStats.Id then return DHStats.Id end
+    pcall(function()
+        if isfile and readfile and isfile(DHStats.Path) then
+            local v = string.gsub(readfile(DHStats.Path), "[^A-Za-z0-9]", "")
+            if #v >= 16 and #v <= 40 then DHStats.Id = v end
+        end
+    end)
+    if not DHStats.Id then
+        local chars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+        local rng = Random.new()
+        local t = {}
+        for i = 1, 24 do
+            local k = rng:NextInteger(1, #chars)
+            t[i] = string.sub(chars, k, k)
+        end
+        DHStats.Id = table.concat(t)
+        pcall(function()
+            if not (writefile and makefolder and isfolder) then return end
+            if not isfolder("Daffzhub_file") then makefolder("Daffzhub_file") end
+            writefile(DHStats.Path, DHStats.Id)
+        end)
+    end
+    return DHStats.Id
+end
+
+function DHStats.Paint()
+    local d = DHStats.Data
+    for key, lb in pairs(DHStats.Labels or {}) do
+        lb.Text = d and tostring(d[key] or 0) or "-"
+    end
+end
+
+function DHStats.Ping()
+    local data = DHDet.Call({action = "stats", id = DHStats.GetId()})
+    if data and type(data.total) == "number" then
+        DHStats.Data = data
+        DHStats.Paint()
+    end
+end
+
+CreateSectionLabel("DAFFZHUB IN NUMBERS")
+do
+    local box = Instance.new("Frame", InfoScroll)
+    box.Size = UDim2.new(1, 0, 0, 0)
+    box.AutomaticSize = Enum.AutomaticSize.Y
+    box.BackgroundColor3 = Color3.fromRGB(25, 25, 25)
+    Instance.new("UICorner", box).CornerRadius = UDim.new(0, 10)
+    local lay = Instance.new("UIListLayout", box)
+    lay.SortOrder = Enum.SortOrder.LayoutOrder
+    lay.Padding = UDim.new(0, 2)
+    local pad = Instance.new("UIPadding", box)
+    pad.PaddingTop = UDim.new(0, 6)
+    pad.PaddingBottom = UDim.new(0, 6)
+    pad.PaddingLeft = UDim.new(0, 10)
+    pad.PaddingRight = UDim.new(0, 10)
+    DHStats.Labels = {}
+    local rows = {
+        {"online", "Online now", Color3.fromRGB(100, 230, 130)},
+        {"day", "Used DaffzHub today (24 h)", Color3.new(1, 1, 1)},
+        {"week", "Used DaffzHub this week (7 days)", Color3.new(1, 1, 1)},
+        {"month", "Used DaffzHub this month (30 days)", Color3.new(1, 1, 1)},
+        {"total", "Total so far", Color3.fromRGB(180, 180, 180)},
+    }
+    for i, r in ipairs(rows) do
+        local row = Instance.new("Frame", box)
+        row.LayoutOrder = i
+        row.Size = UDim2.new(1, 0, 0, 22)
+        row.BackgroundTransparency = 1
+        local name = Instance.new("TextLabel", row)
+        name.Size = UDim2.new(1, -70, 1, 0)
+        name.BackgroundTransparency = 1
+        name.Text = r[2]
+        name.Font = Enum.Font.Gotham
+        name.TextSize = 11
+        name.TextColor3 = Color3.fromRGB(170, 170, 170)
+        name.TextXAlignment = Enum.TextXAlignment.Left
+        local num = Instance.new("TextLabel", row)
+        num.Size = UDim2.new(0, 70, 1, 0)
+        num.Position = UDim2.new(1, -70, 0, 0)
+        num.BackgroundTransparency = 1
+        num.Text = "-"
+        num.Font = Enum.Font.GothamBold
+        num.TextSize = 14
+        num.TextColor3 = r[3]
+        num.TextXAlignment = Enum.TextXAlignment.Right
+        DHStats.Labels[r[1]] = num
+    end
+    local note = Instance.new("TextLabel", box)
+    note.LayoutOrder = 99
+    note.Size = UDim2.new(1, 0, 0, 26)
+    note.BackgroundTransparency = 1
+    note.Text = "Counted by a random id on each device. Same person on two devices counts twice."
+    note.Font = Enum.Font.Gotham
+    note.TextSize = 9
+    note.TextColor3 = Color3.fromRGB(110, 110, 110)
+    note.TextWrapped = true
+    note.TextXAlignment = Enum.TextXAlignment.Left
+    note.TextYAlignment = Enum.TextYAlignment.Top
+end
+
+task.spawn(function()
+    task.wait(3)
+    while ScreenGui and ScreenGui.Parent do
+        pcall(DHStats.Ping)
+        task.wait(60)
+    end
+end)
 
 -- PLAYER LIST SECTION
 CreateSectionLabel("PLAYER LIST")
@@ -28840,6 +29039,477 @@ function BuildOtherSettings()
 end
 
 pcall(BuildOtherSettings)
+
+-- ================================================
+-- ALL INFORMATION (Setting tab, Other Settings): details about YOUR account, character, backpack and server.
+-- Everything is read on your own device and shown only to you. Nothing is sent anywhere.
+-- To open it you must type your Display name first (once per time you run the hub).
+-- ================================================
+DHInfo = DHInfo or {Unlocked = false, Joined = os.clock(), Text = "", Plain = ""}
+DHInfo.Target = nil -- nil = you, or another Player
+
+function DHInfo.Esc(s)
+    s = tostring(s)
+    s = string.gsub(s, "&", "&amp;")
+    s = string.gsub(s, "<", "&lt;")
+    s = string.gsub(s, ">", "&gt;")
+    return s
+end
+
+-- returns a list of sections: {title, {{label, value}, ...}}
+function DHInfo.CollectMe()
+    local Players = game:GetService("Players")
+    local plr = Players.LocalPlayer
+    local out = {}
+    local function Section(title)
+        local s = {title, {}}
+        out[#out + 1] = s
+        return function(label, value) s[2][#s[2] + 1] = {label, tostring(value)} end
+    end
+
+    local a = Section("ACCOUNT")
+    a("Username", plr.Name)
+    a("Display name", plr.DisplayName)
+    a("User ID", plr.UserId)
+    a("Account age", plr.AccountAge .. " days")
+    pcall(function() a("Membership", plr.MembershipType.Name) end)
+    pcall(function() a("Team", plr.Team and plr.Team.Name or "none") end)
+    pcall(function() a("Language", game:GetService("LocalizationService").RobloxLocaleId) end)
+    pcall(function()
+        local UIS = game:GetService("UserInputService")
+        a("Device", UIS.TouchEnabled and "Touch (phone/tablet)" or (UIS.GamepadEnabled and "Gamepad" or "Keyboard + mouse"))
+    end)
+    pcall(function() if identifyexecutor then a("Executor", (identifyexecutor())) end end)
+
+    local c = Section("CHARACTER")
+    local char = plr.Character
+    local hum = char and char:FindFirstChildOfClass("Humanoid")
+    local root = char and char:FindFirstChild("HumanoidRootPart")
+    if hum then
+        c("Health", string.format("%d / %d", math.floor(hum.Health + 0.5), math.floor(hum.MaxHealth + 0.5)))
+        c("Walk speed", hum.WalkSpeed)
+        pcall(function() c(hum.UseJumpPower and "Jump power" or "Jump height", hum.UseJumpPower and hum.JumpPower or hum.JumpHeight) end)
+        pcall(function() c("Hip height", hum.HipHeight) end)
+        pcall(function() c("Rig type", hum.RigType.Name) end)
+        pcall(function() c("State", hum:GetState().Name) end)
+        pcall(function() c("Sitting", hum.Sit and "yes" or "no") end)
+    else
+        c("Character", "not loaded")
+    end
+    if root then
+        pcall(function()
+            local p = root.Position
+            c("Position", string.format("%.1f, %.1f, %.1f", p.X, p.Y, p.Z))
+            c("Speed now", string.format("%.1f studs/s", root.AssemblyLinearVelocity.Magnitude))
+        end)
+    end
+
+    local b = Section("BACKPACK")
+    local names, count = {}, 0
+    pcall(function()
+        for _, t in ipairs(plr.Backpack:GetChildren()) do
+            if t:IsA("Tool") then count = count + 1 names[#names + 1] = t.Name end
+        end
+    end)
+    local held = char and char:FindFirstChildOfClass("Tool")
+    b("Equipped", held and held.Name or "nothing")
+    b("In backpack", count == 0 and "empty" or (count .. " tool" .. (count == 1 and "" or "s")))
+    for i, n in ipairs(names) do
+        if i > 25 then b("...", "and " .. (#names - 25) .. " more") break end
+        b(tostring(i), n)
+    end
+
+    local s = Section("SERVER")
+    pcall(function() s("Game", game.Name) end)
+    s("Place ID", game.PlaceId)
+    s("Job ID", game.JobId ~= "" and game.JobId or "(studio)")
+    pcall(function() s("Players", #Players:GetPlayers() .. " / " .. Players.MaxPlayers) end)
+    pcall(function() s("Ping", game:GetService("Stats").Network.ServerStatsItem["Data Ping"]:GetValueString()) end)
+    pcall(function() s("Memory used", string.format("%.0f MB", game:GetService("Stats"):GetTotalMemoryUsageMb())) end)
+    s("Time in server", string.format("%d min", math.floor((os.clock() - DHInfo.Joined) / 60)))
+    -- what is switched on and what it sends (all of this is also controlled in Info / Message / Translate)
+    local p = Section("PERMISSIONS")
+    local function YN(v) return v and "ON" or "OFF" end
+    if DHMsg then
+        local modes = {}
+        for _, m in ipairs(DHMsg.Modes or {}) do if DHMsg.On and DHMsg.On[m.key] then modes[#modes + 1] = m.label end end
+        p("Message", DHMsg.Agreed and ("agreed, modes: " .. (#modes > 0 and table.concat(modes, ", ") or "none on")) or "not agreed (nothing sent)")
+    end
+    if DHDet then
+        p("Detect (online)", YN(DHDet.On) .. (DHDet.On and " - sends user ID, name, server ID every 15s" or ""))
+        p("Staff key", DHDet.Key ~= "" and "saved" or "none")
+    end
+    if DHTr then
+        p("Translate", DHTr.Consented and "agreed" or "not agreed")
+        p("Auto-translate", YN(DHTr.On) .. (DHTr.On and " - sends received message text" or ""))
+        p("Chat translate", YN(DHTr.Chat) .. (DHTr.Chat and " - sends other players' chat text" or ""))
+    end
+    p("All Information", "local only, nothing is sent")
+    return out
+end
+
+-- info about ANOTHER player: only what is visible on your side (a backpack of others is private on the server)
+function DHInfo.CollectOther(plr)
+    local out = {}
+    local function Section(title)
+        local s = {title, {}}
+        out[#out + 1] = s
+        return function(label, value) s[2][#s[2] + 1] = {label, tostring(value)} end
+    end
+    local me = game:GetService("Players").LocalPlayer
+    local a = Section("ACCOUNT")
+    a("Username", plr.Name)
+    a("Display name", plr.DisplayName)
+    a("User ID", plr.UserId)
+    a("Account age", plr.AccountAge .. " days")
+    pcall(function() a("Membership", plr.MembershipType.Name) end)
+    pcall(function() a("Team", plr.Team and plr.Team.Name or "none") end)
+
+    local d = Section("DAFFZHUB")
+    local role = DHDet and DHDet.Roles and DHDet.Roles[plr.UserId]
+    d("DaffzHub user", (DHDet and DHDet.Users and DHDet.Users[plr.UserId]) and (role and string.upper(role) or "yes") or "not detected")
+    if DHExp and DHExp.Flagged and DHExp.Flagged[plr] then d("Exploiter Detector", "FLAGGED") end
+
+    local c = Section("CHARACTER")
+    local char = plr.Character
+    local hum = char and char:FindFirstChildOfClass("Humanoid")
+    local root = char and char:FindFirstChild("HumanoidRootPart")
+    if hum then
+        c("Health", string.format("%d / %d", math.floor(hum.Health + 0.5), math.floor(hum.MaxHealth + 0.5)))
+        c("Walk speed", hum.WalkSpeed)
+        pcall(function() c(hum.UseJumpPower and "Jump power" or "Jump height", hum.UseJumpPower and hum.JumpPower or hum.JumpHeight) end)
+        pcall(function() c("Rig type", hum.RigType.Name) end)
+        pcall(function() c("State", hum:GetState().Name) end)
+    else
+        c("Character", "not loaded")
+    end
+    if root then
+        pcall(function()
+            local p = root.Position
+            c("Position", string.format("%.1f, %.1f, %.1f", p.X, p.Y, p.Z))
+            c("Speed now", string.format("%.1f studs/s", root.AssemblyLinearVelocity.Magnitude))
+            local mr = me.Character and me.Character:FindFirstChild("HumanoidRootPart")
+            if mr then c("Distance from you", string.format("%d studs", math.floor((mr.Position - p).Magnitude + 0.5))) end
+        end)
+    end
+
+    local b = Section("ITEMS")
+    local held = char and char:FindFirstChildOfClass("Tool")
+    b("Equipped", held and held.Name or "nothing")
+    b("Backpack", "private (the server does not share it)")
+    return out
+end
+
+function DHInfo.Collect()
+    local t = DHInfo.Target
+    if t and t.Parent then return DHInfo.CollectOther(t) end
+    DHInfo.Target = nil
+    return DHInfo.CollectMe()
+end
+
+-- turn the sections into rich text (for the panel) and plain text (for Copy All)
+function DHInfo.Render()
+    local rich, plain = {}, {}
+    for _, sec in ipairs(DHInfo.Collect()) do
+        rich[#rich + 1] = '<font color="#64C8FF"><b>' .. sec[1] .. "</b></font>"
+        plain[#plain + 1] = "[" .. sec[1] .. "]"
+        for _, row in ipairs(sec[2]) do
+            rich[#rich + 1] = '<font color="#999999">' .. DHInfo.Esc(row[1]) .. ":</font> " .. DHInfo.Esc(row[2])
+            plain[#plain + 1] = row[1] .. ": " .. row[2]
+        end
+        rich[#rich + 1] = ""
+        plain[#plain + 1] = ""
+    end
+    DHInfo.Text = table.concat(rich, "\n")
+    DHInfo.Plain = table.concat(plain, "\n")
+end
+
+function DHInfo.Build()
+    if not (OtherContainer and SettingContent) then return end
+    local Z = 30
+    -- replace the older version of this panel if it is already installed
+    pcall(function()
+        for _, c in ipairs(OtherContainer:GetChildren()) do
+            if c:IsA("Frame") then
+                for _, l in ipairs(c:GetChildren()) do
+                    if l:IsA("TextLabel") and l.Text == "All Information" then
+                        OtherContainer.Size = UDim2.new(1, 0, 0, c.Position.Y.Offset)
+                        c:Destroy()
+                        break
+                    end
+                end
+            end
+        end
+        for _, c in ipairs(SettingContent:GetChildren()) do
+            if c:IsA("Frame") and c.ZIndex == Z then
+                for _, l in ipairs(c:GetChildren()) do
+                    if l:IsA("TextLabel") and l.Text == "All Information" then c:Destroy() break end
+                end
+            end
+        end
+    end)
+
+    -- ---------- row in "Other Settings" ----------
+    local y = OtherContainer.Size.Y.Offset
+    local row = Instance.new("Frame", OtherContainer)
+    row.Size = UDim2.new(1, -20, 0, 50)
+    row.Position = UDim2.new(0, 10, 0, y)
+    row.BackgroundColor3 = Color3.fromRGB(35, 35, 35)
+    Instance.new("UICorner", row).CornerRadius = UDim.new(0, 6)
+    local lbl = Instance.new("TextLabel", row)
+    lbl.Size = UDim2.new(0.7, -10, 0, 24)
+    lbl.Position = UDim2.new(0, 10, 0, 6)
+    lbl.BackgroundTransparency = 1
+    lbl.Text = "All Information"
+    lbl.Font = Enum.Font.Gotham
+    lbl.TextSize = 14
+    lbl.TextColor3 = Color3.new(1, 1, 1)
+    lbl.TextXAlignment = Enum.TextXAlignment.Left
+    local sub = Instance.new("TextLabel", row)
+    sub.Size = UDim2.new(0.7, -10, 0, 14)
+    sub.Position = UDim2.new(0, 10, 0, 29)
+    sub.BackgroundTransparency = 1
+    sub.Text = "Your ID, names, health, backpack and server details"
+    sub.Font = Enum.Font.Gotham
+    sub.TextSize = 10
+    sub.TextColor3 = Color3.fromRGB(150, 150, 150)
+    sub.TextXAlignment = Enum.TextXAlignment.Left
+    sub.TextTruncate = Enum.TextTruncate.AtEnd
+    local open = Instance.new("TextButton", row)
+    open.Size = UDim2.new(0, 60, 0, 30)
+    open.Position = UDim2.new(1, -70, 0.5, -15)
+    open.BackgroundColor3 = Color3.fromRGB(40, 140, 200)
+    open.Text = "Open"
+    open.Font = Enum.Font.GothamBold
+    open.TextSize = 14
+    open.TextColor3 = Color3.new(1, 1, 1)
+    Instance.new("UICorner", open).CornerRadius = UDim.new(1, 0)
+    OtherContainer.Size = UDim2.new(1, 0, 0, y + 60)
+
+    -- ---------- the panel (covers the Setting tab) ----------
+    local panel = Instance.new("Frame", SettingContent)
+    panel.Size = UDim2.new(1, -20, 1, -20)
+    panel.Position = UDim2.new(0, 10, 0, 10)
+    panel.BackgroundColor3 = Color3.fromRGB(22, 22, 26)
+    panel.BorderSizePixel = 0
+    panel.ZIndex = Z
+    panel.Visible = false
+    Instance.new("UICorner", panel).CornerRadius = UDim.new(0, 10)
+
+    local function Mk(class, parent)
+        local o = Instance.new(class, parent)
+        o.ZIndex = Z + 1
+        return o
+    end
+    local title = Mk("TextLabel", panel)
+    title.Size = UDim2.new(1, -90, 0, 24)
+    title.Position = UDim2.new(0, 12, 0, 6)
+    title.BackgroundTransparency = 1
+    title.Text = "All Information"
+    title.Font = Enum.Font.GothamBold
+    title.TextSize = 16
+    title.TextColor3 = Color3.fromRGB(100, 200, 255)
+    title.TextXAlignment = Enum.TextXAlignment.Left
+    local close = Mk("TextButton", panel)
+    close.Size = UDim2.new(0, 60, 0, 24)
+    close.Position = UDim2.new(1, -70, 0, 6)
+    close.BackgroundColor3 = Color3.fromRGB(150, 50, 50)
+    close.Text = "Close"
+    close.Font = Enum.Font.GothamBold
+    close.TextSize = 11
+    close.TextColor3 = Color3.new(1, 1, 1)
+    Instance.new("UICorner", close).CornerRadius = UDim.new(0, 6)
+
+    -- lock view
+    local lock = Mk("Frame", panel)
+    lock.Size = UDim2.new(1, -24, 1, -44)
+    lock.Position = UDim2.new(0, 12, 0, 38)
+    lock.BackgroundTransparency = 1
+    local lt = Mk("TextLabel", lock)
+    lt.Size = UDim2.new(1, 0, 0, 56)
+    lt.BackgroundTransparency = 1
+    lt.Text = "This shows private details of your account (ID, backpack, position...). To open it, type your Display name exactly as it is in Roblox."
+    lt.Font = Enum.Font.Gotham
+    lt.TextSize = 11
+    lt.TextColor3 = Color3.fromRGB(200, 200, 208)
+    lt.TextWrapped = true
+    lt.TextXAlignment = Enum.TextXAlignment.Left
+    lt.TextYAlignment = Enum.TextYAlignment.Top
+    local box = Mk("TextBox", lock)
+    box.Size = UDim2.new(1, -90, 0, 30)
+    box.Position = UDim2.new(0, 0, 0, 62)
+    box.BackgroundColor3 = Color3.fromRGB(35, 35, 42)
+    box.PlaceholderText = "Your Display name"
+    box.PlaceholderColor3 = Color3.fromRGB(120, 120, 130)
+    box.Text = ""
+    box.ClearTextOnFocus = false
+    box.Font = Enum.Font.Gotham
+    box.TextSize = 13
+    box.TextColor3 = Color3.new(1, 1, 1)
+    Instance.new("UICorner", box).CornerRadius = UDim.new(0, 6)
+    local go = Mk("TextButton", lock)
+    go.Size = UDim2.new(0, 80, 0, 30)
+    go.Position = UDim2.new(1, -80, 0, 62)
+    go.BackgroundColor3 = Color3.fromRGB(40, 140, 200)
+    go.Text = "Unlock"
+    go.Font = Enum.Font.GothamBold
+    go.TextSize = 12
+    go.TextColor3 = Color3.new(1, 1, 1)
+    Instance.new("UICorner", go).CornerRadius = UDim.new(0, 6)
+    local msg = Mk("TextLabel", lock)
+    msg.Size = UDim2.new(1, 0, 0, 18)
+    msg.Position = UDim2.new(0, 0, 0, 98)
+    msg.BackgroundTransparency = 1
+    msg.Text = ""
+    msg.Font = Enum.Font.Gotham
+    msg.TextSize = 11
+    msg.TextColor3 = Color3.fromRGB(255, 130, 130)
+    msg.TextXAlignment = Enum.TextXAlignment.Left
+
+    -- info view
+    local view = Mk("Frame", panel)
+    view.Size = UDim2.new(1, -24, 1, -44)
+    view.Position = UDim2.new(0, 12, 0, 38)
+    view.BackgroundTransparency = 1
+    view.Visible = false
+    -- picker: Me + every player in the server
+    local pick = Mk("ScrollingFrame", view)
+    pick.Size = UDim2.new(1, 0, 0, 26)
+    pick.BackgroundTransparency = 1
+    pick.BorderSizePixel = 0
+    pick.ScrollBarThickness = 0
+    pick.CanvasSize = UDim2.new(0, 0, 0, 0)
+    pick.AutomaticCanvasSize = Enum.AutomaticSize.X
+    local pl = Instance.new("UIListLayout", pick)
+    pl.FillDirection = Enum.FillDirection.Horizontal
+    pl.Padding = UDim.new(0, 4)
+    pl.SortOrder = Enum.SortOrder.LayoutOrder
+    local chipKey = ""
+    local function Chips()
+        local P = game:GetService("Players")
+        local list = P:GetPlayers()
+        local names = {}
+        for _, p in ipairs(list) do names[#names + 1] = p.UserId .. p.DisplayName end
+        local key = table.concat(names, "|") .. "#" .. tostring(DHInfo.Target and DHInfo.Target.UserId or 0)
+        if key == chipKey then return end
+        chipKey = key
+        for _, c in ipairs(pick:GetChildren()) do
+            if c:IsA("TextButton") then c:Destroy() end
+        end
+        local function Chip(text, target, order)
+            local b = Mk("TextButton", pick)
+            b.LayoutOrder = order
+            b.Size = UDim2.new(0, math.max(44, #text * 7 + 16), 0, 24)
+            b.BackgroundColor3 = (DHInfo.Target == target) and Color3.fromRGB(40, 130, 120) or Color3.fromRGB(38, 38, 48)
+            b.Text = text
+            b.Font = Enum.Font.GothamBold
+            b.TextSize = 11
+            b.TextColor3 = Color3.new(1, 1, 1)
+            Instance.new("UICorner", b).CornerRadius = UDim.new(0, 6)
+            b.MouseButton1Click:Connect(function()
+                DHInfo.Target = target
+                chipKey = ""
+                if DHInfo.Update then DHInfo.Update() end
+            end)
+        end
+        Chip("Me", nil, 0)
+        local me = P.LocalPlayer
+        for i, p in ipairs(list) do
+            if p ~= me then Chip(p.DisplayName, p, i) end
+        end
+    end
+    local sc = Mk("ScrollingFrame", view)
+    sc.Position = UDim2.new(0, 0, 0, 30)
+    sc.Size = UDim2.new(1, 0, 1, -62)
+    sc.BackgroundColor3 = Color3.fromRGB(28, 28, 34)
+    sc.BorderSizePixel = 0
+    sc.ScrollBarThickness = 3
+    sc.CanvasSize = UDim2.new(0, 0, 0, 0)
+    sc.AutomaticCanvasSize = Enum.AutomaticSize.Y
+    Instance.new("UICorner", sc).CornerRadius = UDim.new(0, 8)
+    local txt = Mk("TextLabel", sc)
+    txt.Size = UDim2.new(1, -12, 0, 0)
+    txt.Position = UDim2.new(0, 6, 0, 4)
+    txt.AutomaticSize = Enum.AutomaticSize.Y
+    txt.BackgroundTransparency = 1
+    txt.Text = ""
+    txt.Font = Enum.Font.Gotham
+    txt.TextSize = 12
+    txt.TextColor3 = Color3.new(1, 1, 1)
+    txt.TextWrapped = true
+    txt.RichText = true
+    txt.TextXAlignment = Enum.TextXAlignment.Left
+    txt.TextYAlignment = Enum.TextYAlignment.Top
+    local copy = Mk("TextButton", view)
+    copy.Size = UDim2.new(0, 90, 0, 26)
+    copy.Position = UDim2.new(0, 0, 1, -26)
+    copy.BackgroundColor3 = Color3.fromRGB(40, 130, 120)
+    copy.Text = "Copy All"
+    copy.Font = Enum.Font.GothamBold
+    copy.TextSize = 11
+    copy.TextColor3 = Color3.new(1, 1, 1)
+    Instance.new("UICorner", copy).CornerRadius = UDim.new(0, 6)
+    local note = Mk("TextLabel", view)
+    note.Size = UDim2.new(1, -100, 0, 26)
+    note.Position = UDim2.new(0, 98, 1, -26)
+    note.BackgroundTransparency = 1
+    note.Text = "Updates every second. Others: only what you can see."
+    note.Font = Enum.Font.Gotham
+    note.TextSize = 10
+    note.TextColor3 = Color3.fromRGB(130, 130, 140)
+    note.TextXAlignment = Enum.TextXAlignment.Left
+
+    local function Refresh()
+        pcall(Chips)
+        pcall(DHInfo.Render)
+        txt.Text = DHInfo.Text
+    end
+    DHInfo.Update = Refresh
+    local function Loop()
+        task.spawn(function()
+            while panel.Visible and view.Visible and panel.Parent do
+                Refresh()
+                task.wait(1)
+            end
+        end)
+    end
+    local function ShowView()
+        lock.Visible = false
+        view.Visible = true
+        Refresh()
+        Loop()
+    end
+    local function Norm(s)
+        s = string.gsub(tostring(s), "^%s+", "")
+        s = string.gsub(s, "%s+$", "")
+        return string.lower(s)
+    end
+    local function TryUnlock()
+        local me = game:GetService("Players").LocalPlayer
+        if Norm(box.Text) ~= "" and Norm(box.Text) == Norm(me.DisplayName) then
+            DHInfo.Unlocked = true
+            box.Text = ""
+            msg.Text = ""
+            ShowView()
+        else
+            msg.Text = "That is not your Display name. Try again."
+        end
+    end
+    go.MouseButton1Click:Connect(TryUnlock)
+    box.FocusLost:Connect(function(enter) if enter then TryUnlock() end end)
+    copy.MouseButton1Click:Connect(function()
+        if setclipboard then pcall(setclipboard, DHInfo.Plain) end
+        copy.Text = "Copied"
+        task.delay(1, function() if copy.Parent then copy.Text = "Copy All" end end)
+    end)
+    close.MouseButton1Click:Connect(function() panel.Visible = false end)
+    open.MouseButton1Click:Connect(function()
+        panel.Visible = true
+        if DHInfo.Unlocked then ShowView() else lock.Visible = true view.Visible = false end
+    end)
+end
+
+pcall(DHInfo.Build)
 
 -- ================================================
 -- MOVE BUTTON (Setting tab): move, resize or hide game buttons
