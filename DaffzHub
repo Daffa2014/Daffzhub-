@@ -23675,6 +23675,322 @@ DHTr.Load()
 pcall(DHTr.Build)
 
 -- ================================================
+-- TRANSLATE TAB v2: two views. Settings (switch + language) and Translate (comment style list with History + Clear).
+-- Typed texts and their translations are saved in Daffzhub_file/TranslateHistory.json (max 40, only on your device).
+-- This block rebuilds the tab built above.
+-- ================================================
+DHTr.HistPath = "Daffzhub_file/TranslateHistory.json"
+DHTr.Hist = {}
+
+function DHTr.HistLoad()
+    pcall(function()
+        if not (isfile and readfile and isfile(DHTr.HistPath)) then return end
+        local d = game:GetService("HttpService"):JSONDecode(readfile(DHTr.HistPath))
+        if type(d) ~= "table" then return end
+        local out = {}
+        for _, e in ipairs(d) do
+            if type(e) == "table" and type(e.o) == "string" and type(e.t) == "string" then
+                out[#out + 1] = {o = string.sub(e.o, 1, 300), t = string.sub(e.t, 1, 600), l = type(e.l) == "string" and e.l or "?"}
+            end
+        end
+        while #out > 40 do table.remove(out, 1) end
+        DHTr.Hist = out
+    end)
+end
+
+function DHTr.HistSave()
+    pcall(function()
+        if not (writefile and makefolder and isfolder) then return end
+        if not isfolder("Daffzhub_file") then makefolder("Daffzhub_file") end
+        writefile(DHTr.HistPath, game:GetService("HttpService"):JSONEncode(DHTr.Hist))
+    end)
+end
+
+function DHTr.Build2()
+    for _, c in ipairs(TransContent:GetChildren()) do pcall(function() c:Destroy() end) end
+    local Content = TransContent
+    local GRAY = Color3.fromRGB(150, 150, 160)
+    local ACC = DHTr.Accent
+
+    local function Lbl(parent, text, size, color, bold)
+        local l = Instance.new("TextLabel", parent)
+        l.BackgroundTransparency = 1
+        l.Font = bold and Enum.Font.GothamBold or Enum.Font.Gotham
+        l.TextSize = size
+        l.TextColor3 = color
+        l.TextXAlignment = Enum.TextXAlignment.Left
+        l.TextYAlignment = Enum.TextYAlignment.Top
+        l.TextWrapped = true
+        l.Text = text
+        return l
+    end
+    local function Btn(parent, text, w, h)
+        local b = Instance.new("TextButton", parent)
+        b.Size = UDim2.new(0, w, 0, h)
+        b.BackgroundColor3 = Color3.fromRGB(30, 30, 40)
+        b.Font = Enum.Font.GothamBold
+        b.TextSize = 11
+        b.TextColor3 = Color3.new(1, 1, 1)
+        b.Text = text
+        Instance.new("UICorner", b).CornerRadius = UDim.new(0, 6)
+        return b
+    end
+
+    -- ---------- top: view switch ----------
+    local vSet = Btn(Content, "Settings", 90, 26)
+    vSet.Position = UDim2.new(0, 10, 0, 4)
+    local vTr = Btn(Content, "Translate", 90, 26)
+    vTr.Position = UDim2.new(0, 104, 0, 4)
+    local SetView = Instance.new("Frame", Content)
+    SetView.Size = UDim2.new(1, 0, 1, -34)
+    SetView.Position = UDim2.new(0, 0, 0, 34)
+    SetView.BackgroundTransparency = 1
+    local TrView = Instance.new("Frame", Content)
+    TrView.Size = UDim2.new(1, 0, 1, -34)
+    TrView.Position = UDim2.new(0, 0, 0, 34)
+    TrView.BackgroundTransparency = 1
+    local function Pick(which)
+        SetView.Visible = which == "set"
+        TrView.Visible = which == "tr"
+        vSet.BackgroundColor3 = which == "set" and Color3.fromRGB(40, 130, 120) or Color3.fromRGB(30, 30, 40)
+        vTr.BackgroundColor3 = which == "tr" and Color3.fromRGB(40, 130, 120) or Color3.fromRGB(30, 30, 40)
+    end
+    vSet.MouseButton1Click:Connect(function() Pick("set") end)
+    vTr.MouseButton1Click:Connect(function() Pick("tr") end)
+
+    -- ================= SETTINGS VIEW =================
+    local r1 = Instance.new("Frame", SetView)
+    r1.Size = UDim2.new(1, -20, 0, 40)
+    r1.Position = UDim2.new(0, 10, 0, 2)
+    r1.BackgroundColor3 = Color3.fromRGB(25, 25, 30)
+    Instance.new("UICorner", r1).CornerRadius = UDim.new(0, 8)
+    local t1 = Lbl(r1, "Auto-translate received messages", 12, Color3.new(1, 1, 1), true)
+    t1.Size = UDim2.new(1, -90, 0, 18)
+    t1.Position = UDim2.new(0, 10, 0, 4)
+    local s1 = Lbl(r1, "Chat messages from others get a translation under them.", 9, GRAY)
+    s1.Size = UDim2.new(1, -90, 0, 14)
+    s1.Position = UDim2.new(0, 10, 0, 22)
+    local OnBtn = Btn(r1, "OFF", 60, 26)
+    OnBtn.Position = UDim2.new(1, -70, 0.5, -13)
+    local function PaintOn()
+        OnBtn.Text = DHTr.On and "ON" or "OFF"
+        OnBtn.BackgroundColor3 = DHTr.On and Color3.fromRGB(30, 180, 30) or Color3.fromRGB(180, 30, 30)
+    end
+    OnBtn.MouseButton1Click:Connect(function()
+        if DHTr.On then
+            DHTr.On = false
+            DHTr.Queue = {}
+            DHTr.Save()
+            PaintOn()
+        elseif DHTr.Consented then
+            DHTr.On = true
+            DHTr.Save()
+            PaintOn()
+        else
+            ShowConfirmPopup("Received messages are sent to a translate service. Turn on?", ACC, function()
+                DHTr.Consented = true
+                DHTr.On = true
+                DHTr.Save()
+                PaintOn()
+            end)
+        end
+    end)
+    PaintOn()
+
+    local langTitle = Lbl(SetView, "Translate to: " .. DHTr.LangName(DHTr.Lang), 11, ACC, true)
+    langTitle.Size = UDim2.new(1, -20, 0, 16)
+    langTitle.Position = UDim2.new(0, 12, 0, 48)
+    local grid = Instance.new("ScrollingFrame", SetView)
+    grid.Size = UDim2.new(1, -20, 0, 110)
+    grid.Position = UDim2.new(0, 10, 0, 66)
+    grid.BackgroundColor3 = Color3.fromRGB(25, 25, 30)
+    grid.BorderSizePixel = 0
+    grid.ScrollBarThickness = 2
+    grid.CanvasSize = UDim2.new(0, 0, 0, 0)
+    grid.AutomaticCanvasSize = Enum.AutomaticSize.Y
+    Instance.new("UICorner", grid).CornerRadius = UDim.new(0, 8)
+    local gl = Instance.new("UIGridLayout", grid)
+    gl.CellSize = UDim2.new(0, 108, 0, 24)
+    gl.CellPadding = UDim2.new(0, 4, 0, 4)
+    gl.SortOrder = Enum.SortOrder.LayoutOrder
+    local gp = Instance.new("UIPadding", grid)
+    gp.PaddingTop = UDim.new(0, 4)
+    gp.PaddingLeft = UDim.new(0, 6)
+    gp.PaddingBottom = UDim.new(0, 4)
+    local langBtns = {}
+    local function PaintLang()
+        langTitle.Text = "Translate to: " .. DHTr.LangName(DHTr.Lang)
+        for code, b in pairs(langBtns) do
+            b.BackgroundColor3 = code == DHTr.Lang and Color3.fromRGB(40, 130, 120) or Color3.fromRGB(35, 35, 45)
+        end
+    end
+    for i, l in ipairs(DHTr.Langs) do
+        local b = Btn(grid, l[2], 108, 24)
+        b.LayoutOrder = i
+        langBtns[l[1]] = b
+        b.MouseButton1Click:Connect(function()
+            DHTr.Lang = l[1]
+            DHTr.Save()
+            PaintLang()
+        end)
+    end
+    PaintLang()
+    DHTr.Info = Lbl(SetView, "Free translate service. Quality is basic. Names and slang may be wrong.", 9, GRAY)
+    DHTr.Info.Size = UDim2.new(1, -24, 0, 24)
+    DHTr.Info.Position = UDim2.new(0, 12, 0, 182)
+
+    -- ================= TRANSLATE VIEW (comment style) =================
+    local list = Instance.new("ScrollingFrame", TrView)
+    list.Size = UDim2.new(1, -20, 1, -74)
+    list.Position = UDim2.new(0, 10, 0, 0)
+    list.BackgroundColor3 = Color3.fromRGB(24, 24, 28)
+    list.BorderSizePixel = 0
+    list.ScrollBarThickness = 2
+    list.CanvasSize = UDim2.new(0, 0, 0, 0)
+    list.AutomaticCanvasSize = Enum.AutomaticSize.Y
+    Instance.new("UICorner", list).CornerRadius = UDim.new(0, 8)
+    local ll = Instance.new("UIListLayout", list)
+    ll.SortOrder = Enum.SortOrder.LayoutOrder
+    ll.Padding = UDim.new(0, 5)
+    local lp = Instance.new("UIPadding", list)
+    lp.PaddingTop = UDim.new(0, 5)
+    lp.PaddingBottom = UDim.new(0, 5)
+    lp.PaddingLeft = UDim.new(0, 5)
+    lp.PaddingRight = UDim.new(0, 5)
+    local empty = Lbl(list, "Your translations show up here like comments (History).", 11, Color3.fromRGB(110, 110, 120))
+    empty.Size = UDim2.new(1, 0, 0, 30)
+    empty.LayoutOrder = 0
+
+    local n = 0
+    local function ToBottom()
+        task.defer(function()
+            pcall(function() list.CanvasPosition = Vector2.new(0, 100000) end)
+        end)
+    end
+    local function AddEntry(e)
+        n = n + 1
+        empty.Visible = false
+        local row = Instance.new("Frame", list)
+        row.LayoutOrder = n
+        row.Size = UDim2.new(1, 0, 0, 0)
+        row.AutomaticSize = Enum.AutomaticSize.Y
+        row.BackgroundColor3 = Color3.fromRGB(34, 34, 42)
+        row.BorderSizePixel = 0
+        Instance.new("UICorner", row).CornerRadius = UDim.new(0, 8)
+        local pad = Instance.new("UIPadding", row)
+        pad.PaddingTop = UDim.new(0, 4)
+        pad.PaddingBottom = UDim.new(0, 5)
+        pad.PaddingLeft = UDim.new(0, 8)
+        pad.PaddingRight = UDim.new(0, 8)
+        local rl = Instance.new("UIListLayout", row)
+        rl.SortOrder = Enum.SortOrder.LayoutOrder
+        rl.Padding = UDim.new(0, 2)
+        local head = Instance.new("Frame", row)
+        head.Size = UDim2.new(1, 0, 0, 16)
+        head.BackgroundTransparency = 1
+        head.LayoutOrder = 1
+        local o = Lbl(head, e.o, 10, GRAY)
+        o.Size = UDim2.new(1, -46, 1, 0)
+        o.TextTruncate = Enum.TextTruncate.AtEnd
+        o.TextWrapped = false
+        o.RichText = false
+        local cp = Btn(head, "Copy", 40, 14)
+        cp.AnchorPoint = Vector2.new(1, 0.5)
+        cp.Position = UDim2.new(1, 0, 0.5, 0)
+        cp.TextSize = 9
+        cp.MouseButton1Click:Connect(function()
+            if setclipboard then pcall(setclipboard, e.t) end
+            cp.Text = "Copied"
+            task.delay(1, function() if cp.Parent then cp.Text = "Copy" end end)
+        end)
+        local tt = Lbl(row, e.t, 12, Color3.new(1, 1, 1))
+        tt.Size = UDim2.new(1, 0, 0, 0)
+        tt.AutomaticSize = Enum.AutomaticSize.Y
+        tt.LayoutOrder = 2
+        tt.RichText = false
+        local lg = Lbl(row, "to " .. DHTr.LangName(e.l), 9, ACC)
+        lg.Size = UDim2.new(1, 0, 0, 11)
+        lg.LayoutOrder = 3
+    end
+    for _, e in ipairs(DHTr.Hist) do AddEntry(e) end
+    ToBottom()
+
+    local box = Instance.new("TextBox", TrView)
+    box.Size = UDim2.new(1, -100, 0, 28)
+    box.Position = UDim2.new(0, 10, 1, -66)
+    box.BackgroundColor3 = Color3.fromRGB(30, 30, 38)
+    box.PlaceholderText = "Type text to translate..."
+    box.PlaceholderColor3 = Color3.fromRGB(120, 120, 130)
+    box.Text = ""
+    box.ClearTextOnFocus = false
+    box.Font = Enum.Font.Gotham
+    box.TextSize = 12
+    box.TextColor3 = Color3.new(1, 1, 1)
+    box.TextXAlignment = Enum.TextXAlignment.Left
+    Instance.new("UICorner", box).CornerRadius = UDim.new(0, 6)
+    local go = Btn(TrView, "Translate", 74, 28)
+    go.Position = UDim2.new(1, -84, 1, -66)
+    go.BackgroundColor3 = Color3.fromRGB(40, 130, 120)
+    local clear = Btn(TrView, "Clear history", 90, 24)
+    clear.Position = UDim2.new(0, 10, 1, -34)
+    clear.BackgroundColor3 = Color3.fromRGB(150, 50, 50)
+    local stat = Lbl(TrView, "", 10, GRAY)
+    stat.Size = UDim2.new(1, -120, 0, 24)
+    stat.Position = UDim2.new(0, 108, 1, -34)
+    stat.TextYAlignment = Enum.TextYAlignment.Center
+    DHTr.Info2 = stat
+
+    local busy = false
+    local function Go()
+        local text = string.gsub(box.Text, "^%s+", "")
+        text = string.gsub(text, "%s+$", "")
+        if busy or text == "" then return end
+        if not DHTr.Consented then
+            stat.Text = "Turn on Auto-translate once (Settings) to agree."
+            stat.TextColor3 = Color3.fromRGB(255, 200, 100)
+            return
+        end
+        text = string.sub(text, 1, 300)
+        busy = true
+        stat.Text = "Translating..."
+        stat.TextColor3 = GRAY
+        task.spawn(function()
+            DHTr.Ask(text, function(t, src)
+                if t then
+                    local e = {o = text, t = t, l = DHTr.Lang}
+                    DHTr.Hist[#DHTr.Hist + 1] = e
+                    while #DHTr.Hist > 40 do table.remove(DHTr.Hist, 1) end
+                    DHTr.HistSave()
+                    AddEntry(e)
+                    ToBottom()
+                    box.Text = ""
+                    stat.Text = ""
+                else
+                    stat.Text = "Error: " .. tostring(src)
+                    stat.TextColor3 = Color3.fromRGB(255, 130, 130)
+                end
+            end)
+            busy = false
+        end)
+    end
+    go.MouseButton1Click:Connect(Go)
+    box.FocusLost:Connect(function(enter) if enter then Go() end end)
+    clear.MouseButton1Click:Connect(function()
+        if #DHTr.Hist == 0 then return end
+        ShowConfirmPopup("Delete the whole translation history?", Color3.fromRGB(200, 70, 70), function()
+            DHTr.Hist = {}
+            DHTr.HistSave()
+            DHTr.Build2()
+        end)
+    end)
+
+    Pick("tr")
+end
+
+DHTr.HistLoad()
+pcall(DHTr.Build2)
+
+-- ================================================
 -- MODS TAB (part 2): Float, Infinite Jump, Noclip (built in, safe on respawn)
 -- ================================================
 DHMods.N = 0
