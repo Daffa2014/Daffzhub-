@@ -455,7 +455,7 @@ TabFrame.BackgroundColor3 = Color3.fromRGB(20,20,20)
 TabFrame.BorderSizePixel = 0
 TabFrame.ScrollBarThickness = 1
 TabFrame.ScrollBarImageColor3 = Color3.fromRGB(60,60,60)
-TabFrame.CanvasSize = UDim2.new(0, 0, 0, 1010)
+TabFrame.CanvasSize = UDim2.new(0, 0, 0, 1060)
 Instance.new("UICorner", TabFrame).CornerRadius = UDim.new(0, 12)
 
 CheckLoadingHalt()
@@ -3437,6 +3437,243 @@ DHDet.Load()
 DHDet.Refresh()
 if DHDet.On then DHDet.Set(true) end
 
+-- ================================================
+-- STAFF BADGES (part 2 of DaffzHub users): OWNER = shimmering red, ADMIN = shimmering yellow
+-- The badge is given by the DaffzHub server only when it receives a valid staff key.
+-- The key is saved in Daffzhub_file/Detect.json on your device. Without a valid key nothing changes.
+-- ================================================
+DHRole = {
+    Reg = {}, Running = false,
+    Owner = {Color3.fromRGB(255, 40, 40), Color3.fromRGB(255, 160, 160)},
+    Admin = {Color3.fromRGB(255, 205, 0), Color3.fromRGB(255, 248, 170)},
+}
+
+function DHRole.Valid(r) return r == "owner" or r == "admin" end
+function DHRole.Tag(r) return r == "owner" and "[OWNER] " or (r == "admin" and "[ADMIN] " or "") end
+function DHRole.Word(r) return r == "owner" and "OWNER" or "ADMIN" end
+
+-- the colour right now (it slides between a dark and a light shade = shimmer)
+function DHRole.Shade(r)
+    local pair = r == "owner" and DHRole.Owner or DHRole.Admin
+    local t = (math.sin(os.clock() * 4) + 1) / 2
+    return pair[1]:Lerp(pair[2], t)
+end
+
+-- make one property of one object shimmer (stops by itself when the object is destroyed)
+function DHRole.Fx(obj, r, prop)
+    if not DHRole.Valid(r) or not obj then return end
+    prop = prop or "TextColor3"
+    pcall(function() obj[prop] = DHRole.Shade(r) end)
+    if #DHRole.Reg > 400 then return end
+    DHRole.Reg[#DHRole.Reg + 1] = {obj = obj, role = r, prop = prop}
+    if DHRole.Running then return end
+    DHRole.Running = true
+    task.spawn(function()
+        while #DHRole.Reg > 0 do
+            task.wait(0.1)
+            local keep = {}
+            for _, e in ipairs(DHRole.Reg) do
+                if e.obj and e.obj.Parent then
+                    pcall(function() e.obj[e.prop] = DHRole.Shade(e.role) end)
+                    keep[#keep + 1] = e
+                end
+            end
+            DHRole.Reg = keep
+        end
+        DHRole.Running = false
+    end)
+end
+
+-- small badge in front of a name inside the head row of a chat bubble
+function DHRole.Pill(head, nm, r)
+    if not DHRole.Valid(r) then return end
+    local p = Instance.new("TextLabel", head)
+    p.Size = UDim2.new(0, 40, 0, 13)
+    p.Position = UDim2.new(0, 0, 0.5, -6)
+    p.Text = DHRole.Word(r)
+    p.Font = Enum.Font.GothamBold
+    p.TextSize = 9
+    p.TextColor3 = Color3.fromRGB(20, 20, 20)
+    p.BorderSizePixel = 0
+    Instance.new("UICorner", p).CornerRadius = UDim.new(0, 4)
+    DHRole.Fx(p, r, "BackgroundColor3")
+    nm.Position = UDim2.new(0, 44, 0, 0)
+    nm.Size = UDim2.new(1, -88, 1, 0)
+    DHRole.Fx(nm, r)
+end
+
+DHDet.Key = ""
+DHDet.Roles = {}
+DHDet.MyRole = nil
+
+-- colour of a detected user (ESP, lists): staff shimmer, everyone else purple
+function DHDet.ColorFor(uid)
+    local r = DHDet.Roles[uid]
+    if DHRole.Valid(r) then return DHRole.Shade(r) end
+    return DHDet.Color
+end
+
+function DHDet.Load()
+    pcall(function()
+        if not (isfile and readfile and isfile(DHDet.Path)) then return end
+        local d = game:GetService("HttpService"):JSONDecode(readfile(DHDet.Path))
+        if type(d) ~= "table" then return end
+        DHDet.Consented = d.consent == 1
+        DHDet.On = DHDet.Consented and d.on == true
+        if type(d.key) == "string" then DHDet.Key = string.sub(d.key, 1, 100) end
+    end)
+end
+
+function DHDet.Save()
+    pcall(function()
+        if not (writefile and makefolder and isfolder) then return end
+        if not isfolder("Daffzhub_file") then makefolder("Daffzhub_file") end
+        writefile(DHDet.Path, game:GetService("HttpService"):JSONEncode({
+            consent = DHDet.Consented and 1 or 0, on = DHDet.On, key = DHDet.Key,
+        }))
+    end)
+end
+
+function DHDet.Refresh()
+    if not DHDet.Box then return end
+    for _, c in ipairs(DHDet.Box:GetChildren()) do
+        if c:IsA("Frame") then c:Destroy() end
+    end
+    local list = {}
+    for uid in pairs(DHDet.Users) do
+        local plr = Players:GetPlayerByUserId(uid)
+        if plr then list[#list + 1] = plr end
+    end
+    DHSortPlayers(list)
+    DHDet.Empty.Visible = (#list == 0)
+    if DHDet.On then
+        DHDet.Status.Text = "On | " .. #list .. " DaffzHub user" .. (#list == 1 and "" or "s") .. " here (they can see you too)"
+    else
+        DHDet.Status.Text = "Off"
+    end
+    for i, plr in ipairs(list) do
+        local role = DHDet.Roles[plr.UserId]
+        local row = Instance.new("Frame", DHDet.Box)
+        row.LayoutOrder = i
+        row.Size = UDim2.new(1, 0, 0, 24)
+        row.BackgroundTransparency = 1
+        local nm = Instance.new("TextLabel", row)
+        nm.Size = UDim2.new(0.7, 0, 1, 0)
+        nm.BackgroundTransparency = 1
+        nm.Text = DHRole.Tag(role) .. (DHExp and DHExp.Name and DHExp.Name(plr) or plr.Name)
+        nm.Font = Enum.Font.GothamBold
+        nm.TextSize = 11
+        nm.TextColor3 = DHDet.Color
+        nm.TextXAlignment = Enum.TextXAlignment.Left
+        nm.TextTruncate = Enum.TextTruncate.AtEnd
+        if DHRole.Valid(role) then DHRole.Fx(nm, role) end
+        local tg = Instance.new("TextLabel", row)
+        tg.Position = UDim2.new(0.7, 0, 0, 0)
+        tg.Size = UDim2.new(0.3, 0, 1, 0)
+        tg.BackgroundTransparency = 1
+        tg.Text = "DaffzHub"
+        tg.Font = Enum.Font.Code
+        tg.TextSize = 10
+        tg.TextColor3 = Color3.fromRGB(180, 180, 180)
+        tg.TextXAlignment = Enum.TextXAlignment.Right
+    end
+end
+
+function DHDet.Ping()
+    if DHDet.Busy then return end
+    DHDet.Busy = true
+    local name = Player.DisplayName
+    if name == nil or name == "" then name = Player.Name end
+    local data, err = DHDet.Call({action = "presence", room = DHDet.Room(), uid = Player.UserId, name = name, key = (DHDet.Key ~= "" and DHDet.Key or nil)})
+    DHDet.Busy = false
+    if not data then
+        if DHDet.Status then DHDet.Status.Text = "On | " .. tostring(err) end
+        return
+    end
+    local users, roles, mine = {}, {}, nil
+    if type(data.users) == "table" then
+        for _, u in ipairs(data.users) do
+            if type(u) == "table" and type(u.uid) == "number" and type(u.name) == "string" then
+                if u.uid == Player.UserId then
+                    if DHRole.Valid(u.role) then mine = u.role end
+                else
+                    users[u.uid] = u.name
+                    if DHRole.Valid(u.role) then roles[u.uid] = u.role end
+                end
+            end
+        end
+    end
+    DHDet.Users, DHDet.Roles, DHDet.MyRole = users, roles, mine
+    if DHDet.KeyInfo then
+        DHDet.KeyInfo.Text = mine and ("Staff badge active: " .. DHRole.Word(mine)) or (DHDet.Key ~= "" and "Key not accepted (or turn Detect ON first)" or "No staff key")
+    end
+    for uid in pairs(users) do
+        local plr = Players:GetPlayerByUserId(uid)
+        if plr and not DHDet.Told[uid] then
+            DHDet.Told[uid] = true
+            if DHAlertToast then
+                pcall(DHAlertToast, "DaffzHub " .. (roles[uid] and (DHRole.Word(roles[uid]) .. " ") or "user ") .. "detected: " .. plr.DisplayName .. " (@" .. plr.Name .. ")", roles[uid] and DHRole.Shade(roles[uid]) or DHDet.Color, 20)
+            end
+        end
+    end
+    for uid in pairs(DHDet.Told) do
+        if not users[uid] then DHDet.Told[uid] = nil end
+    end
+    DHDet.Refresh()
+end
+
+-- UI (Info tab): staff key
+do
+    local row = Instance.new("Frame", InfoScroll)
+    row.Size = UDim2.new(1, 0, 0, 52)
+    row.BackgroundColor3 = Color3.fromRGB(25, 25, 25)
+    Instance.new("UICorner", row).CornerRadius = UDim.new(0, 10)
+    local box = Instance.new("TextBox", row)
+    box.Size = UDim2.new(1, -90, 0, 26)
+    box.Position = UDim2.new(0, 10, 0, 4)
+    box.BackgroundColor3 = Color3.fromRGB(35, 35, 40)
+    box.PlaceholderText = "Staff key (only for Owner/Admin)"
+    box.Text = ""
+    box.ClearTextOnFocus = false
+    box.Font = Enum.Font.Code
+    box.TextSize = 11
+    box.TextColor3 = Color3.new(1, 1, 1)
+    box.PlaceholderColor3 = Color3.fromRGB(120, 120, 120)
+    Instance.new("UICorner", box).CornerRadius = UDim.new(0, 6)
+    local save = Instance.new("TextButton", row)
+    save.Size = UDim2.new(0, 60, 0, 26)
+    save.Position = UDim2.new(1, -70, 0, 4)
+    save.BackgroundColor3 = Color3.fromRGB(40, 140, 200)
+    save.Text = "Save"
+    save.Font = Enum.Font.GothamBold
+    save.TextSize = 12
+    save.TextColor3 = Color3.new(1, 1, 1)
+    Instance.new("UICorner", save).CornerRadius = UDim.new(0, 6)
+    DHDet.KeyInfo = Instance.new("TextLabel", row)
+    DHDet.KeyInfo.Size = UDim2.new(1, -20, 0, 16)
+    DHDet.KeyInfo.Position = UDim2.new(0, 10, 0, 33)
+    DHDet.KeyInfo.BackgroundTransparency = 1
+    DHDet.KeyInfo.Font = Enum.Font.Gotham
+    DHDet.KeyInfo.TextSize = 10
+    DHDet.KeyInfo.TextColor3 = Color3.fromRGB(140, 140, 140)
+    DHDet.KeyInfo.TextXAlignment = Enum.TextXAlignment.Left
+    DHDet.KeyInfo.Text = "No staff key"
+    save.MouseButton1Click:Connect(function()
+        local k = string.gsub(box.Text, "%s", "")
+        DHDet.Key = string.sub(k, 1, 100)
+        box.Text = ""
+        DHDet.Save()
+        DHDet.KeyInfo.Text = DHDet.Key ~= "" and "Key saved. Checking..." or "Key removed"
+        if DHDet.Key == "" then DHDet.MyRole = nil end
+        if DHDet.On then task.spawn(function() pcall(DHDet.Ping) end) end
+    end)
+    if DHDet.Key ~= "" then DHDet.KeyInfo.Text = "Key saved (turn Detect ON to check it)" end
+end
+
+DHDet.Load()
+if DHDet.Key ~= "" and DHDet.KeyInfo then DHDet.KeyInfo.Text = "Key saved (turn Detect ON to check it)" end
+
+
 -- PLAYER LIST SECTION
 CreateSectionLabel("PLAYER LIST")
 
@@ -4074,6 +4311,10 @@ local function updatePlayerList(search)
             if DHDet and DHDet.Users and DHDet.Users[p.UserId] then
                 displayLabel.TextColor3 = DHDet.Color
                 avatar.BackgroundColor3 = DHDet.Color
+                if DHRole and DHDet.Roles[p.UserId] then
+                    displayLabel.Text = DHRole.Tag(DHDet.Roles[p.UserId]) .. p.DisplayName
+                    DHRole.Fx(displayLabel, DHDet.Roles[p.UserId])
+                end
             end
         end
     end
@@ -18112,7 +18353,7 @@ function BuildESP()
     local function ColorOf(plr)
         if typeof(plr) == "Instance" and not plr:IsA("Player") then return cfg.NpcColor end
         if DHExp and DHExp.Flagged and DHExp.Flagged[plr] then return Color3.fromRGB(255, 0, 255) end
-        if DHDet and DHDet.Users and DHDet.Users[plr.UserId] then return DHDet.Color end
+        if DHDet and DHDet.Users and DHDet.Users[plr.UserId] then return DHDet.ColorFor(plr.UserId) end
         if plr.Team then return plr.TeamColor.Color end
         return cfg.DefaultColor
     end
@@ -18248,6 +18489,9 @@ function BuildESP()
 
         tag.Adornee = adornee
         st.nameLabel.Text = (typeof(plr) == "Instance" and plr:IsA("Player")) and plr.DisplayName or plr.Name
+        if DHDet and DHDet.Roles and typeof(plr) == "Instance" and plr:IsA("Player") and DHDet.Roles[plr.UserId] then
+            st.nameLabel.Text = DHRole.Tag(DHDet.Roles[plr.UserId]) .. st.nameLabel.Text
+        end
         st.nameLabel.TextColor3 = color
         st.distLabel.Visible = showDist == true
         if showDist then
@@ -22630,7 +22874,7 @@ function DHMsg.Build()
     local OnBtn = Btn(Content, "OFF", 52, 24)
     OnBtn.Position = UDim2.new(0, 10, 0, 34)
     local status = Instance.new("TextLabel", Content)
-    status.Size = UDim2.new(1, -208, 0, 24)
+    status.Size = UDim2.new(1, -250, 0, 24)
     status.Position = UDim2.new(0, 68, 0, 34)
     status.BackgroundTransparency = 1
     status.Font = Enum.Font.Gotham
@@ -22881,6 +23125,7 @@ function DHMsg.Build()
         nm.TextXAlignment = Enum.TextXAlignment.Left
         nm.TextTruncate = Enum.TextTruncate.AtEnd
         nm.Text = m.name
+        if DHRole and m.role then pcall(DHRole.Pill, head, nm, m.role) end
         if not mine then
             local mb = Btn(head, "Mute", 38, 14)
             mb.AnchorPoint = Vector2.new(1, 0.5)
@@ -22906,6 +23151,7 @@ function DHMsg.Build()
         body.AutomaticSize = Enum.AutomaticSize.Y
         body.LayoutOrder = 2
         body.RichText = false
+        if DHTr then pcall(DHTr.Hook, body, m, mine, bub) end
 
         local list = DHMsg.Rows[key]
         list[#list + 1] = {row = row, name = m.name}
@@ -22963,6 +23209,42 @@ function DHMsg.Build()
     Withdraw.AnchorPoint = Vector2.new(1, 1)
     Withdraw.Position = UDim2.new(1, -8, 1, -6)
     Withdraw.BackgroundColor3 = Color3.fromRGB(150, 50, 50)
+    
+    -- ---------- Guide panel: how to use this tab ----------
+    local GuideBtn = Btn(Content, "Guide", 48, 24)
+    GuideBtn.AnchorPoint = Vector2.new(1, 0)
+    GuideBtn.Position = UDim2.new(1, -126, 0, 34)
+    local Guide = Instance.new("Frame", Content)
+    Guide.Size = UDim2.new(1, -20, 1, -68)
+    Guide.Position = UDim2.new(0, 10, 0, 62)
+    Guide.BackgroundColor3 = Color3.fromRGB(24, 24, 28)
+    Guide.BorderSizePixel = 0
+    Guide.ZIndex = 4
+    Guide.Visible = false
+    Instance.new("UICorner", Guide).CornerRadius = UDim.new(0, 8)
+    local gs = Instance.new("ScrollingFrame", Guide)
+    gs.Size = UDim2.new(1, -10, 1, -40)
+    gs.Position = UDim2.new(0, 5, 0, 5)
+    gs.BackgroundTransparency = 1
+    gs.BorderSizePixel = 0
+    gs.ScrollBarThickness = 1
+    gs.ZIndex = 4
+    gs.CanvasSize = UDim2.new(0, 0, 0, 0)
+    gs.AutomaticCanvasSize = Enum.AutomaticSize.Y
+    local gt = Label(gs, "HOW TO USE MESSAGE\n\n1. First time: read the notice and tap \"I understand, turn on\".\n\n2. Pick a mode with the tabs at the top. Tap OFF to turn that mode ON. Only modes that are ON are checked, and you get a notification for new messages even when this tab is closed.\n\nMODES\n- Server: chat with DaffzHub users in the SAME server as you right now. When you join another server, you see that server's chat.\n- Map: chat with DaffzHub users in ANY server of this game (same map).\n- Global: chat with every DaffzHub user in every game. You can send only once every 10 seconds.\n- Private: only 2 people. Type your friend's Roblox username and tap Set. Your friend must also set YOUR username. It is NOT secret.\n\n3. Type your message and tap Send (or press Enter). Max 200 characters.\n\n4. Tap Mute on a message to hide that person. Unmute brings everyone back.\n\n5. Badges: OWNER (shimmering red) and ADMIN (shimmering yellow) are DaffzHub staff.\n\n6. Want messages in your language? Open the Translate tab and turn on Auto-translate.\n\n7. Who is here? Info tab > DAFFZHUB USERS shows DaffzHub users in your server.\n\nSee Rules for every limit.", 11, Color3.fromRGB(205, 205, 212))
+    gt.Size = UDim2.new(1, -6, 0, 0)
+    gt.AutomaticSize = Enum.AutomaticSize.Y
+    gt.ZIndex = 4
+    local GuideClose = Btn(Guide, "Close", 70, 26)
+    GuideClose.ZIndex = 4
+    GuideClose.AnchorPoint = Vector2.new(0, 1)
+    GuideClose.Position = UDim2.new(0, 8, 1, -6)
+    GuideBtn.MouseButton1Click:Connect(function()
+        Guide.Visible = not Guide.Visible
+        if Guide.Visible then Rules.Visible = false end
+    end)
+    GuideClose.MouseButton1Click:Connect(function() Guide.Visible = false end)
+    RulesBtn.MouseButton1Click:Connect(function() Guide.Visible = false end)
 
     AgreeBtn.MouseButton1Click:Connect(function()
         DHMsg.Agreed = true
@@ -23053,7 +23335,7 @@ function DHMsg.Build()
         task.spawn(function()
             local data, err = DHMsg.Call({
                 action = "send", room = room, name = DHMsg.MyName(),
-                uid = game:GetService("Players").LocalPlayer.UserId, body = text,
+                uid = game:GetService("Players").LocalPlayer.UserId, body = text, key = (DHDet and DHDet.Key ~= "") and DHDet.Key or nil,
             })
             DHMsg.Sending = false
             SendBtn.Text = "Send"
@@ -23093,6 +23375,304 @@ MsgTab.MouseButton1Click:Connect(ShowMsgTab)
 DHMsg.Load()
 pcall(DHMsg.Build)
 pcall(DHMsg.Start)
+
+-- ================================================
+-- TRANSLATE TAB: translates the chat messages you receive (Message tab) into your language.
+-- The text of each received message is sent to the DaffzHub server, which asks a free translate service.
+-- Nothing is sent while this is OFF. Your own messages are never translated.
+-- ================================================
+TransTab = Instance.new("TextButton", TabFrame)
+TransTab.Size = UDim2.new(1, -20, 0, 40)
+TransTab.Position = UDim2.new(0, 10, 0, 870)
+TransTab.Text = "Translate"
+TransTab.BackgroundColor3 = Color3.fromRGB(25,25,25)
+TransTab.Font = Enum.Font.GothamBold
+TransTab.TextSize = 14
+TransTab.TextColor3 = Color3.new(1,1,1)
+Instance.new("UICorner", TransTab).CornerRadius = UDim.new(0, 8)
+
+TransContent = Instance.new("Frame", ContentFrame)
+TransContent.Size = UDim2.new(1, 0, 1, 0)
+TransContent.Position = UDim2.new(0, 0, 0, 0)
+TransContent.BackgroundColor3 = Color3.fromRGB(20,20,20)
+TransContent.Visible = false
+TransContent.ClipsDescendants = true
+Instance.new("UICorner", TransContent).CornerRadius = UDim.new(0, 10)
+
+DHTr = {
+    Path = "Daffzhub_file/Translate.json",
+    On = false, Consented = false, Lang = "id", Cache = {}, Queue = {}, Working = false,
+    Langs = {
+        {"id", "Indonesian"}, {"en", "English"}, {"ms", "Malay"}, {"tl", "Filipino"}, {"es", "Spanish"}, {"pt", "Portuguese"},
+        {"fr", "French"}, {"de", "German"}, {"it", "Italian"}, {"ru", "Russian"}, {"tr", "Turkish"}, {"ar", "Arabic"},
+        {"hi", "Hindi"}, {"th", "Thai"}, {"vi", "Vietnamese"}, {"ja", "Japanese"}, {"ko", "Korean"}, {"zh-CN", "Chinese"},
+    },
+    Accent = Color3.fromRGB(90, 200, 190),
+}
+
+function DHTr.LangName(code)
+    for _, l in ipairs(DHTr.Langs) do
+        if l[1] == code then return l[2] end
+    end
+    return code
+end
+
+function DHTr.Load()
+    pcall(function()
+        if not (isfile and readfile and isfile(DHTr.Path)) then return end
+        local d = game:GetService("HttpService"):JSONDecode(readfile(DHTr.Path))
+        if type(d) ~= "table" then return end
+        DHTr.Consented = d.consent == 1
+        DHTr.On = DHTr.Consented and d.on == true
+        if type(d.lang) == "string" and DHTr.LangName(d.lang) ~= d.lang then DHTr.Lang = d.lang end
+    end)
+end
+
+function DHTr.Save()
+    pcall(function()
+        if not (writefile and makefolder and isfolder) then return end
+        if not isfolder("Daffzhub_file") then makefolder("Daffzhub_file") end
+        writefile(DHTr.Path, game:GetService("HttpService"):JSONEncode({consent = DHTr.Consented and 1 or 0, on = DHTr.On, lang = DHTr.Lang}))
+    end)
+end
+
+-- ask the server. cb(text, sourceLang) or cb(nil, errorText)
+function DHTr.Ask(text, cb)
+    if not (DHMsg and DHMsg.Call) then cb(nil, "Message tab is not ready") return end
+    local data, err = DHMsg.Call({action = "translate", text = text, to = DHTr.Lang})
+    if not data or type(data.text) ~= "string" then cb(nil, err or "No translation") return end
+    cb(data.text, type(data.src) == "string" and data.src or "")
+end
+
+function DHTr.SetInfo(text, color)
+    if DHTr.Info then
+        DHTr.Info.Text = text
+        DHTr.Info.TextColor3 = color or Color3.fromRGB(150, 150, 160)
+    end
+end
+
+-- one worker handles the queue: one request at a time, small pause between them
+function DHTr.Work()
+    if DHTr.Working then return end
+    DHTr.Working = true
+    task.spawn(function()
+        while #DHTr.Queue > 0 do
+            local job = table.remove(DHTr.Queue, 1)
+            if job.label and job.label.Parent and DHTr.On then
+                DHTr.Ask(job.text, function(t, src)
+                    if not t then
+                        DHTr.SetInfo("Translate: " .. tostring(src), Color3.fromRGB(255, 130, 130))
+                        return
+                    end
+                    DHTr.Cache[job.key] = {t, src}
+                    DHTr.Show(job.label, job.text, t, src)
+                end)
+                task.wait(0.5)
+            end
+        end
+        DHTr.Working = false
+    end)
+end
+
+-- show the translation under the original text (nothing when it is already your language)
+function DHTr.Show(label, original, t, src)
+    if not (label and label.Parent) then return end
+    if src ~= "" and string.lower(string.sub(src, 1, 2)) == string.lower(string.sub(DHTr.Lang, 1, 2)) then return end
+    if string.lower(t) == string.lower(original) then return end
+    local l = Instance.new("TextLabel", label.Parent)
+    l.Size = UDim2.new(1, 0, 0, 0)
+    l.AutomaticSize = Enum.AutomaticSize.Y
+    l.BackgroundTransparency = 1
+    l.LayoutOrder = 3
+    l.Font = Enum.Font.Gotham
+    l.TextSize = 11
+    l.TextColor3 = DHTr.Accent
+    l.TextXAlignment = Enum.TextXAlignment.Left
+    l.TextWrapped = true
+    l.RichText = false
+    l.Text = "-> " .. t
+end
+
+-- called by the Message tab for every chat bubble
+function DHTr.Hook(body, m, mine, bub)
+    if not DHTr.On or mine then return end
+    local text = m.body
+    if type(text) ~= "string" or #text < 2 or not string.find(text, "%a") then return end
+    local key = DHTr.Lang .. "|" .. text
+    local c = DHTr.Cache[key]
+    if c then DHTr.Show(body, text, c[1], c[2]) return end
+    if #DHTr.Queue >= 20 then return end
+    DHTr.Queue[#DHTr.Queue + 1] = {label = body, text = text, key = key}
+    DHTr.Work()
+end
+
+function DHTr.Build()
+    local Content = TransContent
+    local GRAY = Color3.fromRGB(150, 150, 160)
+
+    local function Lbl(parent, text, size, color, bold)
+        local l = Instance.new("TextLabel", parent)
+        l.BackgroundTransparency = 1
+        l.Font = bold and Enum.Font.GothamBold or Enum.Font.Gotham
+        l.TextSize = size
+        l.TextColor3 = color
+        l.TextXAlignment = Enum.TextXAlignment.Left
+        l.TextYAlignment = Enum.TextYAlignment.Top
+        l.TextWrapped = true
+        l.Text = text
+        return l
+    end
+    local function Btn(parent, text, w, h)
+        local b = Instance.new("TextButton", parent)
+        b.Size = UDim2.new(0, w, 0, h)
+        b.BackgroundColor3 = Color3.fromRGB(30, 30, 40)
+        b.Font = Enum.Font.GothamBold
+        b.TextSize = 11
+        b.TextColor3 = Color3.new(1, 1, 1)
+        b.Text = text
+        Instance.new("UICorner", b).CornerRadius = UDim.new(0, 6)
+        return b
+    end
+
+    local title = Lbl(Content, "TRANSLATOR", 14, Color3.new(1, 1, 1), true)
+    title.Size = UDim2.new(1, -20, 0, 20)
+    title.Position = UDim2.new(0, 10, 0, 6)
+
+    -- row 1: auto translate switch
+    local r1 = Instance.new("Frame", Content)
+    r1.Size = UDim2.new(1, -20, 0, 40)
+    r1.Position = UDim2.new(0, 10, 0, 30)
+    r1.BackgroundColor3 = Color3.fromRGB(25, 25, 30)
+    Instance.new("UICorner", r1).CornerRadius = UDim.new(0, 8)
+    local t1 = Lbl(r1, "Auto-translate received messages", 12, Color3.new(1, 1, 1), true)
+    t1.Size = UDim2.new(1, -90, 0, 18)
+    t1.Position = UDim2.new(0, 10, 0, 4)
+    local s1 = Lbl(r1, "Chat messages from others get a translation under them.", 9, GRAY)
+    s1.Size = UDim2.new(1, -90, 0, 14)
+    s1.Position = UDim2.new(0, 10, 0, 22)
+    local OnBtn = Btn(r1, "OFF", 60, 26)
+    OnBtn.Position = UDim2.new(1, -70, 0.5, -13)
+    local function PaintOn()
+        OnBtn.Text = DHTr.On and "ON" or "OFF"
+        OnBtn.BackgroundColor3 = DHTr.On and Color3.fromRGB(30, 180, 30) or Color3.fromRGB(180, 30, 30)
+    end
+    OnBtn.MouseButton1Click:Connect(function()
+        if DHTr.On then
+            DHTr.On = false
+            DHTr.Queue = {}
+            DHTr.Save()
+            PaintOn()
+        elseif DHTr.Consented then
+            DHTr.On = true
+            DHTr.Save()
+            PaintOn()
+        else
+            ShowConfirmPopup("Received messages are sent to a translate service. Turn on?", DHTr.Accent, function()
+                DHTr.Consented = true
+                DHTr.On = true
+                DHTr.Save()
+                PaintOn()
+            end)
+        end
+    end)
+    PaintOn()
+
+    -- row 2: language list
+    local langTitle = Lbl(Content, "Translate to: " .. DHTr.LangName(DHTr.Lang), 11, DHTr.Accent, true)
+    langTitle.Size = UDim2.new(1, -20, 0, 16)
+    langTitle.Position = UDim2.new(0, 12, 0, 76)
+    local grid = Instance.new("ScrollingFrame", Content)
+    grid.Size = UDim2.new(1, -20, 0, 70)
+    grid.Position = UDim2.new(0, 10, 0, 94)
+    grid.BackgroundColor3 = Color3.fromRGB(25, 25, 30)
+    grid.BorderSizePixel = 0
+    grid.ScrollBarThickness = 2
+    grid.CanvasSize = UDim2.new(0, 0, 0, 0)
+    grid.AutomaticCanvasSize = Enum.AutomaticSize.Y
+    Instance.new("UICorner", grid).CornerRadius = UDim.new(0, 8)
+    local gl = Instance.new("UIGridLayout", grid)
+    gl.CellSize = UDim2.new(0, 108, 0, 24)
+    gl.CellPadding = UDim2.new(0, 4, 0, 4)
+    gl.SortOrder = Enum.SortOrder.LayoutOrder
+    local gp = Instance.new("UIPadding", grid)
+    gp.PaddingTop = UDim.new(0, 4)
+    gp.PaddingLeft = UDim.new(0, 6)
+    gp.PaddingBottom = UDim.new(0, 4)
+    local langBtns = {}
+    local function PaintLang()
+        langTitle.Text = "Translate to: " .. DHTr.LangName(DHTr.Lang)
+        for code, b in pairs(langBtns) do
+            b.BackgroundColor3 = code == DHTr.Lang and Color3.fromRGB(40, 130, 120) or Color3.fromRGB(35, 35, 45)
+        end
+    end
+    for i, l in ipairs(DHTr.Langs) do
+        local b = Btn(grid, l[2], 108, 24)
+        b.LayoutOrder = i
+        langBtns[l[1]] = b
+        b.MouseButton1Click:Connect(function()
+            DHTr.Lang = l[1]
+            DHTr.Save()
+            PaintLang()
+        end)
+    end
+    PaintLang()
+
+    -- row 3: translate any text by hand
+    local box = Instance.new("TextBox", Content)
+    box.Size = UDim2.new(1, -100, 0, 28)
+    box.Position = UDim2.new(0, 10, 0, 172)
+    box.BackgroundColor3 = Color3.fromRGB(30, 30, 38)
+    box.PlaceholderText = "Type text to translate..."
+    box.PlaceholderColor3 = Color3.fromRGB(120, 120, 130)
+    box.Text = ""
+    box.ClearTextOnFocus = false
+    box.Font = Enum.Font.Gotham
+    box.TextSize = 12
+    box.TextColor3 = Color3.new(1, 1, 1)
+    box.TextXAlignment = Enum.TextXAlignment.Left
+    Instance.new("UICorner", box).CornerRadius = UDim.new(0, 6)
+    local go = Btn(Content, "Translate", 74, 28)
+    go.Position = UDim2.new(1, -84, 0, 172)
+    go.BackgroundColor3 = Color3.fromRGB(40, 130, 120)
+    local result = Lbl(Content, "", 12, Color3.fromRGB(215, 215, 220))
+    result.Size = UDim2.new(1, -24, 0, 36)
+    result.Position = UDim2.new(0, 12, 0, 206)
+    DHTr.Info = Lbl(Content, "Free translate service. Quality is basic. Names and slang may be wrong.", 9, GRAY)
+    DHTr.Info.Size = UDim2.new(1, -24, 0, 24)
+    DHTr.Info.Position = UDim2.new(0, 12, 1, -30)
+    local busy = false
+    go.MouseButton1Click:Connect(function()
+        local text = box.Text
+        if busy or #string.gsub(text, "%s", "") == 0 then return end
+        if not DHTr.Consented then
+            result.Text = "Turn on Auto-translate once to agree that text is sent to a translate service."
+            return
+        end
+        busy = true
+        result.Text = "..."
+        task.spawn(function()
+            DHTr.Ask(string.sub(text, 1, 300), function(t, src)
+                result.Text = t and t or ("Error: " .. tostring(src))
+            end)
+            busy = false
+        end)
+    end)
+end
+
+function ShowTransTab()
+    HideAllContent()
+    if TransContent then TransContent.Visible = true end
+    for _, b in ipairs(TabFrame:GetChildren()) do
+        if b:IsA("TextButton") then
+            b.BackgroundColor3 = Color3.fromRGB(25,25,25)
+        end
+    end
+    if TransTab then TransTab.BackgroundColor3 = Color3.fromRGB(30,30,30) end
+end
+TransTab.MouseButton1Click:Connect(ShowTransTab)
+
+DHTr.Load()
+pcall(DHTr.Build)
 
 -- ================================================
 -- MODS TAB (part 2): Float, Infinite Jump, Noclip (built in, safe on respawn)
@@ -26086,7 +26666,7 @@ do
 -- ================================================
 SettingTab = Instance.new("TextButton", TabFrame)
 SettingTab.Size = UDim2.new(1, -20, 0, 40)
-SettingTab.Position = UDim2.new(0, 10, 0, 870)
+SettingTab.Position = UDim2.new(0, 10, 0, 920)
 SettingTab.Text = "Setting"
 SettingTab.BackgroundColor3 = Color3.fromRGB(25,25,25)
 SettingTab.Font = Enum.Font.GothamBold
@@ -28717,7 +29297,7 @@ SetLoadProgress(84)
 -- Credit Tab Button
 CreditTab = Instance.new("TextButton", TabFrame)
 CreditTab.Size = UDim2.new(1, -20, 0, 40)
-CreditTab.Position = UDim2.new(0, 10, 0, 920)
+CreditTab.Position = UDim2.new(0, 10, 0, 970)
 CreditTab.Text = "Credit"
 CreditTab.BackgroundColor3 = Color3.fromRGB(25,25,25)
 CreditTab.Font = Enum.Font.GothamBold
@@ -29060,6 +29640,8 @@ function HideAllContent()
     if ChatBotTab then ChatBotTab.BackgroundColor3 = Color3.fromRGB(25,25,25) end
     if MsgContent then MsgContent.Visible = false end
     if MsgTab then MsgTab.BackgroundColor3 = Color3.fromRGB(25,25,25) end
+    if TransContent then TransContent.Visible = false end
+    if TransTab then TransTab.BackgroundColor3 = Color3.fromRGB(25,25,25) end
 end
 
 -- SHOW SCRIPT TAB
@@ -29470,6 +30052,7 @@ addTabButtonBorder(AnimTab)
 if ModsTab then addTabButtonBorder(ModsTab) end
 if ChatBotTab then addTabButtonBorder(ChatBotTab) end
 if MsgTab then addTabButtonBorder(MsgTab) end
+if TransTab then addTabButtonBorder(TransTab) end
 addTabButtonBorder(SettingTab)
 addTabButtonBorder(CreditTab)
 
