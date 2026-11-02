@@ -3622,54 +3622,6 @@ function DHDet.Ping()
     DHDet.Refresh()
 end
 
--- UI (Info tab): staff key
-do
-    local row = Instance.new("Frame", InfoScroll)
-    row.Size = UDim2.new(1, 0, 0, 52)
-    row.BackgroundColor3 = Color3.fromRGB(25, 25, 25)
-    Instance.new("UICorner", row).CornerRadius = UDim.new(0, 10)
-    local box = Instance.new("TextBox", row)
-    box.Size = UDim2.new(1, -90, 0, 26)
-    box.Position = UDim2.new(0, 10, 0, 4)
-    box.BackgroundColor3 = Color3.fromRGB(35, 35, 40)
-    box.PlaceholderText = "Staff key (only for Owner/Admin)"
-    box.Text = ""
-    box.ClearTextOnFocus = false
-    box.Font = Enum.Font.Code
-    box.TextSize = 11
-    box.TextColor3 = Color3.new(1, 1, 1)
-    box.PlaceholderColor3 = Color3.fromRGB(120, 120, 120)
-    Instance.new("UICorner", box).CornerRadius = UDim.new(0, 6)
-    local save = Instance.new("TextButton", row)
-    save.Size = UDim2.new(0, 60, 0, 26)
-    save.Position = UDim2.new(1, -70, 0, 4)
-    save.BackgroundColor3 = Color3.fromRGB(40, 140, 200)
-    save.Text = "Save"
-    save.Font = Enum.Font.GothamBold
-    save.TextSize = 12
-    save.TextColor3 = Color3.new(1, 1, 1)
-    Instance.new("UICorner", save).CornerRadius = UDim.new(0, 6)
-    DHDet.KeyInfo = Instance.new("TextLabel", row)
-    DHDet.KeyInfo.Size = UDim2.new(1, -20, 0, 16)
-    DHDet.KeyInfo.Position = UDim2.new(0, 10, 0, 33)
-    DHDet.KeyInfo.BackgroundTransparency = 1
-    DHDet.KeyInfo.Font = Enum.Font.Gotham
-    DHDet.KeyInfo.TextSize = 10
-    DHDet.KeyInfo.TextColor3 = Color3.fromRGB(140, 140, 140)
-    DHDet.KeyInfo.TextXAlignment = Enum.TextXAlignment.Left
-    DHDet.KeyInfo.Text = "No staff key"
-    save.MouseButton1Click:Connect(function()
-        local k = string.gsub(box.Text, "%s", "")
-        DHDet.Key = string.sub(k, 1, 100)
-        box.Text = ""
-        DHDet.Save()
-        DHDet.KeyInfo.Text = DHDet.Key ~= "" and "Key saved. Checking..." or "Key removed"
-        if DHDet.Key == "" then DHDet.MyRole = nil end
-        if DHDet.On then task.spawn(function() pcall(DHDet.Ping) end) end
-    end)
-    if DHDet.Key ~= "" then DHDet.KeyInfo.Text = "Key saved (turn Detect ON to check it)" end
-end
-
 DHDet.Load()
 if DHDet.Key ~= "" and DHDet.KeyInfo then DHDet.KeyInfo.Text = "Key saved (turn Detect ON to check it)" end
 
@@ -3708,43 +3660,24 @@ DHDet.LoadKey()
 if DHDet.Key ~= "" and DHDet.KeyInfo then
     DHDet.KeyInfo.Text = DHDet.On and "Key saved. Checking..." or "Key saved (turn Detect ON to check it)"
 end
+
+-- STAFF KEY, AUTOMATIC: there is no key box in the hub anymore.
+-- Put this ONE line in your executor (auto-execute) above the DaffzHub loader, with your own key:
+--     getgenv().DaffzHubKey = "YOUR-KEY"
+-- DaffzHub reads it at load, checks it with the server, and also saves it to Daffzhub_file/StaffKey.txt.
+-- To change it: edit the key in that line. To remove it: set it to "" (empty).
+pcall(function()
+    local g = getgenv and getgenv() or _G
+    local v = g.DaffzHubKey
+    if type(v) == "string" then
+        DHDet.Key = string.sub(string.gsub(v, "%s", ""), 1, 100)
+        if DHDet.Key == "" then DHDet.MyRole = nil end
+        DHDet.SaveKey()
+    end
+end)
+
 -- if Detect is already ON, check the key right away
 if DHDet.On and DHDet.Key ~= "" then task.spawn(function() pcall(DHDet.Ping) end) end
-
--- ================================================
--- DETECT ON BY DEFAULT: the first time (and only once) the hub asks "show you online to other DaffzHub users?".
--- Yes = Detect turns ON by itself, so the online list works for everybody. You can still turn it OFF in this tab.
--- People who already chose before are not asked again.
--- ================================================
-DHDet.AskPath = "Daffzhub_file/DetectAsked.txt"
-
-function DHDet.WasAsked()
-    local ok, r = pcall(function() return isfile and isfile(DHDet.AskPath) end)
-    return ok and r == true
-end
-
-function DHDet.MarkAsked()
-    pcall(function()
-        if not (writefile and makefolder and isfolder) then return end
-        if not isfolder("Daffzhub_file") then makefolder("Daffzhub_file") end
-        writefile(DHDet.AskPath, "1")
-    end)
-end
-
-function DHDet.AskOnce()
-    if DHDet.Consented or DHDet.WasAsked() then return end
-    if not (ScreenGui and ScreenGui.Parent) then return end
-    DHDet.MarkAsked()
-    ShowConfirmPopup("Show you online to other DaffzHub users? (name + ID)", DHDet.Color, function()
-        DHDet.Consented = true
-        DHDet.Set(true)
-    end)
-end
-
-task.spawn(function()
-    task.wait(4)
-    pcall(DHDet.AskOnce)
-end)
 
 -- ================================================
 -- DAFFZHUB IN NUMBERS (Info tab): how many people use DaffzHub. Replaces the name list of "ONLINE IN DAFFZHUB".
@@ -3872,6 +3805,192 @@ task.spawn(function()
         task.wait(60)
     end
 end)
+
+-- ================================================
+-- DETECT IS ALWAYS ON: no switch, no cancel. DaffzHub shows you to the other DaffzHub users in your server
+-- (display name + user ID + server ID, sent every 15 seconds) and you see them too.
+-- The first time, one notice with an OK button explains this. After OK it is never shown again.
+-- ================================================
+DHDet.NoticePath = "Daffzhub_file/DetectNotice.txt"
+
+-- the old on/off switch row is removed
+pcall(function()
+    if DHDet.Btn and DHDet.Btn.Parent then DHDet.Btn.Parent:Destroy() end
+end)
+
+-- nothing can turn Detect off any more
+DHDet.SetBase = DHDet.Set
+function DHDet.Set(on)
+    DHDet.Consented = true
+    DHDet.SetBase(true)
+end
+
+-- the old "Yes / Cancel" question (Bagian H) is replaced by the notice below
+function DHDet.AskOnce() end
+
+function DHDet.NoticeSeen()
+    local ok, r = pcall(function() return isfile and isfile(DHDet.NoticePath) end)
+    return ok and r == true
+end
+
+function DHDet.Start()
+    DHDet.Consented = true
+    DHDet.Set(true)
+end
+
+-- one notice, only an OK button
+function DHDet.Notice(onOk)
+    local Z = 40
+    local Pop = Instance.new("Frame", ScreenGui)
+    Pop.Size = UDim2.new(0, 280, 0, 190)
+    Pop.Position = UDim2.new(0.5, -140, 0.5, -95)
+    Pop.BackgroundColor3 = Color3.fromRGB(20, 20, 20)
+    Pop.Active = true
+    Pop.ZIndex = Z
+    Instance.new("UICorner", Pop).CornerRadius = UDim.new(0, 10)
+    local st = Instance.new("UIStroke", Pop)
+    st.Color = DHDet.Color
+    st.Thickness = 1.5
+    local title = Instance.new("TextLabel", Pop)
+    title.Size = UDim2.new(1, -20, 0, 22)
+    title.Position = UDim2.new(0, 10, 0, 8)
+    title.BackgroundTransparency = 1
+    title.Text = "DaffzHub users"
+    title.Font = Enum.Font.GothamBold
+    title.TextSize = 15
+    title.TextColor3 = DHDet.Color
+    title.TextXAlignment = Enum.TextXAlignment.Left
+    title.ZIndex = Z + 1
+    local body = Instance.new("TextLabel", Pop)
+    body.Size = UDim2.new(1, -20, 1, -78)
+    body.Position = UDim2.new(0, 10, 0, 32)
+    body.BackgroundTransparency = 1
+    body.Text = "DaffzHub always shows you to the other DaffzHub users in your server, and you see them too.\n\nShared: your display name, your user ID and the server ID, every 15 seconds. It is always on and cannot be turned off."
+    body.Font = Enum.Font.Gotham
+    body.TextSize = 12
+    body.TextColor3 = Color3.fromRGB(215, 215, 220)
+    body.TextWrapped = true
+    body.TextXAlignment = Enum.TextXAlignment.Left
+    body.TextYAlignment = Enum.TextYAlignment.Top
+    body.ZIndex = Z + 1
+    local ok = Instance.new("TextButton", Pop)
+    ok.Size = UDim2.new(0, 120, 0, 32)
+    ok.Position = UDim2.new(0.5, -60, 1, -42)
+    ok.Text = "OK"
+    ok.BackgroundColor3 = DHDet.Color
+    ok.Font = Enum.Font.GothamBold
+    ok.TextSize = 14
+    ok.TextColor3 = Color3.new(1, 1, 1)
+    ok.ZIndex = Z + 1
+    Instance.new("UICorner", ok).CornerRadius = UDim.new(0, 8)
+    ok.MouseButton1Click:Connect(function()
+        pcall(function()
+            if writefile and makefolder and isfolder then
+                if not isfolder("Daffzhub_file") then makefolder("Daffzhub_file") end
+                writefile(DHDet.NoticePath, "1")
+            end
+        end)
+        Pop:Destroy()
+        if onOk then onOk() end
+    end)
+end
+
+if DHDet.NoticeSeen() then
+    DHDet.Start()
+else
+    task.spawn(function()
+        task.wait(4)
+        if ScreenGui and ScreenGui.Parent then DHDet.Notice(DHDet.Start) end
+    end)
+end
+
+-- ================================================
+-- LIST NAMES (Info tab): the Exploiter Detector list and the DaffzHub users list now have clear titles,
+-- their own colour (magenta = exploiters, purple = DaffzHub users) and a counter, so they cannot be mixed up.
+-- ================================================
+DHNames = {}
+
+-- the small grey section titles become coloured titles
+pcall(function()
+    local function Restyle(old, new, color)
+        for _, c in ipairs(InfoScroll:GetChildren()) do
+            if c:IsA("TextLabel") and c.Text == old then
+                c.Text = new
+                c.Font = Enum.Font.GothamBold
+                c.TextSize = 12
+                c.TextColor3 = color
+                c.Size = UDim2.new(1, 0, 0, 22)
+            end
+        end
+    end
+    Restyle("EXPLOITER WATCH", "|  EXPLOITER DETECTOR", Color3.fromRGB(255, 80, 200))
+    Restyle("DAFFZHUB USERS", "|  DAFFZHUB USERS", DHDet.Color)
+end)
+
+-- title bar inside a list box. It is a TextLabel, so the lists do not delete it when they refresh.
+function DHNames.Bar(box, color)
+    local h = Instance.new("TextLabel", box)
+    h.LayoutOrder = -1
+    h.Size = UDim2.new(1, 0, 0, 22)
+    h.BackgroundColor3 = color:Lerp(Color3.new(0, 0, 0), 0.78)
+    h.BorderSizePixel = 0
+    h.Font = Enum.Font.GothamBold
+    h.TextSize = 10
+    h.TextColor3 = color
+    h.Text = ""
+    Instance.new("UICorner", h).CornerRadius = UDim.new(0, 6)
+    return h
+end
+
+function DHNames.Count()
+    -- exploiters flagged right now
+    local nExp = 0
+    if DHExp and DHExp.S then
+        for plr, S in pairs(DHExp.S) do
+            if S.flagged and plr.Parent then nExp = nExp + 1 end
+        end
+    end
+    if DHNames.ExpBar then
+        if DHExp and DHExp.On then
+            DHNames.ExpBar.Text = "EXPLOITER DETECTOR   -   " .. nExp .. (nExp == 1 and " suspect" or " suspects")
+        else
+            DHNames.ExpBar.Text = "EXPLOITER DETECTOR   -   OFF (turn it on in Setting)"
+        end
+    end
+    -- DaffzHub users that are really in this server
+    local nDet = 0
+    for uid in pairs(DHDet.Users or {}) do
+        if Players:GetPlayerByUserId(uid) then nDet = nDet + 1 end
+    end
+    if DHNames.DetBar then
+        DHNames.DetBar.Text = "DAFFZHUB USERS   -   " .. nDet .. (nDet == 1 and " user" or " users") .. " in this server"
+    end
+end
+
+if DHExp and DHExp.Box then DHNames.ExpBar = DHNames.Bar(DHExp.Box, Color3.fromRGB(255, 80, 200)) end
+if DHDet and DHDet.Box then DHNames.DetBar = DHNames.Bar(DHDet.Box, DHDet.Color) end
+
+-- keep the counters up to date whenever the lists refresh
+if DHExp and DHExp.Refresh then
+    DHNames.ExpRefresh = DHExp.Refresh
+    function DHExp.Refresh()
+        DHNames.ExpRefresh()
+        pcall(DHNames.Count)
+    end
+end
+DHNames.DetRefresh = DHDet.Refresh
+function DHDet.Refresh()
+    DHNames.DetRefresh()
+    pcall(DHNames.Count)
+end
+if DHExp and DHExp.Set then
+    DHNames.ExpSet = DHExp.Set
+    function DHExp.Set(on)
+        DHNames.ExpSet(on)
+        pcall(DHNames.Count)
+    end
+end
+pcall(DHNames.Count)
 
 -- PLAYER LIST SECTION
 CreateSectionLabel("PLAYER LIST")
@@ -22766,6 +22885,31 @@ function DHBot.Build()
     end)
 
     local function Send()
+        -- staff key command: type /StaffKey YOUR-KEY here (or /StaffKey off, or just /StaffKey to see the status).
+        -- It is never shown in the chat and never sent to the AI.
+        local sk = string.match(Input.Text, "^%s*/[Ss]taff[Kk]ey%s*(.-)%s*$")
+        if sk then
+            Input.Text = ""
+            if sk == "" then
+                Bubble("ai", DHDet.Key ~= "" and ("Staff key saved. " .. (DHDet.MyRole and ("Badge: " .. DHRole.Word(DHDet.MyRole)) or "No badge yet")) or "No staff key. Type /StaffKey YOUR-KEY")
+            elseif string.lower(sk) == "off" then
+                DHDet.Key = ""
+                DHDet.MyRole = nil
+                pcall(DHDet.SaveKey)
+                Bubble("ai", "Staff key removed")
+            else
+                DHDet.Key = string.sub(string.gsub(sk, "%s", ""), 1, 100)
+                pcall(DHDet.SaveKey)
+                local _, lb = Bubble("ai", "Staff key saved. Checking...")
+                ToBottom()
+                task.spawn(function()
+                    pcall(DHDet.Ping)
+                    lb.Text = DHDet.MyRole and ("Staff badge active: " .. DHRole.Word(DHDet.MyRole)) or "Key not accepted. Check it and try again."
+                end)
+            end
+            ToBottom()
+            return
+        end
         if DHBot.Busy then return end
         local text = Trim(Input.Text)
         if text == "" then return end
@@ -29512,6 +29656,76 @@ end
 pcall(DHInfo.Build)
 
 -- ================================================
+-- ALL INFORMATION PLAYER: the button moves from the Setting tab to the Info tab (own title, above PLAYER LIST)
+-- and gets the name "All Information Player". It shows your own details or any player's visible details.
+-- ================================================
+pcall(function()
+    local row, panel
+    for _, c in ipairs(OtherContainer:GetChildren()) do
+        if c:IsA("Frame") then
+            for _, l in ipairs(c:GetChildren()) do
+                if l:IsA("TextLabel") and l.Text == "All Information" then row = c end
+            end
+        end
+    end
+    for _, c in ipairs(SettingContent:GetChildren()) do
+        if c:IsA("Frame") and c.ZIndex == 30 then
+            for _, l in ipairs(c:GetChildren()) do
+                if l:IsA("TextLabel") and l.Text == "All Information" then panel = c end
+            end
+        end
+    end
+    if not (row and panel) then return end
+
+    -- the Setting tab gets its space back
+    OtherContainer.Size = UDim2.new(1, 0, 0, row.Position.Y.Offset)
+
+    -- new names
+    for _, l in ipairs(row:GetChildren()) do
+        if l:IsA("TextLabel") then
+            if l.Text == "All Information" then
+                l.Text = "All Information Player"
+            else
+                l.Text = "You or any player: ID, health, items, server"
+            end
+        end
+    end
+    for _, l in ipairs(panel:GetChildren()) do
+        if l:IsA("TextLabel") and l.Text == "All Information" then l.Text = "All Information Player" end
+    end
+
+    -- same look as the other Info cards
+    row.Size = UDim2.new(1, 0, 0, 48)
+    row.BackgroundColor3 = Color3.fromRGB(25, 25, 25)
+    local cr = row:FindFirstChildOfClass("UICorner")
+    if cr then cr.CornerRadius = UDim.new(0, 10) end
+    row.Parent = InfoScroll
+    panel.Parent = InfoContent
+    local lab = CreateSectionLabel("ALL INFORMATION PLAYER")
+
+    -- put the title and the card right above PLAYER LIST (the list keeps its order, new things stay below)
+    local items = {}
+    for i, c in ipairs(InfoScroll:GetChildren()) do
+        if c:IsA("GuiObject") and c ~= row and c ~= lab then items[#items + 1] = {c = c, o = c.LayoutOrder, i = i} end
+    end
+    table.sort(items, function(a, b)
+        if a.o ~= b.o then return a.o < b.o end
+        return a.i < b.i
+    end)
+    local k = 0
+    local function Put(c) k = k + 1 c.LayoutOrder = -100000 + k * 10 end
+    local placed = false
+    for _, it in ipairs(items) do
+        if not placed and it.c:IsA("TextLabel") and it.c.Text == "PLAYER LIST" then
+            Put(lab) Put(row)
+            placed = true
+        end
+        Put(it.c)
+    end
+    if not placed then Put(lab) Put(row) end
+end)
+
+-- ================================================
 -- MOVE BUTTON (Setting tab): move, resize or hide game buttons
 -- Adapted from the "Perfect UI Manager" sample. DaffzHub's own UI is never touched.
 -- ================================================
@@ -30757,6 +30971,10 @@ featureItems = {
     "     Teleport, Noclip, Fling)",
     "   • 3D Preview of a player (drag to rotate, zoom)",
     "   • Calculator",
+    "   • DaffzHub Users: see other DaffzHub users in your server (notice + purple ESP)",
+    "   • All Information Player: your account, character, backpack, server & permissions, and what is visible about any player (type your Display name)",
+    "   • DaffzHub in Numbers: online now, today, week, month, total",
+    "   • Clear titles and counters on the Exploiter and DaffzHub lists",
     "",
     "🎵 MUSIC TAB",
     "   • Audio ID player with volume control, seek bar and search",
@@ -30860,6 +31078,19 @@ featureItems = {
     "   • Personas: Normal, Casual & Lua Coder",
     "   • Choose what the AI sees: game, players, you, DaffzHub info",
     "   • Saved chat history",
+    "",
+    "💬 MESSAGE TAB",
+    "   • Server, Map, Global & Private (2 people) chat",
+    "   • On/Off per mode with notifications",
+    "   • Chat bubbles with Roblox profile photos, Mute",
+    "   • Rules & Guide buttons",
+    "   • Owner / Admin badges",
+    "",
+    "🌐 TRANSLATE TAB",
+    "   • Auto-translate received messages",
+    "   • Translate your own text, with saved history",
+    "   • Chat view: translate other players' game chat",
+    "   • 18 languages",
     "",
     "⚙️ SETTING TAB",
     "   • Instant Prompt toggle",
@@ -32025,6 +32256,14 @@ DHChangelogTags = {
 }
 
 DHChangelog = {
+    {id = 21, date = "2026-11-02", title = "What's New", items = {
+        {"Added", "Message tab: chat with other DaffzHub users in four modes, Server, Map, Global and Private (just 2 people). Every mode has its own On/Off with notifications, chat bubbles with the Roblox profile photo, Mute, Rules and a Guide. Messages are deleted after about 1 day and are not filtered by Roblox."},
+        {"Added", "DaffzHub users: you see the other DaffzHub users in your server, with a notice, a list in the Info tab and a purple ESP. It is always on and shares your display name, user ID and server ID (a notice with OK explains it the first time)."},
+        {"Added", "Staff badges: Owner (shimmering red) and Admin (shimmering yellow) show in chat, in the lists and on the ESP."},
+        {"Added", "Translate tab: translate the messages you receive, translate your own text with a saved history, and a Chat view that translates the game chat of other players. 18 languages."},
+        {"Added", "Info tab: DaffzHub in Numbers (online now, today, this week, this month, total), plus clear titles and counters on the Exploiter Detector and DaffzHub lists."},
+        {"Added", "Info tab: All Information Player, your account, character, backpack, server and permissions, and what is visible about any player. Type your Display name to open it."},
+    }},
     {id = 20, date = "2026-10-31", title = "What's New", items = {
         {"Added", "ChatBot tab: chat with an AI inside the hub. It works right away with the DaffzHub AI, or paste your own free Gemini key in API and choose AI source. Replies show bold, italic and code, math symbols stay readable, and every reply has Copy and To game chat (it asks first). Pick a persona (Normal, Casual, Lua Coder), and your chat history is saved."},
         {"Added", "ChatBot sharing: you choose what the AI can see, Game name + player count, Player names, My character info and DaffzHub info (version, JobId, WalkSpeed). Everything is off by default."},
@@ -32042,11 +32281,6 @@ DHChangelog = {
         {"Added", "Info tab: Calculator. Music tab: a visualizer (Bars or Wave) that follows the volume and effects."},
         {"Changed", "Report tab: clearer, more specific report texts. New Report Details boxes (player, what happened, when / where) are added to the text you copy, and the card border now matches its severity color."},
         {"Fixed", "Refresh no longer sends you back to the Refresh spot after a normal respawn."},
-    }},
-    {id = 18, date = "2026-10-25", title = "What's New", items = {
-        {"Added", "Music tab: Sound Effects, presets (Echo, Reverb, Slowed, Sped Up, Nightcore, Bass Boost, 8D, Lo-fi, Phonk and more) and sliders for Bass, Treble, Speed, Pitch, Reverb and Echo."},
-        {"Added", "Info tab: 3D Preview, tap 3D on a player in the Player List to see their avatar, drag to rotate and use + / - to zoom."},
-        {"Changed", "Setting tab: Jump Button settings no longer apply by themselves, use Saved Jump Settings to save and use a setup."},
     }},
 }
 
