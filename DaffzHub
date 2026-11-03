@@ -43,6 +43,7 @@ end)
 ScreenGui.Name = "DaffzHub"
 ScreenGui.ResetOnSpawn = false
 ScreenGui.ZIndexBehavior = Enum.ZIndexBehavior.Global
+ScreenGui.DisplayOrder = 99990 -- DaffzHub is above every other GUI (only the Move editor, 99998 and up, is higher)
 ScreenGui.Parent = Player:WaitForChild("PlayerGui")
 
 local listOpen = false
@@ -3738,8 +3739,10 @@ function DHStats.Ping()
     end
 end
 
-CreateSectionLabel("DAFFZHUB IN NUMBERS")
-do
+-- two cards: ONLINE IN DAFFZHUB (only one number) and USED DAFFZHUB (today / week / month / total)
+DHStats.Labels = {}
+function DHStats.Card(title, rows, noteText)
+    CreateSectionLabel(title)
     local box = Instance.new("Frame", InfoScroll)
     box.Size = UDim2.new(1, 0, 0, 0)
     box.AutomaticSize = Enum.AutomaticSize.Y
@@ -3753,18 +3756,10 @@ do
     pad.PaddingBottom = UDim.new(0, 6)
     pad.PaddingLeft = UDim.new(0, 10)
     pad.PaddingRight = UDim.new(0, 10)
-    DHStats.Labels = {}
-    local rows = {
-        {"online", "Online now", Color3.fromRGB(100, 230, 130)},
-        {"day", "Used DaffzHub today (24 h)", Color3.new(1, 1, 1)},
-        {"week", "Used DaffzHub this week (7 days)", Color3.new(1, 1, 1)},
-        {"month", "Used DaffzHub this month (30 days)", Color3.new(1, 1, 1)},
-        {"total", "Total so far", Color3.fromRGB(180, 180, 180)},
-    }
     for i, r in ipairs(rows) do
         local row = Instance.new("Frame", box)
         row.LayoutOrder = i
-        row.Size = UDim2.new(1, 0, 0, 22)
+        row.Size = UDim2.new(1, 0, 0, r[4] or 22)
         row.BackgroundTransparency = 1
         local name = Instance.new("TextLabel", row)
         name.Size = UDim2.new(1, -70, 1, 0)
@@ -3780,23 +3775,34 @@ do
         num.BackgroundTransparency = 1
         num.Text = "-"
         num.Font = Enum.Font.GothamBold
-        num.TextSize = 14
+        num.TextSize = r[4] and 20 or 14
         num.TextColor3 = r[3]
         num.TextXAlignment = Enum.TextXAlignment.Right
         DHStats.Labels[r[1]] = num
     end
-    local note = Instance.new("TextLabel", box)
-    note.LayoutOrder = 99
-    note.Size = UDim2.new(1, 0, 0, 26)
-    note.BackgroundTransparency = 1
-    note.Text = "Counted by a random id on each device. Same person on two devices counts twice."
-    note.Font = Enum.Font.Gotham
-    note.TextSize = 9
-    note.TextColor3 = Color3.fromRGB(110, 110, 110)
-    note.TextWrapped = true
-    note.TextXAlignment = Enum.TextXAlignment.Left
-    note.TextYAlignment = Enum.TextYAlignment.Top
+    if noteText then
+        local note = Instance.new("TextLabel", box)
+        note.LayoutOrder = 99
+        note.Size = UDim2.new(1, 0, 0, 26)
+        note.BackgroundTransparency = 1
+        note.Text = noteText
+        note.Font = Enum.Font.Gotham
+        note.TextSize = 9
+        note.TextColor3 = Color3.fromRGB(110, 110, 110)
+        note.TextWrapped = true
+        note.TextXAlignment = Enum.TextXAlignment.Left
+        note.TextYAlignment = Enum.TextYAlignment.Top
+    end
 end
+DHStats.Card("ONLINE IN DAFFZHUB", {
+    {"online", "People using DaffzHub right now", Color3.fromRGB(100, 230, 130), 30},
+}, nil)
+DHStats.Card("USED DAFFZHUB", {
+    {"day", "Today (24 h)", Color3.new(1, 1, 1)},
+    {"week", "This week (7 days)", Color3.new(1, 1, 1)},
+    {"month", "This month (30 days)", Color3.new(1, 1, 1)},
+    {"total", "Total so far", Color3.fromRGB(180, 180, 180)},
+}, "Each device counts once per period, however many times it opens DaffzHub. Same person on two devices counts twice.")
 
 task.spawn(function()
     task.wait(3)
@@ -9424,7 +9430,7 @@ function BuildBlackScreen()
             BlackGui.Enabled = true
             Title.Text = "🌑 BLACK SCREEN"
             startTime = os.time()
-            ScreenGui.DisplayOrder = 100 -- keep DaffzHub above the black screen
+            ScreenGui.DisplayOrder = math.max(ScreenGui.DisplayOrder, 100) -- keep DaffzHub above the black screen
             Refresh(DHMetrics)
             if BlackCfg.Disable3D then
                 pcall(function() RunService:Set3dRenderingEnabled(false) end)
@@ -23574,7 +23580,7 @@ function DHMsg.Build()
     gs.ZIndex = 4
     gs.CanvasSize = UDim2.new(0, 0, 0, 0)
     gs.AutomaticCanvasSize = Enum.AutomaticSize.Y
-    local gt = Label(gs, "HOW TO USE MESSAGE\n\n1. First time: read the notice and tap \"I understand, turn on\".\n\n2. Pick a mode with the tabs at the top. Tap OFF to turn that mode ON. Only modes that are ON are checked, and you get a notification for new messages even when this tab is closed.\n\nMODES\n- Server: chat with DaffzHub users in the SAME server as you right now. When you join another server, you see that server's chat.\n- Map: chat with DaffzHub users in ANY server of this game (same map).\n- Global: chat with every DaffzHub user in every game. You can send only once every 10 seconds.\n- Private: only 2 people. Type your friend's Roblox username and tap Set. Your friend must also set YOUR username. It is NOT secret.\n\n3. Type your message and tap Send (or press Enter). Max 200 characters.\n\n4. Tap Mute on a message to hide that person. Unmute brings everyone back.\n\n5. Badges: OWNER (shimmering red) and ADMIN (shimmering yellow) are DaffzHub staff.\n\n6. Want messages in your language? Open the Translate tab and turn on Auto-translate.\n\n7. Who is here? Info tab > DAFFZHUB USERS shows DaffzHub users in your server.\n\nSee Rules for every limit.", 11, Color3.fromRGB(205, 205, 212))
+    local gt = Label(gs, "HOW TO USE MESSAGE\n\n1. First time: read the notice and tap \"I understand, turn on\".\n\n2. Pick a mode with the tabs at the top. Tap OFF to turn that mode ON. Only modes that are ON are checked, and you get a notification for new messages even when this tab is closed.\n\nMODES\n- Server: chat with DaffzHub users in the SAME server as you right now. When you join another server, you see that server's chat.\n- Map: chat with DaffzHub users in ANY server of this game (same map).\n- Global: chat with every DaffzHub user in every game. You can send only once every 10 seconds.\n- Private: only 2 people. Type your friend's Roblox username and tap Set. Your friend must also set YOUR username. It is NOT secret.\n- Group: a chat for friends with a secret code (see GROUPS below).\n\n3. Type your message and tap Send (or press Enter). Max 200 characters.\n\n4. Tap Mute on a message to hide that person. Unmute brings everyone back.\n\n5. Badges: OWNER (shimmering red) and ADMIN (shimmering yellow) are DaffzHub staff.\n\n6. Want messages in your language? Open the Translate tab: Auto-translate (messages here), Translate (type text), Chat (Roblox chat), Screen (drag a box on the screen to translate the text inside).\n\n7. Who is here? Info tab > DAFFZHUB USERS shows DaffzHub users in your server.\n\nGROUPS\nTap the Group tab, then Manage. \"Make new group\" gives you a code: copy it and send it to friends. They paste it in \"Code from a friend\" and tap \"Join with code\". Each group has its own On/Off and its own messages. You can be in 3 groups and a group holds 5 people. Nobody can be kicked and a group cannot be closed: to get rid of someone, make a new group. Groups are not encrypted.\n\nSee Rules for every limit.", 11, Color3.fromRGB(205, 205, 212))
     gt.Size = UDim2.new(1, -6, 0, 0)
     gt.AutomaticSize = Enum.AutomaticSize.Y
     gt.ZIndex = 4
@@ -23718,6 +23724,603 @@ MsgTab.MouseButton1Click:Connect(ShowMsgTab)
 DHMsg.Load()
 pcall(DHMsg.Build)
 pcall(DHMsg.Start)
+
+
+-- ================================================
+-- GROUPS (Message tab): a private chat for friends. Share a secret code; max 5 members per group, max 3 groups per person.
+-- Groups cannot be closed and nobody can be kicked (to get rid of someone, make a new group). It is NOT secret or encrypted.
+-- Saved in Daffzhub_file/Groups.json (code, name, member pass). The pass is renewed by itself.
+-- Each group is a hidden "mode" (ga, gb, gc) of the Message tab, so On/Off, notifications, bubbles, Mute and Translate all work.
+-- ================================================
+DHGrp = {Path = "Daffzhub_file/Groups.json", Slots = {"ga", "gb", "gc"}, G = {}, Cur = nil, Renewing = false}
+
+function DHGrp.IsSlot(key) return key == "ga" or key == "gb" or key == "gc" or key == "gx" end
+
+function DHGrp.Count()
+    local n = 0
+    for _, s in ipairs(DHGrp.Slots) do if DHGrp.G[s] then n = n + 1 end end
+    return n
+end
+
+function DHGrp.First()
+    for _, s in ipairs(DHGrp.Slots) do if DHGrp.G[s] then return s end end
+    return nil
+end
+
+function DHGrp.FreeSlot()
+    for _, s in ipairs(DHGrp.Slots) do if not DHGrp.G[s] then return s end end
+    return nil
+end
+
+function DHGrp.Uid() return game:GetService("Players").LocalPlayer.UserId end
+
+function DHGrp.CleanName(t)
+    t = string.gsub(tostring(t or ""), "[%c<>]", " ")
+    t = string.gsub(t, "%s+", " ")
+    t = string.gsub(t, "^%s+", "")
+    t = string.gsub(t, "%s+$", "")
+    local cut = utf8.offset(t, 21)
+    if cut then t = string.sub(t, 1, cut - 1) end
+    if t == "" then t = "Group" end
+    return t
+end
+
+function DHGrp.Save()
+    pcall(function()
+        if not (writefile and makefolder and isfolder) then return end
+        if not isfolder("Daffzhub_file") then makefolder("Daffzhub_file") end
+        local out = {}
+        for _, s in ipairs(DHGrp.Slots) do
+            local g = DHGrp.G[s]
+            if g then out[s] = {code = g.code, name = g.name, token = g.token, exp = g.exp, on = DHMsg.On[s] == true} end
+        end
+        writefile(DHGrp.Path, game:GetService("HttpService"):JSONEncode({groups = out, cur = DHGrp.Cur}))
+    end)
+end
+
+function DHGrp.Load()
+    pcall(function()
+        if not (isfile and readfile and isfile(DHGrp.Path)) then return end
+        local d = game:GetService("HttpService"):JSONDecode(readfile(DHGrp.Path))
+        if type(d) ~= "table" or type(d.groups) ~= "table" then return end
+        for _, s in ipairs(DHGrp.Slots) do
+            local g = d.groups[s]
+            if type(g) == "table" and type(g.code) == "string" and string.match(g.code, "^%w+$") and #g.code >= 10 and #g.code <= 16 then
+                DHGrp.G[s] = {code = g.code, name = DHGrp.CleanName(g.name), token = type(g.token) == "string" and g.token or "", exp = type(g.exp) == "number" and g.exp or 0}
+                DHMsg.On[s] = g.on == true
+            end
+        end
+        if type(d.cur) == "string" and DHGrp.G[d.cur] then DHGrp.Cur = d.cur end
+    end)
+end
+
+-- a random code nobody can guess (12 letters/digits, no look-alikes)
+function DHGrp.NewCode()
+    local chars = "abcdefghijkmnpqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789"
+    local rng = Random.new()
+    local t = {}
+    for i = 1, 12 do
+        local k = rng:NextInteger(1, #chars)
+        t[i] = string.sub(chars, k, k)
+    end
+    return table.concat(t)
+end
+
+-- join (also used to create and to renew the pass). cb(ok, message)
+function DHGrp.Join(code, name, cb)
+    code = string.gsub(tostring(code or ""), "%s", "")
+    if not string.match(code, "^%w+$") or #code < 10 or #code > 16 then cb(false, "That code does not look right.") return end
+    for _, s in ipairs(DHGrp.Slots) do
+        if DHGrp.G[s] and DHGrp.G[s].code == code then cb(false, "You are already in this group.") return end
+    end
+    local slot = DHGrp.FreeSlot()
+    if not slot then cb(false, "You are already in 3 groups. Leave one first.") return end
+    task.spawn(function()
+        local data, err = DHMsg.Call({action = "gjoin", room = "c:" .. code, uid = DHGrp.Uid()})
+        if not data or type(data.token) ~= "string" then
+            -- the server's own words ("This group is full (5 members)") are shown as they are
+            local msg = tostring(err or "Could not join.")
+            msg = string.gsub(msg, "^Server error %d+: ", "")
+            cb(false, msg)
+            return
+        end
+        if DHGrp.G[slot] then cb(false, "Try again.") return end
+        DHGrp.G[slot] = {code = code, name = DHGrp.CleanName(name), token = data.token, exp = tonumber(data.exp) or 0}
+        DHMsg.M[slot].label = DHGrp.G[slot].name
+        DHMsg.On[slot] = true
+        DHGrp.Cur = slot
+        DHMsg.Save()
+        if DHMsg.ClearMode then DHMsg.ClearMode(slot) end
+        DHMsg.RoomOf[slot] = nil
+        cb(true, "Joined " .. DHGrp.G[slot].name .. " (" .. tostring(data.members or "?") .. "/" .. tostring(data.max or 5) .. " members)", slot)
+    end)
+end
+
+function DHGrp.Leave(slot, cb)
+    local g = DHGrp.G[slot]
+    if not g then cb(false, "No such group.") return end
+    task.spawn(function()
+        -- tell the server (frees the place). If it cannot be reached we still leave on this device.
+        pcall(DHMsg.Call, {action = "gleave", room = "c:" .. g.code, uid = DHGrp.Uid(), token = g.token})
+        DHGrp.G[slot] = nil
+        DHMsg.On[slot] = false
+        DHMsg.RoomOf[slot] = nil
+        DHMsg.M[slot].label = "Group"
+        if DHMsg.ClearMode then DHMsg.ClearMode(slot) end
+        if DHGrp.Cur == slot then DHGrp.Cur = DHGrp.First() end
+        DHMsg.Save()
+        cb(true, "You left " .. g.name .. ".")
+    end)
+end
+
+-- keeps the member pass fresh (valid 7 days, renewed when less than 3 days are left or when the server says it is wrong)
+function DHGrp.Renew(force)
+    if DHGrp.Renewing then return end
+    DHGrp.Renewing = true
+    task.spawn(function()
+        for _, s in ipairs(DHGrp.Slots) do
+            local g = DHGrp.G[s]
+            if g and (force or g.bad or (g.exp or 0) - os.time() < 3 * 86400) then
+                local data = DHMsg.Call({action = "gjoin", room = "c:" .. g.code, uid = DHGrp.Uid()})
+                if data and type(data.token) == "string" then
+                    g.token, g.exp, g.bad = data.token, tonumber(data.exp) or 0, nil
+                end
+            end
+        end
+        DHGrp.Save()
+        DHGrp.Renewing = false
+    end)
+end
+
+-- the group pass and the user id travel with every group request (one wrapper, the Message code itself is not touched)
+do
+    local oldCall = DHMsg.Call
+    DHMsg.Call = function(tbl)
+        if type(tbl) == "table" then
+            if tbl.action == "pull" and type(tbl.rooms) == "table" then
+                local tk
+                for n, r in pairs(tbl.rooms) do
+                    local g = DHGrp.G[n]
+                    if g and r == "c:" .. g.code then
+                        tk = tk or {}
+                        tk[n] = g.token
+                    end
+                end
+                if tk then
+                    tbl.tokens = tk
+                    tbl.uid = DHGrp.Uid()
+                end
+            elseif tbl.action == "send" and type(tbl.room) == "string" and string.sub(tbl.room, 1, 2) == "c:" then
+                for _, g in pairs(DHGrp.G) do
+                    if "c:" .. g.code == tbl.room then tbl.token = g.token end
+                end
+            end
+        end
+        local data, err = oldCall(tbl)
+        if data and type(data.denied) == "table" and #data.denied > 0 then
+            for _, n in ipairs(data.denied) do
+                if DHGrp.G[n] then DHGrp.G[n].bad = true end
+            end
+            DHGrp.Renew(false)
+        elseif not data and type(err) == "string" and string.find(err, "403", 1, true) and type(tbl) == "table" and tbl.action == "send" then
+            for _, g in pairs(DHGrp.G) do g.bad = true end
+            DHGrp.Renew(false)
+        end
+        return data, err
+    end
+
+    local oldRoom = DHMsg.Room
+    DHMsg.Room = function(key)
+        local g = DHGrp.G[key]
+        if g then return "c:" .. g.code end
+        return oldRoom(key)
+    end
+
+    local oldSave = DHMsg.Save
+    DHMsg.Save = function(...)
+        oldSave(...)
+        DHGrp.Save()
+    end
+end
+
+function DHGrp.Build()
+    local Content = MsgContent
+    local GRAY = Color3.fromRGB(150, 150, 160)
+    local function Btn(parent, text, w, h)
+        local b = Instance.new("TextButton", parent)
+        b.Size = UDim2.new(0, w, 0, h)
+        b.BackgroundColor3 = Color3.fromRGB(30, 30, 40)
+        b.Font = Enum.Font.GothamBold
+        b.TextSize = 11
+        b.TextColor3 = Color3.new(1, 1, 1)
+        b.Text = text
+        b.AutoButtonColor = true
+        Instance.new("UICorner", b).CornerRadius = UDim.new(0, 6)
+        return b
+    end
+
+    -- hidden modes: ga, gb, gc (the three groups) and gx ("no group yet")
+    for _, k in ipairs({"ga", "gb", "gc", "gx"}) do
+        local m = {key = k, label = "Group", gap = 3, color = Color3.fromRGB(110, 225, 200)}
+        DHMsg.Modes[#DHMsg.Modes + 1] = m
+        DHMsg.M[k] = m
+        local hidden = Btn(Content, "", 10, 10)
+        hidden.Visible = false
+        DHMsg.TabBtns[k] = hidden
+        local sc = Instance.new("ScrollingFrame", Content)
+        sc.Size = UDim2.new(1, -20, 1, -138)
+        sc.Position = UDim2.new(0, 10, 0, 92)
+        sc.BackgroundTransparency = 1
+        sc.BorderSizePixel = 0
+        sc.ScrollBarThickness = 1
+        sc.CanvasSize = UDim2.new(0, 0, 0, 0)
+        sc.AutomaticCanvasSize = Enum.AutomaticSize.Y
+        sc.Visible = false
+        local sl = Instance.new("UIListLayout", sc)
+        sl.Padding = UDim.new(0, 8)
+        sl.SortOrder = Enum.SortOrder.LayoutOrder
+        DHMsg.Scrolls[k] = sc
+        DHMsg.Rows[k] = {}
+        local e = Instance.new("TextLabel", sc)
+        e.BackgroundTransparency = 1
+        e.Font = Enum.Font.Gotham
+        e.TextSize = 12
+        e.TextColor3 = Color3.fromRGB(130, 130, 140)
+        e.TextWrapped = true
+        e.Size = UDim2.new(1, 0, 0, 44)
+        e.LayoutOrder = 0
+        DHMsg.Empties[k] = e
+    end
+    for _, s in ipairs(DHGrp.Slots) do
+        if DHGrp.G[s] then DHMsg.M[s].label = DHGrp.G[s].name end
+    end
+
+    -- five tabs now: make them a little narrower and add the Group tab
+    local order = {"server", "map", "global", "private"}
+    for i, k in ipairs(order) do
+        local b = DHMsg.TabBtns[k]
+        if b then
+            b.Size = UDim2.new(0, 70, 0, 26)
+            b.Position = UDim2.new(0, 10 + (i - 1) * 74, 0, 4)
+            b.TextSize = 10
+        end
+    end
+    local tab = Btn(Content, "Group", 70, 26)
+    tab.Position = UDim2.new(0, 10 + 4 * 74, 0, 4)
+    tab.TextSize = 10
+    DHGrp.TabBtn = tab
+
+    -- group bar (under the control row): one chip per group + Manage
+    local bar = Instance.new("Frame", Content)
+    bar.Size = UDim2.new(1, -20, 0, 26)
+    bar.Position = UDim2.new(0, 10, 0, 62)
+    bar.BackgroundTransparency = 1
+    bar.Visible = false
+    DHGrp.Bar = bar
+    local manage = Btn(bar, "Manage", 62, 26)
+    manage.AnchorPoint = Vector2.new(1, 0)
+    manage.Position = UDim2.new(1, 0, 0, 0)
+    manage.BackgroundColor3 = Color3.fromRGB(40, 110, 100)
+    DHGrp.Chips = {}
+
+    function DHGrp.PaintBar()
+        for _, c in ipairs(DHGrp.Chips) do pcall(function() c:Destroy() end) end
+        DHGrp.Chips = {}
+        local x = 0
+        for _, s in ipairs(DHGrp.Slots) do
+            local g = DHGrp.G[s]
+            if g then
+                local n = DHMsg.Unread[s] or 0
+                local c = Btn(bar, g.name .. (n > 0 and (" (" .. (n > 9 and "9+" or n) .. ")") or ""), 86, 26)
+                c.Position = UDim2.new(0, x, 0, 0)
+                c.TextSize = 10
+                c.TextTruncate = Enum.TextTruncate.AtEnd
+                c.BackgroundColor3 = (DHMsg.Cur == s) and Color3.fromRGB(55, 75, 78) or Color3.fromRGB(30, 30, 40)
+                c.TextColor3 = DHMsg.On[s] and DHMsg.M[s].color or Color3.fromRGB(120, 120, 130)
+                c.MouseButton1Click:Connect(function() DHMsg.Select(s) end)
+                DHGrp.Chips[#DHGrp.Chips + 1] = c
+                x = x + 90
+            end
+        end
+        if DHGrp.Count() == 0 then
+            local c = Instance.new("TextLabel", bar)
+            c.BackgroundTransparency = 1
+            c.Size = UDim2.new(1, -70, 1, 0)
+            c.Font = Enum.Font.Gotham
+            c.TextSize = 10
+            c.TextColor3 = GRAY
+            c.TextXAlignment = Enum.TextXAlignment.Left
+            c.Text = "No group yet. Tap Manage."
+            DHGrp.Chips[#DHGrp.Chips + 1] = c
+        end
+    end
+
+    function DHGrp.PaintTab()
+        local n, on = 0, false
+        for _, s in ipairs(DHGrp.Slots) do
+            n = n + (DHMsg.Unread[s] or 0)
+            if DHMsg.On[s] then on = true end
+        end
+        tab.Text = "Group" .. (n > 0 and (" (" .. (n > 9 and "9+" or n) .. ")") or "")
+        tab.BackgroundColor3 = DHGrp.IsSlot(DHMsg.Cur) and Color3.fromRGB(55, 55, 78) or Color3.fromRGB(30, 30, 40)
+        tab.TextColor3 = on and Color3.fromRGB(110, 225, 200) or Color3.fromRGB(120, 120, 130)
+        if DHGrp.PaintBar then DHGrp.PaintBar() end
+    end
+
+    -- wrap the Message functions (their code stays as it is)
+    local oldPaint = DHMsg.PaintTabs
+    DHMsg.PaintTabs = function(...)
+        oldPaint(...)
+        DHGrp.PaintTab()
+    end
+    local oldSelect = DHMsg.Select
+    DHMsg.Select = function(key)
+        oldSelect(key)
+        local isG = DHGrp.IsSlot(key)
+        bar.Visible = isG
+        if isG and key ~= "gx" and DHGrp.Cur ~= key then
+            DHGrp.Cur = key
+            DHGrp.Save()
+        end
+        DHGrp.PaintTab()
+    end
+    local oldEmpty = DHMsg.ResetEmpty
+    DHMsg.ResetEmpty = function(key)
+        oldEmpty(key)
+        if key == "gx" and DHMsg.Empties.gx then
+            DHMsg.Empties.gx.Text = "You have no group yet. Tap Manage to make one, or to join with a code from a friend."
+        end
+    end
+    tab.MouseButton1Click:Connect(function()
+        local k = (DHGrp.Cur and DHGrp.G[DHGrp.Cur]) and DHGrp.Cur or DHGrp.First()
+        DHMsg.Select(k or "gx")
+    end)
+
+    -- ---------- Manage panel ----------
+    local P = Instance.new("Frame", Content)
+    P.Size = UDim2.new(1, -20, 1, -68)
+    P.Position = UDim2.new(0, 10, 0, 62)
+    P.BackgroundColor3 = Color3.fromRGB(24, 24, 28)
+    P.BorderSizePixel = 0
+    P.ZIndex = 4
+    P.Visible = false
+    Instance.new("UICorner", P).CornerRadius = UDim.new(0, 8)
+    local sc = Instance.new("ScrollingFrame", P)
+    sc.Size = UDim2.new(1, -10, 1, -40)
+    sc.Position = UDim2.new(0, 5, 0, 5)
+    sc.BackgroundTransparency = 1
+    sc.BorderSizePixel = 0
+    sc.ScrollBarThickness = 1
+    sc.ZIndex = 4
+    sc.CanvasSize = UDim2.new(0, 0, 0, 0)
+    sc.AutomaticCanvasSize = Enum.AutomaticSize.Y
+    local ll = Instance.new("UIListLayout", sc)
+    ll.Padding = UDim.new(0, 6)
+    ll.SortOrder = Enum.SortOrder.LayoutOrder
+    local order = 0
+    local function Z(o) o.ZIndex = 4 return o end
+    local function Text(text, size, color, height)
+        order = order + 1
+        local l = Z(Instance.new("TextLabel", sc))
+        l.LayoutOrder = order
+        l.BackgroundTransparency = 1
+        l.Font = size > 11 and Enum.Font.GothamBold or Enum.Font.Gotham
+        l.TextSize = size
+        l.TextColor3 = color
+        l.TextXAlignment = Enum.TextXAlignment.Left
+        l.TextYAlignment = Enum.TextYAlignment.Top
+        l.TextWrapped = true
+        l.Size = UDim2.new(1, -6, 0, height or 0)
+        if not height then l.AutomaticSize = Enum.AutomaticSize.Y end
+        l.Text = text
+        return l
+    end
+    local function Box(placeholder)
+        order = order + 1
+        local b = Z(Instance.new("TextBox", sc))
+        b.LayoutOrder = order
+        b.Size = UDim2.new(1, -6, 0, 28)
+        b.BackgroundColor3 = Color3.fromRGB(32, 32, 42)
+        b.Font = Enum.Font.Gotham
+        b.TextSize = 11
+        b.TextColor3 = Color3.new(1, 1, 1)
+        b.PlaceholderText = placeholder
+        b.PlaceholderColor3 = Color3.fromRGB(130, 130, 140)
+        b.Text = ""
+        b.ClearTextOnFocus = false
+        b.TextXAlignment = Enum.TextXAlignment.Left
+        Instance.new("UICorner", b).CornerRadius = UDim.new(0, 6)
+        Instance.new("UIPadding", b).PaddingLeft = UDim.new(0, 8)
+        return b
+    end
+    local function Row()
+        order = order + 1
+        local r = Z(Instance.new("Frame", sc))
+        r.LayoutOrder = order
+        r.Size = UDim2.new(1, -6, 0, 28)
+        r.BackgroundTransparency = 1
+        return r
+    end
+    local function RBtn(parent, text, x, w, color)
+        local b = Z(Btn(parent, text, w, 28))
+        b.Position = UDim2.new(0, x, 0, 0)
+        if color then b.BackgroundColor3 = color end
+        return b
+    end
+
+    Text("YOUR GROUP", 13, Color3.fromRGB(110, 225, 200), 20)
+    local info = Text("", 11, Color3.fromRGB(215, 215, 220))
+    local rowA = Row()
+    local copyB = RBtn(rowA, "Copy code", 0, 110, Color3.fromRGB(40, 110, 100))
+    local leaveB = RBtn(rowA, "Leave group", 116, 110, Color3.fromRGB(150, 50, 50))
+    Text("NEW GROUP", 13, Color3.fromRGB(110, 225, 200), 20)
+    local nameBox = Box("Group name (optional, max 20 letters)")
+    local codeBox = Box("Code from a friend (to join)")
+    local rowB = Row()
+    local createB = RBtn(rowB, "Make new group", 0, 130, Color3.fromRGB(35, 160, 90))
+    local joinB = RBtn(rowB, "Join with code", 136, 120, Color3.fromRGB(40, 110, 100))
+    local msg = Text("", 11, Color3.fromRGB(255, 200, 100))
+    Text("Anyone who has the code can join until the group has 5 members. You can be in 3 groups. A group cannot be closed and nobody can be kicked: to get rid of someone, make a new group and share the new code. Messages are NOT secret or encrypted and are deleted after about 1 day.", 10, GRAY)
+
+    local closeB = Z(Btn(P, "Close", 70, 26))
+    closeB.AnchorPoint = Vector2.new(0, 1)
+    closeB.Position = UDim2.new(0, 8, 1, -6)
+
+    local confirmLeave = false
+    local function Fill()
+        local s = DHGrp.Cur
+        local g = s and DHGrp.G[s]
+        if g then
+            info.Text = "Name: " .. g.name .. "\nCode: " .. g.code .. "\nMembers: checking..."
+            copyB.Visible = true
+            leaveB.Visible = true
+            task.spawn(function()
+                local d = DHMsg.Call({action = "gmembers", room = "c:" .. g.code, uid = DHGrp.Uid(), token = g.token})
+                if DHGrp.Cur == s and DHGrp.G[s] == g and d and d.members then
+                    info.Text = "Name: " .. g.name .. "\nCode: " .. g.code .. "\nMembers: " .. d.members .. "/" .. tostring(d.max or 5)
+                end
+            end)
+        else
+            info.Text = "You are not in a group yet."
+            copyB.Visible = false
+            leaveB.Visible = false
+        end
+        confirmLeave = false
+        leaveB.Text = "Leave group"
+    end
+    local function Say(t, ok) msg.Text = t msg.TextColor3 = ok and Color3.fromRGB(100, 220, 140) or Color3.fromRGB(255, 120, 120) end
+
+    manage.MouseButton1Click:Connect(function()
+        P.Visible = not P.Visible
+        if P.Visible then Fill() end
+    end)
+    closeB.MouseButton1Click:Connect(function() P.Visible = false end)
+    copyB.MouseButton1Click:Connect(function()
+        local g = DHGrp.Cur and DHGrp.G[DHGrp.Cur]
+        if not g then return end
+        local ok = pcall(function() setclipboard(g.code) end)
+        Say(ok and "Code copied. Send it to your friends." or "Your executor cannot copy. Select the code above by hand.", ok)
+    end)
+    leaveB.MouseButton1Click:Connect(function()
+        local s = DHGrp.Cur
+        if not (s and DHGrp.G[s]) then return end
+        if not confirmLeave then
+            confirmLeave = true
+            leaveB.Text = "Tap again to leave"
+            return
+        end
+        DHGrp.Leave(s, function(ok, t)
+            Say(t, ok)
+            DHMsg.Select(DHGrp.Cur or "gx")
+            Fill()
+        end)
+    end)
+    local function Done(ok, t, slot)
+        Say(t, ok)
+        if ok then
+            nameBox.Text = ""
+            codeBox.Text = ""
+            DHMsg.Select(slot)
+            Fill()
+            task.spawn(function() pcall(DHMsg.Pull) end)
+        end
+    end
+    createB.MouseButton1Click:Connect(function()
+        Say("Making the group...", true)
+        DHGrp.Join(DHGrp.NewCode(), nameBox.Text, Done)
+    end)
+    joinB.MouseButton1Click:Connect(function()
+        Say("Joining...", true)
+        DHGrp.Join(codeBox.Text, nameBox.Text, Done)
+    end)
+
+    -- Rules and Guide: add a short Group part
+    for _, d in ipairs(Content:GetDescendants()) do
+        if d:IsA("TextLabel") then
+            if string.sub(d.Text, 1, 16) == "RULES AND LIMITS" and not string.find(d.Text, "Group:", 1, true) then
+                d.Text = d.Text .. "\n- Group: share a secret code with friends. Max 5 members per group, and you can be in 3 groups. Nobody can be kicked and a group cannot be closed. Not secret, not encrypted."
+            elseif string.sub(d.Text, 1, 18) == "HOW TO USE MESSAGE" and not string.find(d.Text, "GROUPS", 1, true) then
+                d.Text = d.Text .. "\n\nGROUPS: tap the Group tab, then Manage. \"Make new group\" gives you a code: copy it and send it to friends. They paste it in \"Code from a friend\" and tap \"Join with code\". Each group has its own On/Off and its own messages."
+            end
+        end
+    end
+
+    if DHGrp.Cur and not DHGrp.G[DHGrp.Cur] then DHGrp.Cur = DHGrp.First() end
+    for _, s in ipairs(DHGrp.Slots) do DHMsg.ResetEmpty(s) end
+    DHMsg.ResetEmpty("gx")
+    DHMsg.PaintTabs()
+end
+
+DHGrp.Load()
+pcall(DHGrp.Build)
+task.spawn(function()
+    task.wait(6)
+    while MsgContent and MsgContent.Parent do
+        pcall(DHGrp.Renew, false)
+        task.wait(21600)
+    end
+end)
+
+-- ================================================
+-- Message tab: Guide and Rules scroll reliably. The canvas size is set by hand (not automatic) and there are
+-- Up / Down buttons next to Close, so the text can always be read to the end. The scroll bar is thicker.
+-- ================================================
+function DHMsg.FixScroll(prefix)
+    for _, d in ipairs(MsgContent:GetDescendants()) do
+        if d:IsA("TextLabel") and string.sub(d.Text, 1, #prefix) == prefix then
+            local sc = d.Parent
+            local panel = sc and sc.Parent
+            if not (sc and sc:IsA("ScrollingFrame") and panel) then return end
+            sc.AutomaticCanvasSize = Enum.AutomaticSize.None
+            sc.ScrollingDirection = Enum.ScrollingDirection.Y
+            sc.ScrollingEnabled = true
+            sc.Active = true
+            sc.ScrollBarThickness = 1
+            local canvasH = 0
+            local function Fit()
+                local sz = d.AbsoluteSize
+                local h = sz and sz.Y or 0
+                if h > 0 then
+                    canvasH = h + 16
+                    sc.CanvasSize = UDim2.new(0, 0, 0, canvasH)
+                end
+            end
+            Fit()
+            pcall(function() d:GetPropertyChangedSignal("AbsoluteSize"):Connect(Fit) end)
+            pcall(function() panel:GetPropertyChangedSignal("Visible"):Connect(function() task.defer(Fit) end) end)
+            task.spawn(function()
+                for _ = 1, 6 do
+                    task.wait(0.5)
+                    Fit()
+                end
+            end)
+            local function Step(dir)
+                Fit()
+                local win = (sc.AbsoluteWindowSize and sc.AbsoluteWindowSize.Y) or (sc.AbsoluteSize and sc.AbsoluteSize.Y) or 200
+                local maxY = math.max(0, canvasH - win)
+                local y = math.max(0, math.min(maxY, sc.CanvasPosition.Y + dir * math.max(60, win - 30)))
+                sc.CanvasPosition = Vector2.new(0, y)
+            end
+            for i, info in ipairs({{"Up", -1}, {"Down", 1}}) do
+                local b = Instance.new("TextButton", panel)
+                b.Size = UDim2.new(0, 46, 0, 26)
+                b.AnchorPoint = Vector2.new(0, 1)
+                b.Position = UDim2.new(0, 86 + (i - 1) * 52, 1, -6)
+                b.BackgroundColor3 = Color3.fromRGB(30, 30, 40)
+                b.Font = Enum.Font.GothamBold
+                b.TextSize = 11
+                b.TextColor3 = Color3.new(1, 1, 1)
+                b.Text = info[1]
+                b.ZIndex = 4
+                Instance.new("UICorner", b).CornerRadius = UDim.new(0, 6)
+                b.MouseButton1Click:Connect(function() Step(info[2]) end)
+            end
+            return
+        end
+    end
+end
+pcall(DHMsg.FixScroll, "HOW TO USE MESSAGE")
+pcall(DHMsg.FixScroll, "RULES AND LIMITS")
 
 -- ================================================
 -- TRANSLATE TAB: translates the chat messages you receive (Message tab) into your language.
@@ -24667,6 +25270,1002 @@ DHTr.Load()
 DHTr.ChatLoad()
 if DHTr.Chat then DHTr.ChatHook() end
 pcall(DHTr.Build2)
+
+-- ================================================
+-- TRANSLATE TAB v4: "Screen" view. Turn it ON, touch the screen and drag: a box appears. The text of the game's own
+-- GUI (menus, shop, quest text, Roblox chat...) inside the box is translated. DaffzHub's own windows are skipped.
+-- It can only read real text objects, NOT text that is part of a picture. Opt-in: nothing is sent while it is OFF.
+-- It is never saved as ON (it covers the screen), so it is OFF every time you execute the hub.
+-- ================================================
+DHTr.Scr = {On = false, Gui = nil, Conns = {}, Busy = false, Last = 0, Paint = nil, Hooked = false}
+
+-- true when this ScreenGui belongs to DaffzHub (the hub window, ESP lines, crosshair...)
+function DHTr.Scr.Skip(g)
+    local n = tostring(g.Name)
+    return g == ScreenGui or n == "DaffzHub" or string.sub(n, 1, 3) == "DH_"
+end
+
+function DHTr.Scr.Shown(o)
+    local p = o
+    while p and p ~= game do
+        if p:IsA("GuiObject") then
+            if p.Visible == false then return false end
+        elseif p:IsA("ScreenGui") then
+            if p.Enabled == false then return false end
+        end
+        p = p.Parent
+    end
+    return true
+end
+
+-- text objects whose centre is inside the box (screen pixels). Returns a list of {t, x, y}
+function DHTr.Scr.Collect(x1, y1, x2, y2)
+    local inset = Vector2.new(0, 0)
+    pcall(function() inset = game:GetService("GuiService"):GetGuiInset() end)
+    local roots = {}
+    pcall(function() roots[#roots + 1] = game:GetService("Players").LocalPlayer.PlayerGui end)
+    pcall(function() roots[#roots + 1] = game:GetService("CoreGui") end)
+    local found, seen = {}, {}
+    for _, root in ipairs(roots) do
+        local okk, kids = pcall(function() return root:GetChildren() end)
+        if okk then
+            for _, g in ipairs(kids) do
+                if g:IsA("ScreenGui") and g.Enabled and not DHTr.Scr.Skip(g) then
+                    local oks, ds = pcall(function() return g:GetDescendants() end)
+                    if oks then
+                        local offY = g.IgnoreGuiInset and -inset.Y or 0
+                        for _, d in ipairs(ds) do
+                            if #found >= 80 then break end
+                            if d:IsA("TextLabel") or d:IsA("TextButton") or d:IsA("TextBox") then
+                                pcall(function()
+                                    local txt = d.Text
+                                    if type(txt) ~= "string" or txt == "" or d.TextTransparency >= 0.95 then return end
+                                    local ap, sz = d.AbsolutePosition, d.AbsoluteSize
+                                    local cx = ap.X + sz.X / 2
+                                    local cy = ap.Y + sz.Y / 2 + offY
+                                    if cx < x1 or cx > x2 or cy < y1 or cy > y2 then return end
+                                    txt = string.gsub(txt, "<[^>]+>", "")
+                                    txt = string.gsub(txt, "^%s+", "")
+                                    txt = string.gsub(txt, "%s+$", "")
+                                    if txt == "" or seen[txt] then return end
+                                    if not (string.find(txt, "%a") or string.find(txt, "[\128-\255]")) then return end
+                                    if not DHTr.Scr.Shown(d) then return end
+                                    seen[txt] = true
+                                    found[#found + 1] = {t = string.sub(txt, 1, 280), x = cx, y = cy}
+                                end)
+                            end
+                        end
+                    end
+                end
+            end
+        end
+    end
+    table.sort(found, function(a, b)
+        local ra, rb = math.floor(a.y / 12), math.floor(b.y / 12)
+        if ra ~= rb then return ra < rb end
+        return a.x < b.x
+    end)
+    while #found > 30 do table.remove(found) end
+    return found
+end
+
+-- translates the texts (max 3 requests). cb(list of {o, t}, note)
+function DHTr.Scr.Translate(items, cb)
+    local chunks, cur, curN = {}, {}, 0
+    for _, it in ipairs(items) do
+        if curN + #it.t + 1 > 280 and #cur > 0 then
+            chunks[#chunks + 1] = cur
+            cur, curN = {}, 0
+        end
+        cur[#cur + 1] = it.t
+        curN = curN + #it.t + 1
+    end
+    if #cur > 0 then chunks[#chunks + 1] = cur end
+    local note = nil
+    while #chunks > 3 do
+        table.remove(chunks)
+        note = "Too much text: only the first part is translated. Draw a smaller box."
+    end
+    local out, errs = {}, nil
+    for _, lines in ipairs(chunks) do
+        local joined = table.concat(lines, "\n")
+        DHTr.Ask(joined, function(t, src)
+            if not t then
+                errs = tostring(src)
+                return
+            end
+            if src ~= "" and string.lower(string.sub(src, 1, 2)) == string.lower(string.sub(DHTr.Lang, 1, 2)) then
+                for _, l in ipairs(lines) do out[#out + 1] = {o = l, t = l, same = true} end
+                return
+            end
+            local outs = {}
+            for s in string.gmatch(t .. "\n", "(.-)\n") do outs[#outs + 1] = s end
+            while #outs > #lines and outs[#outs] == "" do table.remove(outs) end
+            if #outs == #lines then
+                for i, l in ipairs(lines) do out[#out + 1] = {o = l, t = outs[i]} end
+            else
+                out[#out + 1] = {o = table.concat(lines, " / "), t = t}
+            end
+        end)
+    end
+    if #out == 0 and errs then cb(nil, errs) return end
+    cb(out, note or errs)
+end
+
+function DHTr.Scr.Set(on)
+    if on == DHTr.Scr.On then return end
+    DHTr.Scr.On = on
+    if not on then
+        for _, c in ipairs(DHTr.Scr.Conns) do pcall(function() c:Disconnect() end) end
+        DHTr.Scr.Conns = {}
+        if DHTr.Scr.Gui then pcall(function() DHTr.Scr.Gui:Destroy() end) end
+        DHTr.Scr.Gui = nil
+    else
+        local ok = pcall(DHTr.Scr.Open)
+        if not ok then DHTr.Scr.On = false end
+    end
+    if DHTr.Scr.Paint then pcall(DHTr.Scr.Paint) end
+end
+
+function DHTr.Scr.Open()
+    local UIS = game:GetService("UserInputService")
+    local g = Instance.new("ScreenGui")
+    g.Name = "DH_ScreenTr"
+    g.ResetOnSpawn = false
+    g.DisplayOrder = (ScreenGui.DisplayOrder or 0) + 1
+    g.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+    g.Parent = ScreenGui.Parent
+    DHTr.Scr.Gui = g
+
+    local catch = Instance.new("Frame", g)
+    catch.Size = UDim2.new(1, 0, 1, 0)
+    catch.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
+    catch.BackgroundTransparency = 0.88
+    catch.BorderSizePixel = 0
+    catch.Active = true
+
+    local hint = Instance.new("TextLabel", catch)
+    hint.Size = UDim2.new(1, -120, 0, 24)
+    hint.Position = UDim2.new(0, 10, 0, 6)
+    hint.BackgroundTransparency = 1
+    hint.Font = Enum.Font.GothamBold
+    hint.TextSize = 12
+    hint.TextColor3 = Color3.new(1, 1, 1)
+    hint.TextStrokeTransparency = 0.5
+    hint.TextXAlignment = Enum.TextXAlignment.Left
+    hint.Text = "Translate screen: touch and drag a box over the text"
+
+    local stop = Instance.new("TextButton", g)
+    stop.Size = UDim2.new(0, 96, 0, 26)
+    stop.AnchorPoint = Vector2.new(1, 0)
+    stop.Position = UDim2.new(1, -8, 0, 6)
+    stop.BackgroundColor3 = Color3.fromRGB(180, 30, 30)
+    stop.Font = Enum.Font.GothamBold
+    stop.TextSize = 11
+    stop.TextColor3 = Color3.new(1, 1, 1)
+    stop.Text = "Stop"
+    stop.ZIndex = 5
+    Instance.new("UICorner", stop).CornerRadius = UDim.new(0, 6)
+    stop.MouseButton1Click:Connect(function() DHTr.Scr.Set(false) end)
+
+    local box = Instance.new("Frame", g)
+    box.BackgroundColor3 = DHTr.Accent
+    box.BackgroundTransparency = 0.8
+    box.BorderSizePixel = 0
+    box.Visible = false
+    box.ZIndex = 2
+    local st = Instance.new("UIStroke", box)
+    st.Color = DHTr.Accent
+    st.Thickness = 2
+
+    local panel = Instance.new("Frame", g)
+    panel.BackgroundColor3 = Color3.fromRGB(24, 24, 30)
+    panel.BorderSizePixel = 0
+    panel.Visible = false
+    panel.ZIndex = 4
+    Instance.new("UICorner", panel).CornerRadius = UDim.new(0, 8)
+    local pst = Instance.new("UIStroke", panel)
+    pst.Color = DHTr.Accent
+    pst.Thickness = 1
+    local ptitle = Instance.new("TextLabel", panel)
+    ptitle.Size = UDim2.new(1, -130, 0, 22)
+    ptitle.Position = UDim2.new(0, 8, 0, 3)
+    ptitle.BackgroundTransparency = 1
+    ptitle.Font = Enum.Font.GothamBold
+    ptitle.TextSize = 11
+    ptitle.TextColor3 = DHTr.Accent
+    ptitle.TextXAlignment = Enum.TextXAlignment.Left
+    ptitle.ZIndex = 5
+    ptitle.Text = "Translation"
+    local pcopy = Instance.new("TextButton", panel)
+    pcopy.Size = UDim2.new(0, 52, 0, 20)
+    pcopy.Position = UDim2.new(1, -116, 0, 4)
+    pcopy.BackgroundColor3 = Color3.fromRGB(40, 130, 120)
+    pcopy.Font = Enum.Font.GothamBold
+    pcopy.TextSize = 10
+    pcopy.TextColor3 = Color3.new(1, 1, 1)
+    pcopy.Text = "Copy"
+    pcopy.ZIndex = 5
+    Instance.new("UICorner", pcopy).CornerRadius = UDim.new(0, 5)
+    local pclose = Instance.new("TextButton", panel)
+    pclose.Size = UDim2.new(0, 52, 0, 20)
+    pclose.Position = UDim2.new(1, -58, 0, 4)
+    pclose.BackgroundColor3 = Color3.fromRGB(150, 50, 50)
+    pclose.Font = Enum.Font.GothamBold
+    pclose.TextSize = 10
+    pclose.TextColor3 = Color3.new(1, 1, 1)
+    pclose.Text = "Close"
+    pclose.ZIndex = 5
+    Instance.new("UICorner", pclose).CornerRadius = UDim.new(0, 5)
+    local plist = Instance.new("ScrollingFrame", panel)
+    plist.Size = UDim2.new(1, -12, 1, -32)
+    plist.Position = UDim2.new(0, 6, 0, 28)
+    plist.BackgroundTransparency = 1
+    plist.BorderSizePixel = 0
+    plist.ScrollBarThickness = 3
+    plist.CanvasSize = UDim2.new(0, 0, 0, 0)
+    plist.AutomaticCanvasSize = Enum.AutomaticSize.Y
+    plist.ZIndex = 5
+    local pl = Instance.new("UIListLayout", plist)
+    pl.SortOrder = Enum.SortOrder.LayoutOrder
+    pl.Padding = UDim.new(0, 4)
+    local allText = ""
+
+    local function ClearPanel()
+        for _, c in ipairs(plist:GetChildren()) do
+            if c:IsA("TextLabel") then c:Destroy() end
+        end
+        allText = ""
+    end
+    local function Line(text, size, color, bold, order)
+        local l = Instance.new("TextLabel", plist)
+        l.Size = UDim2.new(1, -6, 0, 0)
+        l.AutomaticSize = Enum.AutomaticSize.Y
+        l.BackgroundTransparency = 1
+        l.Font = bold and Enum.Font.GothamBold or Enum.Font.Gotham
+        l.TextSize = size
+        l.TextColor3 = color
+        l.TextXAlignment = Enum.TextXAlignment.Left
+        l.TextYAlignment = Enum.TextYAlignment.Top
+        l.TextWrapped = true
+        l.RichText = false
+        l.Text = text
+        l.LayoutOrder = order
+        l.ZIndex = 5
+        return l
+    end
+    pclose.MouseButton1Click:Connect(function()
+        panel.Visible = false
+        box.Visible = false
+    end)
+    pcopy.MouseButton1Click:Connect(function()
+        if setclipboard and allText ~= "" then pcall(setclipboard, allText) end
+        pcopy.Text = "Copied"
+        task.delay(1, function() if pcopy.Parent then pcopy.Text = "Copy" end end)
+    end)
+
+    -- put the result panel below the box (or above it when there is no room)
+    local function Place(x1, y1, x2, y2)
+        local sz = g.AbsoluteSize
+        local sw, sh = sz and sz.X or 0, sz and sz.Y or 0
+        if sw < 100 or sh < 100 then sw, sh = 800, 400 end
+        local w = math.min(sw - 16, 400)
+        local h = math.min(200, math.max(110, sh - 20))
+        local px = math.max(8, math.min(x1, sw - w - 8))
+        local py
+        if y2 + 8 + h <= sh - 4 then py = y2 + 8
+        elseif y1 - 8 - h >= 36 then py = y1 - 8 - h
+        else py = math.max(36, sh - h - 4) end
+        panel.Size = UDim2.new(0, w, 0, h)
+        panel.Position = UDim2.new(0, px, 0, py)
+        panel.Visible = true
+    end
+
+    local function Run(x1, y1, x2, y2)
+        ClearPanel()
+        Place(x1, y1, x2, y2)
+        if not DHTr.Consented then
+            ptitle.Text = "Translation"
+            Line("Turn on once in Translate > Settings to agree.", 11, Color3.fromRGB(255, 200, 100), false, 1)
+            return
+        end
+        if DHTr.Scr.Busy then
+            Line("Still working on the last box...", 11, Color3.fromRGB(150, 150, 160), false, 1)
+            return
+        end
+        if os.clock() - DHTr.Scr.Last < 2 then
+            Line("Wait 2 seconds between boxes.", 11, Color3.fromRGB(255, 200, 100), false, 1)
+            return
+        end
+        DHTr.Scr.Busy = true
+        DHTr.Scr.Last = os.clock()
+        ptitle.Text = "Translating..."
+        local items = DHTr.Scr.Collect(x1, y1, x2, y2)
+        if #items == 0 then
+            DHTr.Scr.Busy = false
+            ptitle.Text = "Translation"
+            Line("No readable text in this box. Text inside pictures cannot be read.", 11, Color3.fromRGB(255, 200, 100), false, 1)
+            return
+        end
+        task.spawn(function()
+            DHTr.Scr.Translate(items, function(list, note)
+                if not (panel and panel.Parent) then return end
+                ClearPanel()
+                if not list then
+                    ptitle.Text = "Translation"
+                    Line("Error: " .. tostring(note), 11, Color3.fromRGB(255, 130, 130), false, 1)
+                    return
+                end
+                ptitle.Text = "Translation to " .. DHTr.LangName(DHTr.Lang)
+                local n, buf = 0, {}
+                for _, e in ipairs(list) do
+                    n = n + 1
+                    if e.same then
+                        Line(e.o, 12, Color3.fromRGB(190, 190, 200), false, n * 2)
+                    else
+                        Line(e.o, 9, Color3.fromRGB(130, 130, 140), false, n * 2 - 1)
+                        Line(e.t, 12, Color3.new(1, 1, 1), false, n * 2)
+                    end
+                    buf[#buf + 1] = e.t
+                end
+                if note then Line(note, 10, Color3.fromRGB(255, 200, 100), false, 9999) end
+                allText = table.concat(buf, "\n")
+            end)
+            DHTr.Scr.Busy = false
+        end)
+    end
+
+    -- drag with finger or mouse
+    local drag, sx, sy = nil, 0, 0
+    local function Draw(px, py)
+        local x1, x2 = math.min(sx, px), math.max(sx, px)
+        local y1, y2 = math.min(sy, py), math.max(sy, py)
+        box.Position = UDim2.new(0, x1, 0, y1)
+        box.Size = UDim2.new(0, x2 - x1, 0, y2 - y1)
+        return x1, y1, x2, y2
+    end
+    catch.InputBegan:Connect(function(input)
+        local ty = input.UserInputType
+        if drag or (ty ~= Enum.UserInputType.Touch and ty ~= Enum.UserInputType.MouseButton1) then return end
+        drag = input
+        sx, sy = input.Position.X, input.Position.Y
+        panel.Visible = false
+        box.Visible = true
+        Draw(sx, sy)
+    end)
+    DHTr.Scr.Conns[#DHTr.Scr.Conns + 1] = UIS.InputChanged:Connect(function(input)
+        if not drag then return end
+        if input == drag or input.UserInputType == Enum.UserInputType.MouseMovement then
+            Draw(input.Position.X, input.Position.Y)
+        end
+    end)
+    DHTr.Scr.Conns[#DHTr.Scr.Conns + 1] = UIS.InputEnded:Connect(function(input)
+        if not drag then return end
+        local ty = input.UserInputType
+        if input == drag or (drag.UserInputType == Enum.UserInputType.MouseButton1 and ty == Enum.UserInputType.MouseButton1) then
+            drag = nil
+            local x1, y1, x2, y2 = Draw(input.Position.X, input.Position.Y)
+            if x2 - x1 < 14 or y2 - y1 < 14 then
+                box.Visible = false
+                return
+            end
+            Run(x1, y1, x2, y2)
+        end
+    end)
+end
+
+-- adds the fourth view (Screen) to the tab
+function DHTr.AddScreenView()
+    local Content = TransContent
+    local ACC = DHTr.Accent
+    local GRAY = Color3.fromRGB(150, 150, 160)
+    local others, frames = {}, {}
+    for _, c in ipairs(Content:GetChildren()) do
+        if c:IsA("TextButton") then others[#others + 1] = c end
+        if c:IsA("Frame") then frames[#frames + 1] = c end
+    end
+    if #others < 3 or #frames < 3 then return end
+
+    local function Lbl(parent, text, size, color, bold)
+        local l = Instance.new("TextLabel", parent)
+        l.BackgroundTransparency = 1
+        l.Font = bold and Enum.Font.GothamBold or Enum.Font.Gotham
+        l.TextSize = size
+        l.TextColor3 = color
+        l.TextXAlignment = Enum.TextXAlignment.Left
+        l.TextYAlignment = Enum.TextYAlignment.Top
+        l.TextWrapped = true
+        l.Text = text
+        return l
+    end
+    local function Btn(parent, text, w, h)
+        local b = Instance.new("TextButton", parent)
+        b.Size = UDim2.new(0, w, 0, h)
+        b.BackgroundColor3 = Color3.fromRGB(30, 30, 40)
+        b.Font = Enum.Font.GothamBold
+        b.TextSize = 11
+        b.TextColor3 = Color3.new(1, 1, 1)
+        b.Text = text
+        Instance.new("UICorner", b).CornerRadius = UDim.new(0, 6)
+        return b
+    end
+
+    local vScr = Btn(Content, "Screen", 90, 26)
+    vScr.Position = UDim2.new(0, 292, 0, 4)
+    local View = Instance.new("Frame", Content)
+    View.Size = UDim2.new(1, 0, 1, -34)
+    View.Position = UDim2.new(0, 0, 0, 34)
+    View.BackgroundTransparency = 1
+    View.Visible = false
+
+    for _, b in ipairs(others) do
+        b.MouseButton1Click:Connect(function()
+            View.Visible = false
+            vScr.BackgroundColor3 = Color3.fromRGB(30, 30, 40)
+        end)
+    end
+    vScr.MouseButton1Click:Connect(function()
+        for _, c in ipairs(Content:GetChildren()) do
+            if c:IsA("Frame") and c ~= View then c.Visible = false end
+            if c:IsA("TextButton") and c ~= vScr then c.BackgroundColor3 = Color3.fromRGB(30, 30, 40) end
+        end
+        vScr.BackgroundColor3 = Color3.fromRGB(40, 130, 120)
+        View.Visible = true
+    end)
+
+    local r1 = Instance.new("Frame", View)
+    r1.Size = UDim2.new(1, -20, 0, 40)
+    r1.Position = UDim2.new(0, 10, 0, 2)
+    r1.BackgroundColor3 = Color3.fromRGB(25, 25, 30)
+    Instance.new("UICorner", r1).CornerRadius = UDim.new(0, 8)
+    local t1 = Lbl(r1, "Translate screen area", 12, Color3.new(1, 1, 1), true)
+    t1.Size = UDim2.new(1, -90, 0, 18)
+    t1.Position = UDim2.new(0, 10, 0, 4)
+    local s1 = Lbl(r1, "Drag a box on the screen, the text inside is translated.", 9, GRAY)
+    s1.Size = UDim2.new(1, -90, 0, 14)
+    s1.Position = UDim2.new(0, 10, 0, 22)
+    s1.TextTruncate = Enum.TextTruncate.AtEnd
+    local OnBtn = Btn(r1, "OFF", 60, 26)
+    OnBtn.Position = UDim2.new(1, -70, 0.5, -13)
+    DHTr.Scr.Paint = function()
+        if not OnBtn.Parent then return end
+        OnBtn.Text = DHTr.Scr.On and "ON" or "OFF"
+        OnBtn.BackgroundColor3 = DHTr.Scr.On and Color3.fromRGB(30, 180, 30) or Color3.fromRGB(180, 30, 30)
+    end
+    OnBtn.MouseButton1Click:Connect(function()
+        if DHTr.Scr.On then
+            DHTr.Scr.Set(false)
+        elseif DHTr.Consented then
+            DHTr.Scr.Set(true)
+        else
+            ShowConfirmPopup("Text you select on the screen is sent to a translate service. Turn on?", ACC, function()
+                DHTr.Consented = true
+                DHTr.Save()
+                DHTr.Scr.Set(true)
+            end)
+        end
+    end)
+    DHTr.Scr.Paint()
+
+    local info = Lbl(View, "HOW IT WORKS\n\n1. Turn it ON. The screen gets a light dark layer.\n2. Touch the screen and drag. A box follows your finger.\n3. Let go. The text inside the box is translated into your chosen language (change it in Settings) and shown in a small panel with Copy and Close.\n4. Tap Stop (top right) to give the game back. While it is ON the game cannot be touched.\n\nLIMITS\n- Only real text of the game's menus, signs on screen and Roblox chat. Text drawn inside a picture cannot be read.\n- DaffzHub windows are never translated.\n- One box every 2 seconds. Free service, quality is basic.", 10, GRAY)
+    info.Size = UDim2.new(1, -24, 1, -52)
+    info.Position = UDim2.new(0, 12, 0, 48)
+    info.TextYAlignment = Enum.TextYAlignment.Top
+end
+
+-- Build2 (also used by "Clear history") now adds the Screen view as well
+DHTr.BuildBase2 = DHTr.Build2
+function DHTr.Build2()
+    DHTr.BuildBase2()
+    pcall(DHTr.AddScreenView)
+end
+
+if not DHTr.Scr.Hooked then
+    DHTr.Scr.Hooked = true
+    ScreenGui.Destroying:Connect(function() pcall(DHTr.Scr.Set, false) end)
+end
+pcall(DHTr.Build2)
+
+-- ================================================
+-- TRANSLATE TAB v4b: Screen translate fix. Paste this AFTER the v4 Screen block (it overrides a few of its functions).
+-- 1) Finds the text under the box with Roblox's own hit test (GetGuiObjectsAtPosition) instead of doing the maths
+--    itself, so it also works when the game's GUI sits under the top bar or uses another scale.
+--    The hit test is calibrated every time with a tiny invisible probe, so the top bar size does not matter.
+-- 2) DaffzHub window is closed while Screen translate is ON and comes back when you tap Stop.
+-- 3) The hint text moved to the bottom so it no longer covers the DaffzHub button.
+-- ================================================
+DHTr.Scr.CollectRect = DHTr.Scr.Collect
+DHTr.Scr.OpenBase = DHTr.Scr.Open
+DHTr.Scr.SetBase = DHTr.Scr.Set
+DHTr.Scr.Probe = nil
+DHTr.Scr.HidMain = false
+
+function DHTr.Scr.Open()
+    DHTr.Scr.OpenBase()
+    local g = DHTr.Scr.Gui
+    if not g then return end
+    g.DisplayOrder = (ScreenGui.DisplayOrder or 0) - 1 -- just below DaffzHub, above the game
+    for _, d in ipairs(g:GetDescendants()) do
+        if d:IsA("TextLabel") and string.sub(d.Text, 1, 16) == "Translate screen" then
+            d.AnchorPoint = Vector2.new(0.5, 1)
+            d.Position = UDim2.new(0.5, 0, 1, -10)
+            d.Size = UDim2.new(1, -40, 0, 24)
+            d.TextXAlignment = Enum.TextXAlignment.Center
+        end
+    end
+    -- tiny nearly invisible square used to find out how touch positions map to the hit test
+    local pr = Instance.new("Frame", g)
+    pr.Name = "Probe"
+    pr.Size = UDim2.new(0, 12, 0, 12)
+    pr.Position = UDim2.new(0, 100, 0, 100)
+    pr.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
+    pr.BackgroundTransparency = 0.95
+    pr.BorderSizePixel = 0
+    DHTr.Scr.Probe = pr
+end
+
+function DHTr.Scr.Set(on)
+    if on == DHTr.Scr.On then return end
+    DHTr.Scr.SetBase(on)
+    if on and DHTr.Scr.On then
+        pcall(function()
+            DHTr.Scr.HidMain = Main.Visible == true
+            Main.Visible = false
+        end)
+    elseif not on then
+        DHTr.Scr.Probe = nil
+        if DHTr.Scr.HidMain then
+            DHTr.Scr.HidMain = false
+            pcall(function() Main.Visible = true end)
+        end
+    end
+end
+
+-- how many pixels the hit test is shifted compared with touch positions (nil = hit test not usable)
+function DHTr.Scr.Calib()
+    local pr = DHTr.Scr.Probe
+    if not (pr and pr.Parent) then return nil end
+    local pg
+    pcall(function() pg = game:GetService("Players").LocalPlayer.PlayerGui end)
+    if not pg then return nil end
+    local inset = 0
+    pcall(function() inset = game:GetService("GuiService"):GetGuiInset().Y end)
+    local cands = {0, inset, -inset}
+    for o = -96, 96, 8 do cands[#cands + 1] = o end
+    for _, off in ipairs(cands) do
+        local ok, list = pcall(function() return pg:GetGuiObjectsAtPosition(106, 106 + off) end)
+        if ok and type(list) == "table" then
+            for _, o in ipairs(list) do
+                if o == pr then return off end
+            end
+        end
+    end
+    return nil
+end
+
+function DHTr.Scr.Collect(x1, y1, x2, y2)
+    local off = DHTr.Scr.Calib()
+    if off == nil then return DHTr.Scr.CollectRect(x1, y1, x2, y2) end
+    local roots = {}
+    pcall(function() roots[#roots + 1] = game:GetService("Players").LocalPlayer.PlayerGui end)
+    pcall(function() roots[#roots + 1] = game:GetService("CoreGui") end)
+    local w, h = x2 - x1, y2 - y1
+    local step = math.max(8, math.ceil(math.sqrt(w * h / 700)))
+    local nx, ny = math.max(1, math.floor(w / step)), math.max(1, math.floor(h / step))
+    local checked, seen, found = {}, {}, {}
+    for iy = 1, ny do
+        local y = y1 + (iy - 0.5) * h / ny
+        for ix = 1, nx do
+            local x = x1 + (ix - 0.5) * w / nx
+            for _, root in ipairs(roots) do
+                local ok, list = pcall(function() return root:GetGuiObjectsAtPosition(x, y + off) end)
+                if ok and type(list) == "table" then
+                    for _, d in ipairs(list) do
+                        if not checked[d] then
+                            checked[d] = true
+                            pcall(function()
+                                if not (d:IsA("TextLabel") or d:IsA("TextButton") or d:IsA("TextBox")) then return end
+                                local txt = d.Text
+                                if type(txt) ~= "string" or txt == "" or d.TextTransparency >= 0.95 then return end
+                                local p, gg = d.Parent, nil
+                                while p and p ~= game do
+                                    if p:IsA("ScreenGui") then gg = p break end
+                                    p = p.Parent
+                                end
+                                if gg and DHTr.Scr.Skip(gg) then return end
+                                txt = string.gsub(txt, "<[^>]+>", "")
+                                txt = string.gsub(txt, "^%s+", "")
+                                txt = string.gsub(txt, "%s+$", "")
+                                if txt == "" or seen[txt] then return end
+                                if not (string.find(txt, "%a") or string.find(txt, "[\128-\255]")) then return end
+                                if not DHTr.Scr.Shown(d) then return end
+                                seen[txt] = true
+                                local ap = d.AbsolutePosition
+                                found[#found + 1] = {t = string.sub(txt, 1, 280), x = ap.X, y = ap.Y}
+                            end)
+                        end
+                    end
+                end
+            end
+        end
+    end
+    table.sort(found, function(a, b)
+        local ra, rb = math.floor(a.y / 12), math.floor(b.y / 12)
+        if ra ~= rb then return ra < rb end
+        return a.x < b.x
+    end)
+    while #found > 30 do table.remove(found) end
+    return found
+end
+
+-- ================================================
+-- TRANSLATE TAB v5: From and To. In Settings you now pick the language you translate FROM (or Auto) and the language
+-- you translate TO, with a Swap button. The chosen From is used for everything that is translated (typed text,
+-- chat, screen). Keep it on Auto when people write in many languages. Needs the new server (msg.js v8).
+-- ================================================
+DHTr.From = "auto"
+
+function DHTr.Save()
+    pcall(function()
+        if not (writefile and makefolder and isfolder) then return end
+        if not isfolder("Daffzhub_file") then makefolder("Daffzhub_file") end
+        writefile(DHTr.Path, game:GetService("HttpService"):JSONEncode({consent = DHTr.Consented and 1 or 0, on = DHTr.On, lang = DHTr.Lang, chat = DHTr.Chat, from = DHTr.From}))
+    end)
+end
+
+DHTr.LoadBase5 = DHTr.Load
+function DHTr.Load()
+    DHTr.LoadBase5()
+    pcall(function()
+        if not (isfile and readfile and isfile(DHTr.Path)) then return end
+        local d = game:GetService("HttpService"):JSONDecode(readfile(DHTr.Path))
+        if type(d) == "table" and type(d.from) == "string" and (d.from == "auto" or DHTr.LangName(d.from) ~= d.from) then
+            DHTr.From = d.from
+        end
+    end)
+end
+
+-- the same as before, but sends the From language too (nothing is sent for Auto)
+function DHTr.Ask(text, cb)
+    if not (DHMsg and DHMsg.Call) then cb(nil, "Message tab is not ready") return end
+    local body = {action = "translate", text = text, to = DHTr.Lang}
+    if DHTr.From ~= "auto" then body.from = DHTr.From end
+    local data, err = DHMsg.Call(body)
+    if not data or type(data.text) ~= "string" then cb(nil, err or "No translation") return end
+    cb(data.text, type(data.src) == "string" and data.src or "")
+end
+
+function DHTr.FromName()
+    if DHTr.From == "auto" then return "Auto" end
+    return DHTr.LangName(DHTr.From)
+end
+
+-- adds the From / To chips, the From list and the Swap button to the Settings view
+function DHTr.AddFromTo()
+    local setView, titleLbl
+    for _, f in ipairs(TransContent:GetChildren()) do
+        if f:IsA("Frame") then
+            for _, d in ipairs(f:GetChildren()) do
+                if d:IsA("TextLabel") and string.sub(d.Text, 1, 13) == "Translate to:" then
+                    setView, titleLbl = f, d
+                end
+            end
+        end
+    end
+    if not setView then return end
+    local toGrid
+    for _, d in ipairs(setView:GetChildren()) do
+        if d:IsA("ScrollingFrame") then toGrid = d end
+    end
+    if not toGrid then return end
+    local ACC = DHTr.Accent
+    local ON, OFF = Color3.fromRGB(40, 130, 120), Color3.fromRGB(35, 35, 45)
+
+    local function Btn(parent, text, w, h)
+        local b = Instance.new("TextButton", parent)
+        b.Size = UDim2.new(0, w, 0, h)
+        b.BackgroundColor3 = Color3.fromRGB(30, 30, 40)
+        b.Font = Enum.Font.GothamBold
+        b.TextSize = 11
+        b.TextColor3 = Color3.new(1, 1, 1)
+        b.Text = text
+        Instance.new("UICorner", b).CornerRadius = UDim.new(0, 6)
+        return b
+    end
+
+    titleLbl.Visible = false
+    local chipTo = Btn(setView, "", 150, 20)
+    chipTo.Position = UDim2.new(0, 10, 0, 44)
+    local chipFrom = Btn(setView, "", 130, 20)
+    chipFrom.Position = UDim2.new(0, 166, 0, 44)
+    local swap = Btn(setView, "Swap", 46, 20)
+    swap.Position = UDim2.new(0, 302, 0, 44)
+
+    -- second list (From), same place and look as the To list
+    local fromGrid = Instance.new("ScrollingFrame", setView)
+    fromGrid.Size = toGrid.Size
+    fromGrid.Position = toGrid.Position
+    fromGrid.BackgroundColor3 = toGrid.BackgroundColor3
+    fromGrid.BorderSizePixel = 0
+    fromGrid.ScrollBarThickness = 2
+    fromGrid.CanvasSize = UDim2.new(0, 0, 0, 0)
+    fromGrid.AutomaticCanvasSize = Enum.AutomaticSize.Y
+    fromGrid.Visible = false
+    Instance.new("UICorner", fromGrid).CornerRadius = UDim.new(0, 8)
+    local gl = Instance.new("UIGridLayout", fromGrid)
+    gl.CellSize = UDim2.new(0, 108, 0, 24)
+    gl.CellPadding = UDim2.new(0, 4, 0, 4)
+    gl.SortOrder = Enum.SortOrder.LayoutOrder
+    local gp = Instance.new("UIPadding", fromGrid)
+    gp.PaddingTop = UDim.new(0, 4)
+    gp.PaddingLeft = UDim.new(0, 6)
+    gp.PaddingBottom = UDim.new(0, 4)
+
+    local mode = "to"
+    local fromBtns = {}
+    local codeOfName = {}
+    for _, l in ipairs(DHTr.Langs) do codeOfName[l[2]] = l[1] end
+
+    local function Paint()
+        chipTo.Text = "To: " .. DHTr.LangName(DHTr.Lang)
+        chipFrom.Text = "From: " .. DHTr.FromName()
+        chipTo.BackgroundColor3 = mode == "to" and ON or Color3.fromRGB(30, 30, 40)
+        chipFrom.BackgroundColor3 = mode == "from" and ON or Color3.fromRGB(30, 30, 40)
+        toGrid.Visible = mode == "to"
+        fromGrid.Visible = mode == "from"
+        for code, b in pairs(fromBtns) do
+            b.BackgroundColor3 = code == DHTr.From and ON or OFF
+        end
+        for _, b in ipairs(toGrid:GetChildren()) do
+            if b:IsA("TextButton") then
+                b.BackgroundColor3 = codeOfName[b.Text] == DHTr.Lang and ON or OFF
+            end
+        end
+        -- the box of the Translate view tells which way it translates
+        for _, f in ipairs(TransContent:GetChildren()) do
+            if f:IsA("Frame") then
+                for _, d in ipairs(f:GetDescendants()) do
+                    if d:IsA("TextBox") and (string.sub(d.PlaceholderText, 1, 12) == "Type text to" or string.sub(d.PlaceholderText, 1, 10) == "Type text ") then
+                        d.PlaceholderText = "Type text (" .. DHTr.FromName() .. " to " .. DHTr.LangName(DHTr.Lang) .. ")..."
+                    end
+                end
+            end
+        end
+    end
+
+    do
+        local auto = Btn(fromGrid, "Auto", 108, 24)
+        auto.LayoutOrder = 0
+        fromBtns["auto"] = auto
+        auto.MouseButton1Click:Connect(function()
+            DHTr.From = "auto"
+            DHTr.Save()
+            Paint()
+        end)
+        for i, l in ipairs(DHTr.Langs) do
+            local b = Btn(fromGrid, l[2], 108, 24)
+            b.LayoutOrder = i
+            fromBtns[l[1]] = b
+            b.MouseButton1Click:Connect(function()
+                DHTr.From = l[1]
+                DHTr.Save()
+                Paint()
+            end)
+        end
+    end
+
+    -- the old To list changed DHTr.Lang already; this only repaints
+    for _, b in ipairs(toGrid:GetChildren()) do
+        if b:IsA("TextButton") then b.MouseButton1Click:Connect(Paint) end
+    end
+    chipTo.MouseButton1Click:Connect(function() mode = "to" Paint() end)
+    chipFrom.MouseButton1Click:Connect(function() mode = "from" Paint() end)
+    swap.MouseButton1Click:Connect(function()
+        if DHTr.From == "auto" then
+            if DHTr.Info then
+                DHTr.Info.Text = "Swap needs a From language. Tap From and pick one."
+                DHTr.Info.TextColor3 = Color3.fromRGB(255, 200, 100)
+                task.delay(3, function()
+                    if DHTr.Info and DHTr.Info.Parent then
+                        DHTr.Info.Text = "Free translate service. Quality is basic. Names and slang may be wrong."
+                        DHTr.Info.TextColor3 = Color3.fromRGB(150, 150, 160)
+                    end
+                end)
+            end
+            return
+        end
+        DHTr.From, DHTr.Lang = DHTr.Lang, DHTr.From
+        DHTr.Save()
+        Paint()
+    end)
+    Paint()
+end
+
+DHTr.BuildBase5 = DHTr.Build2
+function DHTr.Build2()
+    DHTr.BuildBase5()
+    pcall(DHTr.AddFromTo)
+end
+DHTr.Load()
+pcall(DHTr.Build2)
+
+-- ================================================
+-- FEEDBACK card in the Credit tab (under What's New): bug / idea / other, sent to the developer.
+-- Sent: your text, the kind, hub version, game id, executor name, touch or pc. Your Roblox name only if you switch it on.
+-- Needs the new server (msg.js v8) and the dh_feedback table in Supabase.
+-- ================================================
+DHFb = {Kind = "bug", Name = false, Last = 0}
+
+function DHFb.Build()
+    if not CreditScroll then return end
+    local old = CreditScroll:FindFirstChild("DH_Feedback")
+    if old then old:Destroy() end
+    local GRAY = Color3.fromRGB(150, 150, 160)
+    local ON, OFF = Color3.fromRGB(40, 130, 120), Color3.fromRGB(35, 35, 45)
+
+    local card = Instance.new("Frame", CreditScroll)
+    card.Name = "DH_Feedback"
+    card.Size = UDim2.new(1, 0, 0, 0)
+    card.AutomaticSize = Enum.AutomaticSize.Y
+    card.BackgroundColor3 = Color3.fromRGB(25, 25, 25)
+    Instance.new("UICorner", card).CornerRadius = UDim.new(0, 8)
+    local pad = Instance.new("UIPadding", card)
+    pad.PaddingTop = UDim.new(0, 10)
+    pad.PaddingBottom = UDim.new(0, 12)
+    pad.PaddingLeft = UDim.new(0, 12)
+    pad.PaddingRight = UDim.new(0, 12)
+    local lay = Instance.new("UIListLayout", card)
+    lay.Padding = UDim.new(0, 6)
+    lay.SortOrder = Enum.SortOrder.LayoutOrder
+
+    local order = 0
+    local function Lbl(text, size, color, bold)
+        order = order + 1
+        local l = Instance.new("TextLabel", card)
+        l.LayoutOrder = order
+        l.Size = UDim2.new(1, 0, 0, 0)
+        l.AutomaticSize = Enum.AutomaticSize.Y
+        l.BackgroundTransparency = 1
+        l.Font = bold and Enum.Font.GothamBold or Enum.Font.Gotham
+        l.TextSize = size
+        l.TextColor3 = color
+        l.TextWrapped = true
+        l.TextXAlignment = Enum.TextXAlignment.Left
+        l.TextYAlignment = Enum.TextYAlignment.Top
+        l.Text = text
+        return l
+    end
+    local function Btn(parent, text, w, h)
+        local b = Instance.new("TextButton", parent)
+        b.Size = UDim2.new(0, w, 0, h)
+        b.BackgroundColor3 = Color3.fromRGB(30, 30, 40)
+        b.Font = Enum.Font.GothamBold
+        b.TextSize = 11
+        b.TextColor3 = Color3.new(1, 1, 1)
+        b.Text = text
+        Instance.new("UICorner", b).CornerRadius = UDim.new(0, 6)
+        return b
+    end
+    local function Row(h)
+        order = order + 1
+        local r = Instance.new("Frame", card)
+        r.LayoutOrder = order
+        r.Size = UDim2.new(1, 0, 0, h)
+        r.BackgroundTransparency = 1
+        return r
+    end
+
+    Lbl("Feedback", 18, Color3.new(1, 1, 1), true)
+    Lbl("Found a bug or have an idea? It goes straight to the developer.", 11, GRAY, false)
+
+    local kinds = Row(24)
+    local kindBtns = {}
+    for i, k in ipairs({{"bug", "Bug"}, {"idea", "Idea"}, {"other", "Other"}}) do
+        local b = Btn(kinds, k[2], 70, 24)
+        b.Position = UDim2.new(0, (i - 1) * 76, 0, 0)
+        kindBtns[k[1]] = b
+        b.MouseButton1Click:Connect(function()
+            DHFb.Kind = k[1]
+            for key, bb in pairs(kindBtns) do bb.BackgroundColor3 = key == DHFb.Kind and ON or OFF end
+        end)
+    end
+    for key, bb in pairs(kindBtns) do bb.BackgroundColor3 = key == DHFb.Kind and ON or OFF end
+
+    order = order + 1
+    local box = Instance.new("TextBox", card)
+    box.LayoutOrder = order
+    box.Size = UDim2.new(1, 0, 0, 84)
+    box.BackgroundColor3 = Color3.fromRGB(30, 30, 38)
+    box.Font = Enum.Font.Gotham
+    box.TextSize = 12
+    box.TextColor3 = Color3.new(1, 1, 1)
+    box.PlaceholderText = "What happened, or what do you want? (5 to 600 characters)"
+    box.PlaceholderColor3 = Color3.fromRGB(120, 120, 130)
+    box.Text = ""
+    box.ClearTextOnFocus = false
+    box.MultiLine = true
+    box.TextWrapped = true
+    box.TextXAlignment = Enum.TextXAlignment.Left
+    box.TextYAlignment = Enum.TextYAlignment.Top
+    Instance.new("UICorner", box).CornerRadius = UDim.new(0, 6)
+    local bp = Instance.new("UIPadding", box)
+    bp.PaddingTop = UDim.new(0, 5)
+    bp.PaddingLeft = UDim.new(0, 6)
+    bp.PaddingRight = UDim.new(0, 6)
+
+    local nameRow = Row(24)
+    local nameBtn = Btn(nameRow, "Send my Roblox name: OFF", 190, 24)
+    local function PaintName()
+        nameBtn.Text = "Send my Roblox name: " .. (DHFb.Name and "ON" or "OFF")
+        nameBtn.BackgroundColor3 = DHFb.Name and ON or OFF
+    end
+    nameBtn.MouseButton1Click:Connect(function()
+        DHFb.Name = not DHFb.Name
+        PaintName()
+    end)
+    PaintName()
+
+    local sendRow = Row(28)
+    local send = Btn(sendRow, "Send", 80, 28)
+    send.BackgroundColor3 = ON
+    local status = Instance.new("TextLabel", sendRow)
+    status.Size = UDim2.new(1, -92, 1, 0)
+    status.Position = UDim2.new(0, 90, 0, 0)
+    status.BackgroundTransparency = 1
+    status.Font = Enum.Font.Gotham
+    status.TextSize = 10
+    status.TextColor3 = GRAY
+    status.TextWrapped = true
+    status.TextXAlignment = Enum.TextXAlignment.Left
+    status.Text = ""
+
+    Lbl("Also sent: hub version, game id, executor name and touch or pc. Do not write passwords or private info.", 9, GRAY, false)
+
+    local busy = false
+    local function Say(t, c) status.Text = t status.TextColor3 = c or GRAY end
+    send.MouseButton1Click:Connect(function()
+        if busy then return end
+        local text = string.gsub(box.Text, "^%s+", "")
+        text = string.gsub(text, "%s+$", "")
+        if #text < 5 then Say("Write a bit more (at least 5 characters).", Color3.fromRGB(255, 200, 100)) return end
+        local wait = 60 - (os.clock() - DHFb.Last)
+        if DHFb.Last > 0 and wait > 0 then Say("Please wait " .. math.ceil(wait) .. " seconds before the next one.", Color3.fromRGB(255, 200, 100)) return end
+        if not (DHMsg and DHMsg.Call) then Say("Not ready yet. Try again in a moment.", Color3.fromRGB(255, 130, 130)) return end
+        local body = {action = "feedback", kind = DHFb.Kind, text = string.sub(text, 1, 600), place = game.PlaceId}
+        pcall(function() body.ver = tostring(VersionText.Text) end)
+        pcall(function() body.exec = identifyexecutor and tostring((identifyexecutor())) or "" end)
+        pcall(function() body.device = game:GetService("UserInputService").TouchEnabled and "touch" or "pc" end)
+        if DHFb.Name then
+            pcall(function()
+                local me = game:GetService("Players").LocalPlayer
+                body.name = me.Name
+                body.uid = me.UserId
+            end)
+        end
+        busy = true
+        Say("Sending...", GRAY)
+        task.spawn(function()
+            local data, err = DHMsg.Call(body)
+            busy = false
+            if data and data.ok then
+                DHFb.Last = os.clock()
+                box.Text = ""
+                Say("Sent. Thank you!", Color3.fromRGB(80, 200, 110))
+            else
+                Say("Error: " .. tostring(err or "could not send"), Color3.fromRGB(255, 130, 130))
+            end
+        end)
+    end)
+
+    -- right under What's New (that card sets the order of the others)
+    local wn = CreditScroll:FindFirstChild("DH_WhatsNew")
+    card.LayoutOrder = wn and (wn.LayoutOrder + 1) or 9999
+end
+
+task.spawn(function()
+    task.wait(3)
+    pcall(DHFb.Build)
+end)
 
 -- ================================================
 -- MODS TAB (part 2): Float, Infinite Jump, Noclip (built in, safe on respawn)
@@ -30973,7 +32572,8 @@ featureItems = {
     "   • Calculator",
     "   • DaffzHub Users: see other DaffzHub users in your server (notice + purple ESP)",
     "   • All Information Player: your account, character, backpack, server & permissions, and what is visible about any player (type your Display name)",
-    "   • DaffzHub in Numbers: online now, today, week, month, total",
+    "   • Online in DaffzHub: number of people using DaffzHub right now",
+    "   • Used DaffzHub: today, this week, this month, total",
     "   • Clear titles and counters on the Exploiter and DaffzHub lists",
     "",
     "🎵 MUSIC TAB",
@@ -32261,7 +33861,7 @@ DHChangelog = {
         {"Added", "DaffzHub users: you see the other DaffzHub users in your server, with a notice, a list in the Info tab and a purple ESP. It is always on and shares your display name, user ID and server ID (a notice with OK explains it the first time)."},
         {"Added", "Staff badges: Owner (shimmering red) and Admin (shimmering yellow) show in chat, in the lists and on the ESP."},
         {"Added", "Translate tab: translate the messages you receive, translate your own text with a saved history, and a Chat view that translates the game chat of other players. 18 languages."},
-        {"Added", "Info tab: DaffzHub in Numbers (online now, today, this week, this month, total), plus clear titles and counters on the Exploiter Detector and DaffzHub lists."},
+        {"Added", "Info tab: Online in DaffzHub (people using it right now) and Used DaffzHub (today, this week, this month, total), plus clear titles and counters on the Exploiter Detector and DaffzHub lists."},
         {"Added", "Info tab: All Information Player, your account, character, backpack, server and permissions, and what is visible about any player. Type your Display name to open it."},
     }},
     {id = 20, date = "2026-10-31", title = "What's New", items = {
