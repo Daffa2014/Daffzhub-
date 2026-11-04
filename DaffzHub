@@ -1,5 +1,57 @@
 local ok, err = pcall(function()
 
+-- ================================================
+-- UPDATE GUARD: if a newer DaffzHub exists, this old copy loads it and stops.
+-- version.txt (public repo) holds two things: the newest version number and the link of the newest file.
+-- ================================================
+DHVersionNumber = "1.0"
+DHUpdate = {
+    Manifest = "https://raw.githubusercontent.com/Daffa2014/Daffzhub-/refs/heads/main/version.txt",
+    Allowed = {"https://raw.githubusercontent.com/Daffa2014/", "https://iridescent-kringle-f20c39.netlify.app/"},
+}
+function DHUpdate.Parse(v)
+    local t = {}
+    for n in string.gmatch(tostring(v), "%d+") do t[#t + 1] = tonumber(n) end
+    return t
+end
+-- true when version a is newer than version b (1.10 is newer than 1.9)
+function DHUpdate.Newer(a, b)
+    local x, y = DHUpdate.Parse(a), DHUpdate.Parse(b)
+    for i = 1, math.max(#x, #y) do
+        local p, q = x[i] or 0, y[i] or 0
+        if p ~= q then return p > q end
+    end
+    return false
+end
+function DHUpdate.Check()
+    local g = getgenv and getgenv() or _G
+    if g.DHUpdateTried then return false end
+    local ok, raw = pcall(function() return game:HttpGet(DHUpdate.Manifest .. "?t=" .. tostring(os.time())) end)
+    if not ok or type(raw) ~= "string" then return false end
+    local ver, url = string.match(raw, "^%s*(%d[%d%.]*)%s+(https://%S+)")
+    if not ver or not DHUpdate.Newer(ver, DHVersionNumber) then return false end
+    local allowed = false
+    for _, p in ipairs(DHUpdate.Allowed) do
+        if string.sub(url, 1, #p) == p then allowed = true end
+    end
+    if not allowed then return false end
+    local ok2, src = pcall(function() return game:HttpGet(url) end)
+    if not ok2 or type(src) ~= "string" or #src < 1000 then return false end
+    local fn = loadstring(src)
+    if not fn then return false end
+    g.DHUpdateTried = true
+    pcall(function()
+        game:GetService("StarterGui"):SetCore("SendNotification", {
+            Title = "DaffzHub",
+            Text = "You had version " .. DHVersionNumber .. ". Loading version " .. ver .. "...",
+            Duration = 6,
+        })
+    end)
+    task.spawn(fn)
+    return true
+end
+if DHUpdate.Check() then return end
+
 -- SERVICES
 local Players = game:GetService("Players")
 local UIS = game:GetService("UserInputService")
@@ -32662,7 +32714,7 @@ VersionText = Instance.new("TextLabel", VersionFrame)
 VersionText.Size = UDim2.new(1, -20, 1, 0)
 VersionText.Position = UDim2.new(0, 10, 0, 0)
 VersionText.BackgroundTransparency = 1
-VersionText.Text = "Version: 1.0"
+VersionText.Text = "Version: " .. DHVersionNumber
 VersionText.Font = Enum.Font.GothamBold
 VersionText.TextSize = 18
 VersionText.TextColor3 = Color3.fromRGB(80, 200, 80)
