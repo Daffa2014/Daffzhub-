@@ -2327,6 +2327,7 @@ local function CreateSectionLabel(text)
     Lbl.TextXAlignment = Enum.TextXAlignment.Left
     return Lbl
 end
+DHSectionLabel = CreateSectionLabel -- also reachable from code outside this block (All Information Player)
 
 -- STATISTICS TABLE (trader style: Now / Min / Max / Avg + trend arrow)
 DHStatTable = {Rows = {}, Warm = 0, Order = {"fps", "ping", "players", "netin", "netout"}}
@@ -22383,7 +22384,7 @@ function DHBot.Ask(text, useHistory)
     local bodyJson = HS:JSONEncode({
         systemInstruction = {parts = {{text = sys}}},
         contents = contents,
-        generationConfig = {temperature = 0.8, maxOutputTokens = 1024},
+        generationConfig = {temperature = 0.8, maxOutputTokens = 2048},
     })
     -- busy servers (500/503/504): try again once, then fall back to the lighter model
     local spare = (model ~= "gemini-flash-lite-latest") and "gemini-flash-lite-latest" or "gemini-flash-latest"
@@ -23580,7 +23581,7 @@ function DHMsg.Build()
     gs.ZIndex = 4
     gs.CanvasSize = UDim2.new(0, 0, 0, 0)
     gs.AutomaticCanvasSize = Enum.AutomaticSize.Y
-    local gt = Label(gs, "HOW TO USE MESSAGE\n\n1. First time: read the notice and tap \"I understand, turn on\".\n\n2. Pick a mode with the tabs at the top. Tap OFF to turn that mode ON. Only modes that are ON are checked, and you get a notification for new messages even when this tab is closed.\n\nMODES\n- Server: chat with DaffzHub users in the SAME server as you right now. When you join another server, you see that server's chat.\n- Map: chat with DaffzHub users in ANY server of this game (same map).\n- Global: chat with every DaffzHub user in every game. You can send only once every 10 seconds.\n- Private: only 2 people. Type your friend's Roblox username and tap Set. Your friend must also set YOUR username. It is NOT secret.\n- Group: a chat for friends with a secret code (see GROUPS below).\n\n3. Type your message and tap Send (or press Enter). Max 200 characters.\n\n4. Tap Mute on a message to hide that person. Unmute brings everyone back.\n\n5. Badges: OWNER (shimmering red) and ADMIN (shimmering yellow) are DaffzHub staff.\n\n6. Want messages in your language? Open the Translate tab: Auto-translate (messages here), Translate (type text), Chat (Roblox chat), Screen (drag a box on the screen to translate the text inside).\n\n7. Who is here? Info tab > DAFFZHUB USERS shows DaffzHub users in your server.\n\nGROUPS\nTap the Group tab, then Manage. \"Make new group\" gives you a code: copy it and send it to friends. They paste it in \"Code from a friend\" and tap \"Join with code\". Each group has its own On/Off and its own messages. You can be in 3 groups and a group holds 5 people. Nobody can be kicked and a group cannot be closed: to get rid of someone, make a new group. Groups are not encrypted.\n\nSee Rules for every limit.", 11, Color3.fromRGB(205, 205, 212))
+    local gt = Label(gs, "HOW TO USE MESSAGE\n\n1. First time: read the notice and tap \"I understand, turn on\".\n\n2. Pick a mode with the tabs at the top. Tap OFF to turn that mode ON. Only modes that are ON are checked, and you get a notification for new messages even when this tab is closed.\n\nMODES\n- Server: chat with DaffzHub users in the SAME server as you right now. When you join another server, you see that server's chat.\n- Map: chat with DaffzHub users in ANY server of this game (same map).\n- Global: chat with every DaffzHub user in every game. You can send only once every 10 seconds.\n- Private: only 2 people. Type your friend's Roblox username and tap Set. Your friend must also set YOUR username. It is NOT secret.\n- Group: a chat for friends with a secret code (see GROUPS below).\n\n3. Type your message and tap Send (or press Enter). Max 200 characters.\n\n4. Tap Mute on a message to hide that person. Unmute brings everyone back.\n\n5. Badges: OWNER (shimmering red) and ADMIN (shimmering yellow) are DaffzHub staff.\n\n6. Want messages in your language? Open the Translate tab: Auto-translate (messages here), Translate (type text), Chat (Roblox chat), Screen (drag a box on the screen to translate the text inside).\n\n7. Who is here? Info tab > DAFFZHUB USERS shows DaffzHub users in your server.\n\nGROUPS\nTap the Group tab, then Manage. \"Make new group\" gives you a code: copy it and send it to friends. They paste it in \"Code from a friend\" and tap \"Join with code\". Each group has its own On/Off and its own messages. The name of the group is set once, by the first person who gives one, and everybody sees it. You can be in 3 groups and a group holds 5 people. Nobody can be kicked and a group cannot be closed: to get rid of someone, make a new group. Groups are not encrypted.\n\nSee Rules for every limit.", 11, Color3.fromRGB(205, 205, 212))
     gt.Size = UDim2.new(1, -6, 0, 0)
     gt.AutomaticSize = Enum.AutomaticSize.Y
     gt.ZIndex = 4
@@ -23816,7 +23817,10 @@ function DHGrp.Join(code, name, cb)
     local slot = DHGrp.FreeSlot()
     if not slot then cb(false, "You are already in 3 groups. Leave one first.") return end
     task.spawn(function()
-        local data, err = DHMsg.Call({action = "gjoin", room = "c:" .. code, uid = DHGrp.Uid()})
+        local typed = string.gsub(tostring(name or ""), "[%c<>]", " ")
+        typed = string.gsub(typed, "^%s+", "")
+        typed = string.gsub(typed, "%s+$", "")
+        local data, err = DHMsg.Call({action = "gjoin", room = "c:" .. code, uid = DHGrp.Uid(), name = typed ~= "" and string.sub(typed, 1, 40) or nil})
         if not data or type(data.token) ~= "string" then
             -- the server's own words ("This group is full (5 members)") are shown as they are
             local msg = tostring(err or "Could not join.")
@@ -23825,7 +23829,7 @@ function DHGrp.Join(code, name, cb)
             return
         end
         if DHGrp.G[slot] then cb(false, "Try again.") return end
-        DHGrp.G[slot] = {code = code, name = DHGrp.CleanName(name), token = data.token, exp = tonumber(data.exp) or 0}
+        DHGrp.G[slot] = {code = code, name = DHGrp.CleanName((type(data.gname) == "string" and data.gname ~= "") and data.gname or name), token = data.token, exp = tonumber(data.exp) or 0}
         DHMsg.M[slot].label = DHGrp.G[slot].name
         DHMsg.On[slot] = true
         DHGrp.Cur = slot
@@ -23858,16 +23862,27 @@ function DHGrp.Renew(force)
     if DHGrp.Renewing then return end
     DHGrp.Renewing = true
     task.spawn(function()
+        local renamed = false
         for _, s in ipairs(DHGrp.Slots) do
             local g = DHGrp.G[s]
             if g and (force or g.bad or (g.exp or 0) - os.time() < 3 * 86400) then
-                local data = DHMsg.Call({action = "gjoin", room = "c:" .. g.code, uid = DHGrp.Uid()})
+                local data = DHMsg.Call({action = "gjoin", room = "c:" .. g.code, uid = DHGrp.Uid(), name = g.name ~= "Group" and g.name or nil})
                 if data and type(data.token) == "string" then
                     g.token, g.exp, g.bad = data.token, tonumber(data.exp) or 0, nil
+                    -- the group name is the same for everybody (the first name given wins)
+                    if type(data.gname) == "string" and data.gname ~= "" then
+                        local nn = DHGrp.CleanName(data.gname)
+                        if nn ~= g.name then
+                            g.name = nn
+                            DHMsg.M[s].label = nn
+                            renamed = true
+                        end
+                    end
                 end
             end
         end
         DHGrp.Save()
+        if renamed and DHMsg.PaintTabs then pcall(DHMsg.PaintTabs) end
         DHGrp.Renewing = false
     end)
 end
@@ -24256,7 +24271,7 @@ pcall(DHGrp.Build)
 task.spawn(function()
     task.wait(6)
     while MsgContent and MsgContent.Parent do
-        pcall(DHGrp.Renew, false)
+        pcall(DHGrp.Renew, true)
         task.wait(21600)
     end
 end)
@@ -26266,6 +26281,141 @@ task.spawn(function()
     task.wait(3)
     pcall(DHFb.Build)
 end)
+
+-- ================================================
+-- TRANSLATE TAB v6: Guide button. Explains every view and lists every limit (read it with Up / Down or by scrolling).
+-- The five buttons on top are a little narrower so the Guide button fits.
+-- ================================================
+DHTr.GuideText = "TRANSLATOR GUIDE\n\nSETTINGS\n- Auto-translate received messages: turns on translation for the Message tab. A translation shows under each message from other people. Your own messages are never translated.\n- To is the language you read. From is the language of the text. Auto finds it by itself (best for chat). Swap exchanges the two. The From you pick is used for everything you translate here, so keep Auto when people write in many languages.\n\nTRANSLATE\n- Type a text and tap Translate. Your results stay in History (the last 40, only on your device). Copy copies one result. Clear history deletes them all.\n\nCHAT\n- Turn it ON to get a feed of what other players write in the Roblox chat of your server, translated. Only text that is not in your language is shown.\n\nSCREEN\n- Turn it ON, then touch the screen and drag a box over game text (menus, signs, the Roblox chat). The text inside the box is translated in a small panel with Copy and Close.\n- DaffzHub closes while it is ON and its own windows are never translated. Tap Stop (top right) to turn it off, the window comes back.\n- While it is ON the game cannot be touched.\n\nLIMITS\n- Every text you translate is sent to the DaffzHub server and a free translate service (Google Translate or MyMemory). Nothing is sent while a switch is OFF. You agree once, the first time you turn something on.\n- A typed text can have up to 300 characters. A translation is cut at 600 characters.\n- About 40 translations per minute per person. If it says \"Too fast\", wait a moment.\n- Chat: if many messages come at once, the oldest ones wait in a short list and some can be skipped.\n- Screen: one box every 2 seconds, up to 30 texts in a box, 3 requests per box. Text inside pictures cannot be read. A very small or a very large box can miss text, so draw it around the text you need.\n- 18 languages. The quality is basic: names, slang and jokes can be wrong.\n- Do not translate passwords or private information."
+
+function DHTr.AddGuide()
+    local Content = TransContent
+    local tabs = {}
+    for _, c in ipairs(Content:GetChildren()) do
+        if c:IsA("TextButton") then tabs[c.Text] = c end
+    end
+    local order = {"Settings", "Translate", "Chat", "Screen"}
+    for _, k in ipairs(order) do
+        if not tabs[k] then return end
+    end
+    -- five buttons, a little narrower
+    for i, k in ipairs(order) do
+        tabs[k].Size = UDim2.new(0, 72, 0, 26)
+        tabs[k].Position = UDim2.new(0, 10 + (i - 1) * 76, 0, 4)
+    end
+
+    local function Btn(parent, text, w, h)
+        local b = Instance.new("TextButton", parent)
+        b.Size = UDim2.new(0, w, 0, h)
+        b.BackgroundColor3 = Color3.fromRGB(30, 30, 40)
+        b.Font = Enum.Font.GothamBold
+        b.TextSize = 11
+        b.TextColor3 = Color3.new(1, 1, 1)
+        b.Text = text
+        Instance.new("UICorner", b).CornerRadius = UDim.new(0, 6)
+        return b
+    end
+
+    local gb = Btn(Content, "Guide", 72, 26)
+    gb.Position = UDim2.new(0, 10 + 4 * 76, 0, 4)
+
+    local panel = Instance.new("Frame", Content)
+    panel.Size = UDim2.new(1, -20, 1, -40)
+    panel.Position = UDim2.new(0, 10, 0, 36)
+    panel.BackgroundColor3 = Color3.fromRGB(24, 24, 28)
+    panel.BorderSizePixel = 0
+    panel.ZIndex = 8
+    panel.Visible = false
+    Instance.new("UICorner", panel).CornerRadius = UDim.new(0, 8)
+    local sc = Instance.new("ScrollingFrame", panel)
+    sc.Size = UDim2.new(1, -10, 1, -40)
+    sc.Position = UDim2.new(0, 5, 0, 5)
+    sc.BackgroundTransparency = 1
+    sc.BorderSizePixel = 0
+    sc.ScrollBarThickness = 2
+    sc.ScrollingDirection = Enum.ScrollingDirection.Y
+    sc.ZIndex = 8
+    sc.CanvasSize = UDim2.new(0, 0, 0, 0)
+    local lbl = Instance.new("TextLabel", sc)
+    lbl.Size = UDim2.new(1, -8, 0, 0)
+    lbl.AutomaticSize = Enum.AutomaticSize.Y
+    lbl.BackgroundTransparency = 1
+    lbl.Font = Enum.Font.Gotham
+    lbl.TextSize = 11
+    lbl.TextColor3 = Color3.fromRGB(205, 205, 212)
+    lbl.TextXAlignment = Enum.TextXAlignment.Left
+    lbl.TextYAlignment = Enum.TextYAlignment.Top
+    lbl.TextWrapped = true
+    lbl.RichText = false
+    lbl.ZIndex = 9
+    lbl.Text = DHTr.GuideText
+
+    local canvasH = 0
+    local function Fit()
+        local sz = lbl.AbsoluteSize
+        local h = sz and sz.Y or 0
+        if h > 0 then
+            canvasH = h + 16
+            sc.CanvasSize = UDim2.new(0, 0, 0, canvasH)
+        end
+    end
+    pcall(function() lbl:GetPropertyChangedSignal("AbsoluteSize"):Connect(Fit) end)
+    pcall(function() panel:GetPropertyChangedSignal("Visible"):Connect(function() task.defer(Fit) end) end)
+    task.spawn(function()
+        for _ = 1, 6 do
+            task.wait(0.5)
+            Fit()
+        end
+    end)
+    local function Step(dir)
+        Fit()
+        local win = (sc.AbsoluteWindowSize and sc.AbsoluteWindowSize.Y) or (sc.AbsoluteSize and sc.AbsoluteSize.Y) or 200
+        local maxY = math.max(0, canvasH - win)
+        local y = math.max(0, math.min(maxY, sc.CanvasPosition.Y + dir * math.max(60, win - 30)))
+        sc.CanvasPosition = Vector2.new(0, y)
+    end
+    local close = Btn(panel, "Close", 70, 26)
+    close.AnchorPoint = Vector2.new(0, 1)
+    close.Position = UDim2.new(0, 8, 1, -6)
+    close.ZIndex = 9
+    local up = Btn(panel, "Up", 46, 26)
+    up.AnchorPoint = Vector2.new(0, 1)
+    up.Position = UDim2.new(0, 86, 1, -6)
+    up.ZIndex = 9
+    local down = Btn(panel, "Down", 46, 26)
+    down.AnchorPoint = Vector2.new(0, 1)
+    down.Position = UDim2.new(0, 138, 1, -6)
+    down.ZIndex = 9
+    up.MouseButton1Click:Connect(function() Step(-1) end)
+    down.MouseButton1Click:Connect(function() Step(1) end)
+
+    local function Paint()
+        gb.BackgroundColor3 = panel.Visible and Color3.fromRGB(40, 130, 120) or Color3.fromRGB(30, 30, 40)
+    end
+    gb.MouseButton1Click:Connect(function()
+        panel.Visible = not panel.Visible
+        Paint()
+    end)
+    close.MouseButton1Click:Connect(function()
+        panel.Visible = false
+        Paint()
+    end)
+    -- picking another view closes the guide
+    for _, k in ipairs(order) do
+        tabs[k].MouseButton1Click:Connect(function()
+            panel.Visible = false
+            Paint()
+        end)
+    end
+    Paint()
+end
+
+DHTr.BuildBase6 = DHTr.Build2
+function DHTr.Build2()
+    DHTr.BuildBase6()
+    pcall(DHTr.AddGuide)
+end
+pcall(DHTr.Build2)
 
 -- ================================================
 -- MODS TAB (part 2): Float, Infinite Jump, Noclip (built in, safe on respawn)
@@ -31300,7 +31450,7 @@ pcall(function()
     if cr then cr.CornerRadius = UDim.new(0, 10) end
     row.Parent = InfoScroll
     panel.Parent = InfoContent
-    local lab = CreateSectionLabel("ALL INFORMATION PLAYER")
+    local lab = DHSectionLabel("ALL INFORMATION PLAYER")
 
     -- put the title and the card right above PLAYER LIST (the list keeps its order, new things stay below)
     local items = {}
@@ -32512,7 +32662,7 @@ VersionText = Instance.new("TextLabel", VersionFrame)
 VersionText.Size = UDim2.new(1, -20, 1, 0)
 VersionText.Position = UDim2.new(0, 10, 0, 0)
 VersionText.BackgroundTransparency = 1
-VersionText.Text = "Version: Under construction (Not yet published)"
+VersionText.Text = "Version: 1.0"
 VersionText.Font = Enum.Font.GothamBold
 VersionText.TextSize = 18
 VersionText.TextColor3 = Color3.fromRGB(80, 200, 80)
@@ -32683,6 +32833,8 @@ featureItems = {
     "   • Server, Map, Global & Private (2 people) chat",
     "   • On/Off per mode with notifications",
     "   • Chat bubbles with Roblox profile photos, Mute",
+    "   • Group: a private chat for friends with a secret code",
+    "     (max 5 people per group, 3 groups per person)",
     "   • Rules & Guide buttons",
     "   • Owner / Admin badges",
     "",
@@ -32690,7 +32842,9 @@ featureItems = {
     "   • Auto-translate received messages",
     "   • Translate your own text, with saved history",
     "   • Chat view: translate other players' game chat",
-    "   • 18 languages",
+    "   • Screen: drag a box over game text and translate it",
+    "   • From and To language with Swap, 18 languages",
+    "   • Guide with every limit",
     "",
     "⚙️ SETTING TAB",
     "   • Instant Prompt toggle",
@@ -32705,7 +32859,8 @@ featureItems = {
     "   • Move Button (move, resize or hide game buttons)",
     "",
     "💳 CREDIT TAB",
-    "   • This page"
+    "   • This page: version, What's New and this list",
+    "   • Feedback: send a bug, an idea or anything else to the developer"
 }
 
 local featureLabel
@@ -33845,7 +34000,7 @@ task.wait(1)
 
 -- ================================================
 -- WHAT'S NEW: a card in the Credit tab (under Version) that lists the latest entries of the changelog
--- To announce an update: add a new entry on TOP of DHChangelog with the next id and remove the oldest (keep 3)..
+-- To announce an update: add a new entry on TOP of DHChangelog with the next id and remove the oldest (keep 3).
 -- ================================================
 -- Each item is {"Category", "text"}. Categories: Added, Changed, Fixed, Removed (each has its own color).
 DHChangelogTags = {
@@ -33856,31 +34011,18 @@ DHChangelogTags = {
 }
 
 DHChangelog = {
-    {id = 21, date = "2026-11-02", title = "What's New", items = {
-        {"Added", "Message tab: chat with other DaffzHub users in four modes, Server, Map, Global and Private (just 2 people). Every mode has its own On/Off with notifications, chat bubbles with the Roblox profile photo, Mute, Rules and a Guide. Messages are deleted after about 1 day and are not filtered by Roblox."},
-        {"Added", "DaffzHub users: you see the other DaffzHub users in your server, with a notice, a list in the Info tab and a purple ESP. It is always on and shares your display name, user ID and server ID (a notice with OK explains it the first time)."},
-        {"Added", "Staff badges: Owner (shimmering red) and Admin (shimmering yellow) show in chat, in the lists and on the ESP."},
-        {"Added", "Translate tab: translate the messages you receive, translate your own text with a saved history, and a Chat view that translates the game chat of other players. 18 languages."},
-        {"Added", "Info tab: Online in DaffzHub (people using it right now) and Used DaffzHub (today, this week, this month, total), plus clear titles and counters on the Exploiter Detector and DaffzHub lists."},
-        {"Added", "Info tab: All Information Player, your account, character, backpack, server and permissions, and what is visible about any player. Type your Display name to open it."},
-    }},
-    {id = 20, date = "2026-10-31", title = "What's New", items = {
-        {"Added", "ChatBot tab: chat with an AI inside the hub. It works right away with the DaffzHub AI, or paste your own free Gemini key in API and choose AI source. Replies show bold, italic and code, math symbols stay readable, and every reply has Copy and To game chat (it asks first). Pick a persona (Normal, Casual, Lua Coder), and your chat history is saved."},
-        {"Added", "ChatBot sharing: you choose what the AI can see, Game name + player count, Player names, My character info and DaffzHub info (version, JobId, WalkSpeed). Everything is off by default."},
-        {"Changed", "Join / Leave alerts and exploiter notices have a new look: a card with an icon, the name, a short line and a timer bar."},
-        {"Changed", "Emote tab: the Mood list now has its own file, so your old list goes back to the defaults once."},
-        {"Fixed", "Freecam no longer errors when a Camera Mode is on, and the Troll tab player checkboxes work again."},
-        {"Fixed", "Search tab: Saved scripts are really saved now. Bring Parts: pressing Enter in the player name box works. Joiner tab: the lists refresh when you open it."},
-    }},
-    {id = 19, date = "2026-10-28", title = "What's New", items = {
-        {"Added", "Setting tab: Theme, change the Border, Back, Panel, Card and Accent colors with RGB sliders, border thickness and transparency, RGB border, background transparency, roundness and window size. Save Theme keeps everything for next time."},
-        {"Added", "Mods tab: Dummy, spawn gray dummies, rename them, take control, climb ladders, play emotes and use Dummy ESP (Highlight, Line, Distance, NameTag)."},
-        {"Added", "Troll tab: Desync Marker, a purple pillar that shows where TP Spawn takes you."},
-        {"Added", "Visual tab: Crosshair with position, rotation, spinning and colors."},
-        {"Added", "Emote tab: new Mood tab with 94 face animations. Tap one to play it, add your own by ID, edit or delete them, Reset brings the defaults back, and Loop and After Respawn buttons."},
-        {"Added", "Info tab: Calculator. Music tab: a visualizer (Bars or Wave) that follows the volume and effects."},
-        {"Changed", "Report tab: clearer, more specific report texts. New Report Details boxes (player, what happened, when / where) are added to the text you copy, and the card border now matches its severity color."},
-        {"Fixed", "Refresh no longer sends you back to the Refresh spot after a normal respawn."},
+    {id = 22, date = "2026-11-04", title = "What's New", items = {
+        "DaffzHub 1.0 is out. The alpha is over, thank you for testing!",
+        {"Added", "Message tab: chat with other DaffzHub users in Server, Map, Global, Private and Group modes, with notifications, chat bubbles with the Roblox profile photo, Mute, Rules and a Guide."},
+        {"Added", "Group: a private chat for friends with a secret code. Up to 5 people in a group and 3 groups per person. Everybody sees the same group name. Nobody can be kicked and a group cannot be closed. Groups are not encrypted."},
+        {"Added", "Translate tab: translate the messages you receive, your own text, the game chat of other players, or any text on your screen (turn on Screen and drag a box over it). Choose From and To with Swap, 18 languages, and a Guide that lists every limit."},
+        {"Added", "DaffzHub users: see the other DaffzHub users in your server (notice, list in the Info tab, purple ESP) and Owner / Admin badges."},
+        {"Added", "Info tab: Online in DaffzHub, Used DaffzHub (today, week, month, total) and All Information Player."},
+        {"Added", "Credit tab: Feedback. Send a bug, an idea or anything else straight to the developer. Your Roblox name is only sent if you switch it on."},
+        {"Added", "Everything else from the alpha is in 1.0 too (ChatBot, Theme, Dummy, Mood Face, Crosshair and more). See Content Inside Hub below."},
+        {"Changed", "DaffzHub now sits above every other GUI, so game windows can no longer cover it."},
+        {"Changed", "Message Guide and Rules can always be read to the end, with Up and Down buttons."},
+        {"Fixed", "Info tab: the title ALL INFORMATION PLAYER was missing and the card did not move to its place above PLAYER LIST."},
     }},
 }
 
