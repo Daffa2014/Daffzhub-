@@ -30154,6 +30154,25 @@ DHAvtBoot = function()
             end
         end
     end
+    -- sets the accessory list. Entries that cannot be set (no id, unknown type: some games hand those back) are skipped, and if the
+    -- whole list is refused the good ones are added one by one, so a single bad item can never block the whole avatar.
+    function AV.SetAcc(desc, acc)
+        local good = {}
+        for _, a in ipairs(acc) do
+            local id = tonumber(a.AssetId) or 0
+            local t = a.AccessoryType
+            if id > 0 and t and t ~= Enum.AccessoryType.Unknown then good[#good + 1] = a end
+        end
+        if pcall(function() desc:SetAccessories(good, true) end) then return true end
+        local okList = {}
+        for _, a in ipairs(good) do
+            local try = {}
+            for i, x in ipairs(okList) do try[i] = x end
+            try[#try + 1] = a
+            if pcall(function() desc:SetAccessories(try, true) end) then okList = try end
+        end
+        return (pcall(function() desc:SetAccessories(okList, true) end))
+    end
     function AV.Compose(myUid, assign)
         local mine = AV.BaseDesc(myUid)
         if not mine then return nil, "Could not load your avatar" end
@@ -30198,8 +30217,7 @@ DHAvtBoot = function()
         AV.ApplySkin(desc)
         acc = AV.ApplyItems(desc, acc)
         if acc then
-            local ok = pcall(function() desc:SetAccessories(acc, true) end)
-            if not ok then return nil, "Could not set the accessories" end
+            if not AV.SetAcc(desc, acc) then return nil, "Could not set the accessories" end
         end
         return desc
     end
@@ -30535,7 +30553,7 @@ DHAvtBoot = function()
     AV.PParts, AV.PDecals, AV.PDecalOrig = {}, {}, {}
     AV.yOff, AV.Dp, AV.Gen = 0, nil, 0
     AV.Active, AV.Last, AV.PHidden = false, nil, false
-    AV.Lock, AV.Corr, AV.ColTotal, AV.Gap, AV.Rig = true, 0, 0, nil, "R15"   -- Lock = foot lock, like the sample (v2): the puppet feet are kept at the height of your feet
+    AV.Lock, AV.Corr, AV.ColTotal, AV.Gap, AV.Rig = false, 0, 0, nil, "R15"   -- Lock = foot lock, like the sample (v2): the puppet feet are kept at the height of your feet
 
     -- a second run of the script first undoes the first one
     do
@@ -30622,9 +30640,17 @@ DHAvtBoot = function()
     function AV.Pairs(char)
         AV.Joints = {}
         if not (char and AV.Model) then return end
-        local mine = motors(AV.Model)
-        for name, real in pairs(motors(char)) do
-            if mine[name] then AV.Joints[#AV.Joints + 1] = {real = real, pup = mine[name]} end
+        -- pair by the PARTS a joint connects (not by joint name), so any rig / any game works
+        local real, rmot = {}, {}
+        for _, d in ipairs(char:GetDescendants()) do
+            if d:IsA("Motor6D") and d.Part1 and not d:FindFirstAncestorWhichIsA("Accessory") and not d:FindFirstAncestorWhichIsA("Tool") and rmot[d.Part1.Name] == nil then rmot[d.Part1.Name] = d end
+            if d:IsA("BasePart") and not d:FindFirstAncestorWhichIsA("Accessory") and not d:FindFirstAncestorWhichIsA("Tool") and real[d.Name] == nil then real[d.Name] = d end
+        end
+        for _, m in ipairs(AV.Model:GetDescendants()) do
+            if m:IsA("Motor6D") and m.Part0 and m.Part1 and not m:FindFirstAncestorWhichIsA("Accessory") and not m:FindFirstAncestorWhichIsA("Tool") then
+                local r0, r1 = real[m.Part0.Name], real[m.Part1.Name]
+                if r0 and r1 then AV.Joints[#AV.Joints + 1] = {r0 = r0, r1 = r1, pup = m, rm = rmot[m.Part1.Name]} end
+            end
         end
     end
 
@@ -30669,10 +30695,17 @@ DHAvtBoot = function()
 
         -- copy every joint pose of your real body onto the puppet
         for _, j in ipairs(AV.Joints) do
-            if j.real.Parent and j.pup.Parent then
-                local t = j.real.Transform
+            if j.r0.Parent and j.r1.Parent and j.pup.Parent then
+                local m = j.pup
+                -- your real joint pose first (exact, keeps the puppet's own proportions). Only when that joint shows no pose (some
+                -- games animate by moving the parts directly) the pose is taken from the part positions, rotation only.
+                local t = (j.rm and j.rm.Parent) and j.rm.Transform or CFrame.identity
+                if t == CFrame.identity then
+                    local rel = (j.r0.CFrame * m.C0):Inverse() * (j.r1.CFrame * m.C1)
+                    t = rel - rel.Position
+                end
                 if AV.Ratio ~= 1 then t = CFrame.new(t.Position * AV.Ratio) * (t - t.Position) end
-                j.pup.Transform = t
+                m.Transform = t
             end
         end
 
@@ -31513,8 +31546,12 @@ DHAvtBoot = function()
     -- WEARING page: what your avatar wears right now. Take items off (only you see it) and bring them back.
     -- =====================================================
     local wn = pages.worn
-    local wnList = scroller(wn, 0, 0, 10, 10)
-    wnList.Size = UDim2.new(1, 0, 1, -30)
+    local wnList = scroller(wn, 0, 28, 10, 10)
+    wnList.Size = UDim2.new(1, 0, 1, -58)
+    local wnMode = "mine"
+    local wnBtnMine = btn(wn, "Your avatar", 0, 0, 120, 24, P.sel)
+    local wnBtnCost = btn(wn, "Costume (result)", 126, 0, 150, 24, P.btn)
+    wnBtnMine.TextSize, wnBtnCost.TextSize = 10, 10
     local wnNames = {}
     local wnToken = 0
     local function wnResolve(id, lab)
@@ -31529,6 +31566,37 @@ DHAvtBoot = function()
     function AV.RefreshNow()
         wnToken = wnToken + 1
         clearRows(wnList)
+        wnBtnMine.BackgroundColor3 = (wnMode == "mine") and P.sel or P.btn
+        wnBtnCost.BackgroundColor3 = (wnMode == "cost") and P.sel or P.btn
+        if wnMode == "cost" then
+            -- COSTUME: the result you wear now = your avatar + everything copied, bought in Shop and taken off
+            local mytok = wnToken
+            task.spawn(function()
+                local ok, desc = pcall(function() return AV.Compose(me.UserId, AV.Assign) end)
+                if mytok ~= wnToken then return end
+                clearRows(wnList)
+                if not ok or not desc then
+                    label(wnList, "Could not build the costume.", {Size = UDim2.new(1, -2, 0, 30), TextColor3 = P.warn, TextSize = 10, TextXAlignment = Enum.TextXAlignment.Center})
+                    return
+                end
+                local costume = AV.BaseItems(desc)
+                local fromShop = {}
+                for _, it in ipairs(AV.Items) do fromShop[it.id] = true end
+                for i, it in ipairs(costume) do
+                    local row = mk("Frame", {Size = UDim2.new(1, -2, 0, 38), LayoutOrder = i, BackgroundColor3 = P.btn, BorderSizePixel = 0}, wnList)
+                    corner(row, 6)
+                    thumb(row, "Asset", it.id, 30)
+                    local lab = label(row, "...", {Size = UDim2.new(1, -50, 1, 0), Position = UDim2.new(0, 40, 0, 0), TextSize = 10})
+                    wnResolve(it.id, lab)
+                    label(row, it.label .. (fromShop[it.id] and "  (from Shop)" or ""), {Size = UDim2.new(1, -50, 0, 12), Position = UDim2.new(0, 40, 1, -13), TextSize = 8, TextColor3 = P.dim})
+                end
+                if #costume == 0 then
+                    label(wnList, "Nothing in this costume.", {Size = UDim2.new(1, -2, 0, 30), TextColor3 = P.dim, TextSize = 10, TextXAlignment = Enum.TextXAlignment.Center})
+                end
+                sayWorn(#costume .. " items in your costume now" .. (AV.Active and "." or " (no avatar applied yet, so this is your own look).") .. " Take items off in 'Your avatar'.", P.ok)
+            end)
+            return
+        end
         local list = AV.BaseItems(AV.BaseDesc(me.UserId))
         for i, it in ipairs(list) do
             local gone = AV.Removed[it.key] == true
@@ -31557,6 +31625,16 @@ DHAvtBoot = function()
         end
     end
     sayWorn("Everything your avatar wears now. 'Take off' hides it, only you see that (nothing changes on your real account).")
+    wnBtnMine.MouseButton1Click:Connect(function()
+        wnMode = "mine"
+        AV.RefreshNow()
+        sayWorn("Everything your avatar wears now. 'Take off' hides it, only you see that (nothing changes on your real account).")
+    end)
+    wnBtnCost.MouseButton1Click:Connect(function()
+        wnMode = "cost"
+        sayWorn("Building your costume...")
+        AV.RefreshNow()
+    end)
 
     -- =====================================================
     -- SKIN page: skin color per body part + darkness
@@ -31980,7 +32058,7 @@ DHAvtBoot = function()
                         end
                     end
                 end
-                if #list > 0 then pcall(function() d:SetAccessories(list, true) end) end
+                if #list > 0 then AV.SetAcc(d, list) end
             end
             return d
         end
@@ -32090,7 +32168,7 @@ DHAvtBoot = function()
             return out
         end
 
-        function NET.Attach(uid, model, char, hum, rroot, t)
+        function NET.Attach(uid, model, char, hum, rroot, t, want, got)
             local proot = model:FindFirstChild("HumanoidRootPart")
             local phum = model:FindFirstChildOfClass("Humanoid")
             if not (proot and phum) then model:Destroy() return end
@@ -32099,6 +32177,11 @@ DHAvtBoot = function()
                 joints = {}, parts = {}, hide = {}, hideSet = {}, conns = {}}
             model.Name = "DH_OtherPuppet"
             if not model.PrimaryPart then model.PrimaryPart = proot end
+            -- the game may clamp body scale: scale the puppet back to the height that person really has
+            if want and got and got > 0 then
+                local f = want / got
+                if math.abs(f - 1) > 0.02 then pcall(function() model:ScaleTo(model:GetScale() * f) end) end
+            end
             pcall(function() phum.AutomaticScalingEnabled = false end)
             pcall(function() phum.DisplayDistanceType = Enum.HumanoidDisplayDistanceType.None end)
             pcall(function() phum.HealthDisplayType = Enum.HumanoidHealthDisplayType.AlwaysOff end)
@@ -32179,7 +32262,24 @@ DHAvtBoot = function()
                         model:Destroy()
                         return
                     end
-                    NET.Attach(uid, model, char, hum, rroot, r.t)
+                    local mh = model:FindFirstChildOfClass("Humanoid")
+                    local hv = mh and mh:FindFirstChild("BodyHeightScale")
+                    NET.Attach(uid, model, char, hum, rroot, r.t, type(r.look.p) == "table" and r.look.p.HeightScale or nil, hv and hv.Value or nil)
+                    -- check that the accessories (hair, hats...) really came with the model; if not, ask Roblox to apply the look once more
+                    local want = type(r.look.a) == "table" and #r.look.a or 0
+                    local function count()
+                        local n = 0
+                        for _, c in ipairs(model:GetChildren()) do
+                            if c:IsA("Accessory") then n = n + 1 end
+                        end
+                        return n
+                    end
+                    local gotA = count()
+                    if want > 0 and gotA == 0 and mh and model.Parent then
+                        pcall(function() mh:ApplyDescription(desc) end)
+                        gotA = count()
+                    end
+                    NET.Dbg = {name = tostring(r.name), want = want, got = gotA}
                 end)
                 NET.Building[uid] = nil
                 NET.BuildBusy = false
@@ -32322,7 +32422,8 @@ DHAvtBoot = function()
             elseif #rows == 0 then
                 sayOn("No other DaffzHub user in this server right now.")
             else
-                sayOn(#rows .. " DaffzHub user" .. (#rows == 1 and "" or "s") .. " here. " .. (NET.On and "Their avatars show on your screen only." or "Avatars are OFF."))
+                sayOn(#rows .. " DaffzHub user" .. (#rows == 1 and "" or "s") .. " here. " .. (NET.On and "Their avatars show on your screen only." or "Avatars are OFF.")
+                    .. (NET.Dbg and (" Last avatar: " .. NET.Dbg.name .. ", accessories " .. NET.Dbg.got .. "/" .. NET.Dbg.want .. ".") or ""))
             end
             for i, u in ipairs(rows) do
                 local row = mk("Frame", {Size = UDim2.new(1, -2, 0, 36), LayoutOrder = i, BackgroundColor3 = P.btn, BorderSizePixel = 0}, list)
