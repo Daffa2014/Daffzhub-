@@ -32275,9 +32275,16 @@ DHAvtBoot = function()
                         return n
                     end
                     local gotA = count()
-                    if want > 0 and gotA == 0 and mh and model.Parent then
+                    NET.Dbg = {name = tostring(r.name), want = want, got = gotA}
+                    -- some arrive a moment late, and Roblox sometimes drops items on the first build: wait, then apply the look again (up to 2 times)
+                    for _ = 1, 2 do
+                        if not (want > 0 and gotA < want and mh and model.Parent) then break end
+                        task.wait(1.2)
+                        gotA = math.max(gotA, count())
+                        if gotA >= want or not model.Parent then break end
                         pcall(function() mh:ApplyDescription(desc) end)
-                        gotA = count()
+                        task.wait(0.6)
+                        gotA = math.max(gotA, count())
                     end
                     NET.Dbg = {name = tostring(r.name), want = want, got = gotA}
                 end)
