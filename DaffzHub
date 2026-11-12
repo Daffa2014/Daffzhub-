@@ -526,83 +526,80 @@ TabFrame.BackgroundColor3 = Color3.fromRGB(20,20,20)
 TabFrame.BorderSizePixel = 0
 TabFrame.ScrollBarThickness = 1
 TabFrame.ScrollBarImageColor3 = Color3.fromRGB(60,60,60)
-TabFrame.CanvasSize = UDim2.new(0, 0, 0, 1110)
+TabFrame.CanvasSize = UDim2.new(0, 0, 0, 100)
 Instance.new("UICorner", TabFrame).CornerRadius = UDim.new(0, 12)
+
+-- ================================================
+-- TAB HELPERS: every tab is made and opened the same way
+--   DHNewTab("Name")          its button in the left list. Buttons take the next free slot, so the tabs appear in the order they are created
+--   DHNewPage()               the empty page (hidden) that belongs to a tab
+--   DHShowTab(page, button)   opens a tab: hides every page, shows this one, lights its button
+--   HideAllContent()          the list of every page (a tab that failed to build is nil and is skipped)
+-- ================================================
+DHTabY = 20
+function DHNewTab(text, name)
+    local b = Instance.new("TextButton", TabFrame)
+    if name then b.Name = name end
+    b.Size = UDim2.new(1, -20, 0, 40)
+    b.Position = UDim2.new(0, 10, 0, DHTabY)
+    b.Text = text
+    b.BackgroundColor3 = Color3.fromRGB(25,25,25)
+    b.Font = Enum.Font.GothamBold
+    b.TextSize = 14
+    b.TextColor3 = Color3.new(1,1,1)
+    Instance.new("UICorner", b).CornerRadius = UDim.new(0, 8)
+    DHTabY = DHTabY + 50
+    TabFrame.CanvasSize = UDim2.new(0, 0, 0, DHTabY + 40)
+    return b
+end
+
+function DHNewPage(name)
+    local f = Instance.new("Frame", ContentFrame)
+    if name then f.Name = name end
+    f.Size = UDim2.new(1, 0, 1, 0)
+    f.Position = UDim2.new(0, 0, 0, 0)
+    f.BackgroundColor3 = Color3.fromRGB(20,20,20)
+    f.Visible = false
+    f.ClipsDescendants = true
+    Instance.new("UICorner", f).CornerRadius = UDim.new(0, 10)
+    return f
+end
+
+function DHHidePages(...)
+    for i = 1, select("#", ...) do
+        local p = select(i, ...)
+        if p then p.Visible = false end
+    end
+end
+
+function DHShowTab(page, button)
+    HideAllContent()
+    if page then page.Visible = true end
+    for _, b in ipairs(TabFrame:GetChildren()) do
+        if b:IsA("TextButton") then
+            b.BackgroundColor3 = Color3.fromRGB(25,25,25)
+        end
+    end
+    if button then button.BackgroundColor3 = Color3.fromRGB(30,30,30) end
+end
 
 CheckLoadingHalt()
 SetLoadProgress(40)
 
 -- TABS
-ScriptTab = Instance.new("TextButton", TabFrame)
-ScriptTab.Size = UDim2.new(1, -20, 0, 40)
-ScriptTab.Position = UDim2.new(0, 10, 0, 20)
-ScriptTab.Text = "🔒 Script"
-ScriptTab.BackgroundColor3 = Color3.fromRGB(25,25,25)
-ScriptTab.Font = Enum.Font.GothamBold
-ScriptTab.TextSize = 14
-ScriptTab.TextColor3 = Color3.new(1,1,1)
-Instance.new("UICorner", ScriptTab).CornerRadius = UDim.new(0, 8)
+ScriptTab = DHNewTab("🔒 Script")
 
-EditorTab = Instance.new("TextButton", TabFrame)
-EditorTab.Size = UDim2.new(1, -20, 0, 40)
-EditorTab.Position = UDim2.new(0, 10, 0, 70)
-EditorTab.Text = "Editor"
-EditorTab.BackgroundColor3 = Color3.fromRGB(25,25,25)
-EditorTab.Font = Enum.Font.GothamBold
-EditorTab.TextSize = 14
-EditorTab.TextColor3 = Color3.new(1,1,1)
-Instance.new("UICorner", EditorTab).CornerRadius = UDim.new(0, 8)
+EditorTab = DHNewTab("Editor")
 
-InfoTab = Instance.new("TextButton", TabFrame)
-InfoTab.Size = UDim2.new(1, -20, 0, 40)
-InfoTab.Position = UDim2.new(0, 10, 0, 120)
-InfoTab.Text = "Info"
-InfoTab.BackgroundColor3 = Color3.fromRGB(25,25,25)
-InfoTab.Font = Enum.Font.GothamBold
-InfoTab.TextSize = 14
-InfoTab.TextColor3 = Color3.new(1,1,1)
-Instance.new("UICorner", InfoTab).CornerRadius = UDim.new(0, 8)
+InfoTab = DHNewTab("Info")
 
-local MusicTab = Instance.new("TextButton", TabFrame)
-MusicTab.Size = UDim2.new(1, -20, 0, 40)
-MusicTab.Position = UDim2.new(0, 10, 0, 170)
-MusicTab.Text = "Music"
-MusicTab.BackgroundColor3 = Color3.fromRGB(25,25,25)
-MusicTab.Font = Enum.Font.GothamBold
-MusicTab.TextSize = 14
-MusicTab.TextColor3 = Color3.new(1,1,1)
-Instance.new("UICorner", MusicTab).CornerRadius = UDim.new(0, 8)
+local MusicTab = DHNewTab("Music")
 
-local PlayerTab = Instance.new("TextButton", TabFrame)
-PlayerTab.Size = UDim2.new(1, -20, 0, 40)
-PlayerTab.Position = UDim2.new(0, 10, 0, 220)
-PlayerTab.Text = "Player"
-PlayerTab.BackgroundColor3 = Color3.fromRGB(25,25,25)
-PlayerTab.Font = Enum.Font.GothamBold
-PlayerTab.TextSize = 14
-PlayerTab.TextColor3 = Color3.new(1,1,1)
-Instance.new("UICorner", PlayerTab).CornerRadius = UDim.new(0, 8)
+local PlayerTab = DHNewTab("Player")
 
-local WaypointsTab = Instance.new("TextButton", TabFrame)
-WaypointsTab.Size = UDim2.new(1, -20, 0, 40)
-WaypointsTab.Position = UDim2.new(0, 10, 0, 270)
-WaypointsTab.Text = "Waypoint"
-WaypointsTab.BackgroundColor3 = Color3.fromRGB(25,25,25)
-WaypointsTab.Font = Enum.Font.GothamBold
-WaypointsTab.TextSize = 14
-WaypointsTab.TextColor3 = Color3.new(1,1,1)
-Instance.new("UICorner", WaypointsTab).CornerRadius = UDim.new(0, 8)
+local WaypointsTab = DHNewTab("Waypoint")
 
-local ReportTab = Instance.new("TextButton", TabFrame)
-ReportTab.Name = "ReportTab"
-ReportTab.Size = UDim2.new(1, -20, 0, 40)
-ReportTab.Position = UDim2.new(0, 10, 0, 320)
-ReportTab.BackgroundColor3 = Color3.fromRGB(25,25,25)
-ReportTab.Font = Enum.Font.GothamBold
-ReportTab.TextSize = 14
-ReportTab.TextColor3 = Color3.new(1,1,1)
-ReportTab.Text = "Report"
-Instance.new("UICorner", ReportTab).CornerRadius = UDim.new(0, 8)
+local ReportTab = DHNewTab("Report", "ReportTab")
 
 -- ================================================
 -- TAB SCRIPT V3
@@ -1665,13 +1662,7 @@ ScriptContent.Visible = false
 -- ================================================
 -- 1. EDITOR CONTENT FRAME
 -- ================================================
-EditorContent = Instance.new("Frame", ContentFrame)
-EditorContent.Size = UDim2.new(1, 0, 1, 0)
-EditorContent.Position = UDim2.new(0, 0, 0, 0)
-EditorContent.BackgroundColor3 = Color3.fromRGB(20,20,20)
-EditorContent.Visible = false
-EditorContent.ClipsDescendants = true
-Instance.new("UICorner", EditorContent).CornerRadius = UDim.new(0, 10)
+EditorContent = DHNewPage()
 
 -- ================================================
 -- 2. SCROLLING FRAME UTAMA
@@ -4752,13 +4743,7 @@ do
 -- ================================================
 -- 1. MUSIC CONTENT FRAME
 -- ================================================
-MusicContent = Instance.new("Frame", ContentFrame)
-MusicContent.Size = UDim2.new(1, 0, 1, 0)
-MusicContent.Position = UDim2.new(0, 0, 0, 0)
-MusicContent.BackgroundColor3 = Color3.fromRGB(20,20,20)
-MusicContent.Visible = false
-MusicContent.ClipsDescendants = true
-Instance.new("UICorner", MusicContent).CornerRadius = UDim.new(0, 10)
+MusicContent = DHNewPage()
 
 -- Scroll Frame
 MusicScroll = Instance.new("ScrollingFrame", MusicContent)
@@ -6268,13 +6253,7 @@ end
 -- ================================================
 -- TAB 5: PLAYER CONTENT (100% COMPLETE)
 -- ================================================
-local PlayerContent = Instance.new("Frame", ContentFrame)
-PlayerContent.Size = UDim2.new(1, 0, 1, 0)
-PlayerContent.Position = UDim2.new(0, 0, 0, 0)
-PlayerContent.BackgroundColor3 = Color3.fromRGB(20,20,20)
-PlayerContent.Visible = false
-PlayerContent.ClipsDescendants = true
-Instance.new("UICorner", PlayerContent).CornerRadius = UDim.new(0, 10)
+local PlayerContent = DHNewPage()
 
 local PlayerScroll = Instance.new("ScrollingFrame", PlayerContent)
 PlayerScroll.Size = UDim2.new(1, -20, 1, -20)
@@ -10073,13 +10052,7 @@ end
 -- ================================================
 -- TAB 6: WAYPOINTS CONTENT (100% COMPLETE)
 -- ================================================
-WaypointsContent = Instance.new("Frame", ContentFrame)
-WaypointsContent.Size = UDim2.new(1, 0, 1, 0)
-WaypointsContent.Position = UDim2.new(0, 0, 0, 0)
-WaypointsContent.BackgroundColor3 = Color3.fromRGB(20,20,20)
-WaypointsContent.Visible = false
-WaypointsContent.ClipsDescendants = true
-Instance.new("UICorner", WaypointsContent).CornerRadius = UDim.new(0, 10)
+WaypointsContent = DHNewPage()
 
 local WaypointsData = {}
 local IsViewingWaypoint = false
@@ -11019,14 +10992,7 @@ end)
 -- ================================================
 -- TAB 7: REPORT CONTENT (100% COMPLETE)
 -- ================================================
-ReportContent = Instance.new("Frame", ContentFrame)
-ReportContent.Name = "ReportContent"
-ReportContent.Size = UDim2.new(1, 0, 1, 0)
-ReportContent.Position = UDim2.new(0, 0, 0, 0)
-ReportContent.BackgroundColor3 = Color3.fromRGB(20,20,20)
-ReportContent.Visible = false
-ReportContent.ClipsDescendants = true
-Instance.new("UICorner", ReportContent).CornerRadius = UDim.new(0, 10)
+ReportContent = DHNewPage("ReportContent")
 
 ReportHeader = Instance.new("TextLabel", ReportContent)
 ReportHeader.Size = UDim2.new(1, -20, 0, 30)
@@ -11969,26 +11935,12 @@ end)
 -- ================================================
 -- 1. TOMBOL TAB
 -- ================================================
-BringPartsTab = Instance.new("TextButton", TabFrame)
-BringPartsTab.Size = UDim2.new(1, -20, 0, 40)
-BringPartsTab.Position = UDim2.new(0, 10, 0, 370)
-BringPartsTab.Text = "Bring Part"
-BringPartsTab.BackgroundColor3 = Color3.fromRGB(25,25,25)
-BringPartsTab.Font = Enum.Font.GothamBold
-BringPartsTab.TextSize = 14
-BringPartsTab.TextColor3 = Color3.new(1,1,1)
-Instance.new("UICorner", BringPartsTab).CornerRadius = UDim.new(0, 8)
+BringPartsTab = DHNewTab("Bring Part")
 
 -- ================================================
 -- 2. CONTENT FRAME
 -- ================================================
-BringPartsContent = Instance.new("Frame", ContentFrame)
-BringPartsContent.Size = UDim2.new(1, 0, 1, 0)
-BringPartsContent.Position = UDim2.new(0, 0, 0, 0)
-BringPartsContent.BackgroundColor3 = Color3.fromRGB(20,20,20)
-BringPartsContent.Visible = false
-BringPartsContent.ClipsDescendants = true
-Instance.new("UICorner", BringPartsContent).CornerRadius = UDim.new(0, 10)
+BringPartsContent = DHNewPage()
 
 -- Scroll Frame
 BringPartsScroll = Instance.new("ScrollingFrame", BringPartsContent)
@@ -13444,26 +13396,12 @@ do
 -- ================================================
 -- 1. TOMBOL TAB
 -- ================================================
-JoinerTab = Instance.new("TextButton", TabFrame)
-JoinerTab.Size = UDim2.new(1, -20, 0, 40)
-JoinerTab.Position = UDim2.new(0, 10, 0, 420)
-JoinerTab.Text = "Joiner"
-JoinerTab.BackgroundColor3 = Color3.fromRGB(25,25,25)
-JoinerTab.Font = Enum.Font.GothamBold
-JoinerTab.TextSize = 14
-JoinerTab.TextColor3 = Color3.new(1,1,1)
-Instance.new("UICorner", JoinerTab).CornerRadius = UDim.new(0, 8)
+JoinerTab = DHNewTab("Joiner")
 
 -- ================================================
 -- 2. CONTENT FRAME
 -- ================================================
-JoinerContent = Instance.new("Frame", ContentFrame)
-JoinerContent.Size = UDim2.new(1, 0, 1, 0)
-JoinerContent.Position = UDim2.new(0, 0, 0, 0)
-JoinerContent.BackgroundColor3 = Color3.fromRGB(20,20,20)
-JoinerContent.Visible = false
-JoinerContent.ClipsDescendants = true
-Instance.new("UICorner", JoinerContent).CornerRadius = UDim.new(0, 10)
+JoinerContent = DHNewPage()
 
 -- ================================================
 -- 3. SCROLLING FRAME
@@ -14843,27 +14781,13 @@ pcall(DHJ.Build)
 -- ================================================
 -- 1. TOMBOL TAB
 -- ================================================
-TrollTab = Instance.new("TextButton", TabFrame)
-TrollTab.Size = UDim2.new(1, -20, 0, 40)
-TrollTab.Position = UDim2.new(0, 10, 0, 470)
-TrollTab.Text = "Troll"
-TrollTab.BackgroundColor3 = Color3.fromRGB(25,25,25)
-TrollTab.Font = Enum.Font.GothamBold
-TrollTab.TextSize = 14
-TrollTab.TextColor3 = Color3.new(1,1,1)
-Instance.new("UICorner", TrollTab).CornerRadius = UDim.new(0, 8)
+TrollTab = DHNewTab("Troll")
 
 
 -- ================================================
 -- 2. CONTENT FRAME
 -- ================================================
-TrollContent = Instance.new("Frame", ContentFrame)
-TrollContent.Size = UDim2.new(1, 0, 1, 0)
-TrollContent.Position = UDim2.new(0, 0, 0, 0)
-TrollContent.BackgroundColor3 = Color3.fromRGB(20,20,20)
-TrollContent.Visible = false
-TrollContent.ClipsDescendants = true
-Instance.new("UICorner", TrollContent).CornerRadius = UDim.new(0, 10)
+TrollContent = DHNewPage()
 
 -- ================================================
 -- 3. SCROLLING FRAME
@@ -16724,15 +16648,7 @@ end -- (scope wrapper: frees local registers)
 -- ================================================
 -- EMOTE TAB BUTTON (taruh setelah WaypointsTab, sebelum ReportTab)
 -- ================================================
-local EmoteTabBtn = Instance.new("TextButton", TabFrame)
-EmoteTabBtn.Size = UDim2.new(1, -20, 0, 40)
-EmoteTabBtn.Position = UDim2.new(0, 10, 0, 520)
-EmoteTabBtn.Text = "Emote"
-EmoteTabBtn.BackgroundColor3 = Color3.fromRGB(25,25,25)
-EmoteTabBtn.Font = Enum.Font.GothamBold
-EmoteTabBtn.TextSize = 14
-EmoteTabBtn.TextColor3 = Color3.new(1,1,1)
-Instance.new("UICorner", EmoteTabBtn).CornerRadius = UDim.new(0, 8)
+local EmoteTabBtn = DHNewTab("Emote")
 
 CheckLoadingHalt()
 SetLoadProgress(63)
@@ -18206,27 +18122,13 @@ SetLoadProgress(66)
 -- ================================================
 -- TAB SEARCH
 -- ================================================
-ScriptSearchTab = Instance.new("TextButton", TabFrame)
-ScriptSearchTab.Size = UDim2.new(1, -20, 0, 40)
-ScriptSearchTab.Position = UDim2.new(0, 10, 0, 570) -- EmoteTab Y + 50
-ScriptSearchTab.Text = "Search"
-ScriptSearchTab.BackgroundColor3 = Color3.fromRGB(25,25,25)
-ScriptSearchTab.Font = Enum.Font.GothamBold
-ScriptSearchTab.TextSize = 14
-ScriptSearchTab.TextColor3 = Color3.new(1,1,1)
-Instance.new("UICorner", ScriptSearchTab).CornerRadius = UDim.new(0, 8)
+ScriptSearchTab = DHNewTab("Search")
 
 -- ================================================
 -- TAB SEARCH SCRIPTBLOX + RAWSCRIPTS
 -- ================================================
 
-SearchContent = Instance.new("Frame", ContentFrame)
-SearchContent.Size = UDim2.new(1, 0, 1, 0)
-SearchContent.Position = UDim2.new(0, 0, 0, 0)
-SearchContent.BackgroundColor3 = Color3.fromRGB(20,20,20)
-SearchContent.Visible = false
-SearchContent.ClipsDescendants = true
-Instance.new("UICorner", SearchContent).CornerRadius = UDim.new(0, 10)
+SearchContent = DHNewPage()
 
 -- SEARCH BAR
 SBSearchBarFrame = Instance.new("Frame", SearchContent)
@@ -18990,24 +18892,10 @@ end
 
 function BuildVisualFoundation()
     -- tab button (same look as the other tab buttons), right under Search
-    VisualTab = Instance.new("TextButton", TabFrame)
-    VisualTab.Size = UDim2.new(1, -20, 0, 40)
-    VisualTab.Position = UDim2.new(0, 10, 0, 620)
-    VisualTab.Text = "Visual"
-    VisualTab.BackgroundColor3 = Color3.fromRGB(25,25,25)
-    VisualTab.Font = Enum.Font.GothamBold
-    VisualTab.TextSize = 14
-    VisualTab.TextColor3 = Color3.new(1,1,1)
-    Instance.new("UICorner", VisualTab).CornerRadius = UDim.new(0, 8)
+    VisualTab = DHNewTab("Visual")
 
     -- content frame
-    VisualContent = Instance.new("Frame", ContentFrame)
-    VisualContent.Size = UDim2.new(1, 0, 1, 0)
-    VisualContent.Position = UDim2.new(0, 0, 0, 0)
-    VisualContent.BackgroundColor3 = Color3.fromRGB(20,20,20)
-    VisualContent.Visible = false
-    VisualContent.ClipsDescendants = true
-    Instance.new("UICorner", VisualContent).CornerRadius = UDim.new(0, 10)
+    VisualContent = DHNewPage()
 
     -- header: title + ALPHA badge
     local title = Instance.new("TextLabel", VisualContent)
@@ -21195,23 +21083,9 @@ pcall(BuildCrosshair)
 DHAnim = DHAnim or {}
 
 function BuildAnimationTab()
-    AnimTab = Instance.new("TextButton", TabFrame)
-    AnimTab.Size = UDim2.new(1, -20, 0, 40)
-    AnimTab.Position = UDim2.new(0, 10, 0, 670)
-    AnimTab.Text = "Animation"
-    AnimTab.BackgroundColor3 = Color3.fromRGB(25,25,25)
-    AnimTab.Font = Enum.Font.GothamBold
-    AnimTab.TextSize = 14
-    AnimTab.TextColor3 = Color3.new(1,1,1)
-    Instance.new("UICorner", AnimTab).CornerRadius = UDim.new(0, 8)
+    AnimTab = DHNewTab("Animation")
 
-    AnimContent = Instance.new("Frame", ContentFrame)
-    AnimContent.Size = UDim2.new(1, 0, 1, 0)
-    AnimContent.Position = UDim2.new(0, 0, 0, 0)
-    AnimContent.BackgroundColor3 = Color3.fromRGB(20,20,20)
-    AnimContent.Visible = false
-    AnimContent.ClipsDescendants = true
-    Instance.new("UICorner", AnimContent).CornerRadius = UDim.new(0, 10)
+    AnimContent = DHNewPage()
 
     local title = Instance.new("TextLabel", AnimContent)
     title.Size = UDim2.new(1, -20, 0, 34)
@@ -22790,23 +22664,9 @@ pcall(BuildAnimationSaved)
 DHMods = DHMods or {}
 
 function BuildModsTab()
-    ModsTab = Instance.new("TextButton", TabFrame)
-    ModsTab.Size = UDim2.new(1, -20, 0, 40)
-    ModsTab.Position = UDim2.new(0, 10, 0, 720)
-    ModsTab.Text = "Mods"
-    ModsTab.BackgroundColor3 = Color3.fromRGB(25,25,25)
-    ModsTab.Font = Enum.Font.GothamBold
-    ModsTab.TextSize = 14
-    ModsTab.TextColor3 = Color3.new(1,1,1)
-    Instance.new("UICorner", ModsTab).CornerRadius = UDim.new(0, 8)
+    ModsTab = DHNewTab("Mods")
 
-    ModsContent = Instance.new("Frame", ContentFrame)
-    ModsContent.Size = UDim2.new(1, 0, 1, 0)
-    ModsContent.Position = UDim2.new(0, 0, 0, 0)
-    ModsContent.BackgroundColor3 = Color3.fromRGB(20,20,20)
-    ModsContent.Visible = false
-    ModsContent.ClipsDescendants = true
-    Instance.new("UICorner", ModsContent).CornerRadius = UDim.new(0, 10)
+    ModsContent = DHNewPage()
 
     local title = Instance.new("TextLabel", ModsContent)
     title.Size = UDim2.new(1, -20, 0, 34)
@@ -22848,23 +22708,9 @@ pcall(BuildModsTab)
 -- CHATBOT TAB (button + page; the chat itself is built later in the DHBot section)
 -- ================================================
 function BuildChatBotTab()
-    ChatBotTab = Instance.new("TextButton", TabFrame)
-    ChatBotTab.Size = UDim2.new(1, -20, 0, 40)
-    ChatBotTab.Position = UDim2.new(0, 10, 0, 770)
-    ChatBotTab.Text = "ChatBot"
-    ChatBotTab.BackgroundColor3 = Color3.fromRGB(25,25,25)
-    ChatBotTab.Font = Enum.Font.GothamBold
-    ChatBotTab.TextSize = 14
-    ChatBotTab.TextColor3 = Color3.new(1,1,1)
-    Instance.new("UICorner", ChatBotTab).CornerRadius = UDim.new(0, 8)
+    ChatBotTab = DHNewTab("ChatBot")
 
-    ChatBotContent = Instance.new("Frame", ContentFrame)
-    ChatBotContent.Size = UDim2.new(1, 0, 1, 0)
-    ChatBotContent.Position = UDim2.new(0, 0, 0, 0)
-    ChatBotContent.BackgroundColor3 = Color3.fromRGB(20,20,20)
-    ChatBotContent.Visible = false
-    ChatBotContent.ClipsDescendants = true
-    Instance.new("UICorner", ChatBotContent).CornerRadius = UDim.new(0, 10)
+    ChatBotContent = DHNewPage()
 end
 
 pcall(BuildChatBotTab)
@@ -23570,23 +23416,9 @@ pcall(DHBot.Build)
 -- MESSAGE TAB: chat with other DaffzHub users (modes: Server, Map, Global, Private)
 -- Messages travel through a small server (Netlify -> Supabase). Opt-in: nothing is sent or read before the user agrees.
 -- ================================================
-MsgTab = Instance.new("TextButton", TabFrame)
-MsgTab.Size = UDim2.new(1, -20, 0, 40)
-MsgTab.Position = UDim2.new(0, 10, 0, 820)
-MsgTab.Text = "Message"
-MsgTab.BackgroundColor3 = Color3.fromRGB(25,25,25)
-MsgTab.Font = Enum.Font.GothamBold
-MsgTab.TextSize = 14
-MsgTab.TextColor3 = Color3.new(1,1,1)
-Instance.new("UICorner", MsgTab).CornerRadius = UDim.new(0, 8)
+MsgTab = DHNewTab("Message")
 
-MsgContent = Instance.new("Frame", ContentFrame)
-MsgContent.Size = UDim2.new(1, 0, 1, 0)
-MsgContent.Position = UDim2.new(0, 0, 0, 0)
-MsgContent.BackgroundColor3 = Color3.fromRGB(20,20,20)
-MsgContent.Visible = false
-MsgContent.ClipsDescendants = true
-Instance.new("UICorner", MsgContent).CornerRadius = UDim.new(0, 10)
+MsgContent = DHNewPage()
 
 DHMsg = {
     Path = "Daffzhub_file/Message.json",
@@ -24323,14 +24155,7 @@ function DHMsg.Build()
 end
 
 function ShowMsgTab()
-    HideAllContent()
-    if MsgContent then MsgContent.Visible = true end
-    for _, b in ipairs(TabFrame:GetChildren()) do
-        if b:IsA("TextButton") then
-            b.BackgroundColor3 = Color3.fromRGB(25,25,25)
-        end
-    end
-    if MsgTab then MsgTab.BackgroundColor3 = Color3.fromRGB(30,30,30) end
+    DHShowTab(MsgContent, MsgTab)
     if DHMsg and DHMsg.OnShow then DHMsg.OnShow() end
 end
 MsgTab.MouseButton1Click:Connect(ShowMsgTab)
@@ -24955,23 +24780,9 @@ pcall(DHMsg.FixScroll, "RULES AND LIMITS")
 -- The text of each received message is sent to the DaffzHub server, which asks a free translate service.
 -- Nothing is sent while this is OFF. Your own messages are never translated.
 -- ================================================
-TransTab = Instance.new("TextButton", TabFrame)
-TransTab.Size = UDim2.new(1, -20, 0, 40)
-TransTab.Position = UDim2.new(0, 10, 0, 870)
-TransTab.Text = "Translate"
-TransTab.BackgroundColor3 = Color3.fromRGB(25,25,25)
-TransTab.Font = Enum.Font.GothamBold
-TransTab.TextSize = 14
-TransTab.TextColor3 = Color3.new(1,1,1)
-Instance.new("UICorner", TransTab).CornerRadius = UDim.new(0, 8)
+TransTab = DHNewTab("Translate")
 
-TransContent = Instance.new("Frame", ContentFrame)
-TransContent.Size = UDim2.new(1, 0, 1, 0)
-TransContent.Position = UDim2.new(0, 0, 0, 0)
-TransContent.BackgroundColor3 = Color3.fromRGB(20,20,20)
-TransContent.Visible = false
-TransContent.ClipsDescendants = true
-Instance.new("UICorner", TransContent).CornerRadius = UDim.new(0, 10)
+TransContent = DHNewPage()
 
 DHTr = {
     Path = "Daffzhub_file/Translate.json",
@@ -25234,14 +25045,7 @@ function DHTr.Build()
 end
 
 function ShowTransTab()
-    HideAllContent()
-    if TransContent then TransContent.Visible = true end
-    for _, b in ipairs(TabFrame:GetChildren()) do
-        if b:IsA("TextButton") then
-            b.BackgroundColor3 = Color3.fromRGB(25,25,25)
-        end
-    end
-    if TransTab then TransTab.BackgroundColor3 = Color3.fromRGB(30,30,30) end
+    DHShowTab(TransContent, TransTab)
 end
 TransTab.MouseButton1Click:Connect(ShowTransTab)
 
@@ -30013,33 +29817,12 @@ pcall(DHDum.Build)
 -- saved looks, 3D preview. Only YOU see the result: a copy of your avatar follows your real body, nothing on the real body changes.
 -- ================================================
 DHMark4 = "daffz-e88b-0ff4"
-AvtTab = Instance.new("TextButton", TabFrame)
-AvtTab.Size = UDim2.new(1, -20, 0, 40)
-AvtTab.Position = UDim2.new(0, 10, 0, 920)
-AvtTab.Text = "Avatar"
-AvtTab.BackgroundColor3 = Color3.fromRGB(25,25,25)
-AvtTab.Font = Enum.Font.GothamBold
-AvtTab.TextSize = 14
-AvtTab.TextColor3 = Color3.new(1,1,1)
-Instance.new("UICorner", AvtTab).CornerRadius = UDim.new(0, 8)
+AvtTab = DHNewTab("Avatar")
 
-AvtContent = Instance.new("Frame", ContentFrame)
-AvtContent.Size = UDim2.new(1, 0, 1, 0)
-AvtContent.Position = UDim2.new(0, 0, 0, 0)
-AvtContent.BackgroundColor3 = Color3.fromRGB(20,20,20)
-AvtContent.Visible = false
-AvtContent.ClipsDescendants = true
-Instance.new("UICorner", AvtContent).CornerRadius = UDim.new(0, 10)
+AvtContent = DHNewPage()
 
 function ShowAvtTab()
-    HideAllContent()
-    if AvtContent then AvtContent.Visible = true end
-    for _, b in ipairs(TabFrame:GetChildren()) do
-        if b:IsA("TextButton") then
-            b.BackgroundColor3 = Color3.fromRGB(25,25,25)
-        end
-    end
-    if AvtTab then AvtTab.BackgroundColor3 = Color3.fromRGB(30,30,30) end
+    DHShowTab(AvtContent, AvtTab)
 end
 AvtTab.MouseButton1Click:Connect(ShowAvtTab)
 
@@ -32538,6 +32321,870 @@ if not DHAvtOk then
 end
 
 
+-- ================================================
+-- CONTROLS TAB (before Setting): your own on-screen buttons that press PC keyboard keys, and a stiff 8-direction WASD joystick.
+-- Buttons and joystick live in their own ScreenGui, so they stay on screen when the hub is closed. Everything is saved in a file.
+-- ================================================
+CtlTab = DHNewTab("Controls")
+
+CtlContent = DHNewPage()
+
+function ShowCtlTab()
+    DHShowTab(CtlContent, CtlTab)
+end
+CtlTab.MouseButton1Click:Connect(ShowCtlTab)
+
+DHCtlBoot = function()
+    local Players = game:GetService("Players")
+    local UIS = game:GetService("UserInputService")
+    local RunService = game:GetService("RunService")
+    local HttpService = game:GetService("HttpService")
+    local me = Players.LocalPlayer
+
+    local CT = {File = "Daffzhub_file/Controls.json", Btns = {}, Next = 1, Held = {}, Show = true, OrigVis = {}}
+    DHCtl = CT
+    CT.Joy = {on = false, mode = "stiff", size = 130, alpha = 0.45, dead = 0.3, xs = 0.14, ys = 0.72, drag = false}
+
+    local P = {
+        card = Color3.fromRGB(25, 25, 30), btn = Color3.fromRGB(30, 30, 40), sel = Color3.fromRGB(55, 55, 78),
+        green = Color3.fromRGB(35, 160, 90), red = Color3.fromRGB(150, 50, 50), blue = Color3.fromRGB(50, 90, 170),
+        text = Color3.new(1, 1, 1), dim = Color3.fromRGB(150, 150, 160), warn = Color3.fromRGB(255, 130, 130),
+        ok = Color3.fromRGB(110, 225, 150), gold = Color3.fromRGB(230, 180, 40),
+    }
+    local function mk(class, props, parent)
+        local o = Instance.new(class)
+        for k, v in pairs(props) do o[k] = v end
+        o.Parent = parent
+        return o
+    end
+    local function corner(o, r) mk("UICorner", {CornerRadius = UDim.new(0, r or 6)}, o) end
+    local function btn(parent, text, x, y, w, h, color)
+        local b = mk("TextButton", {Text = text, Position = UDim2.new(0, x, 0, y), Size = UDim2.new(0, w, 0, h),
+            BackgroundColor3 = color or P.btn, TextColor3 = P.text, Font = Enum.Font.GothamBold, TextSize = 11,
+            AutoButtonColor = true, BorderSizePixel = 0, TextTruncate = Enum.TextTruncate.AtEnd}, parent)
+        corner(b, 6)
+        return b
+    end
+    local function label(parent, text, props)
+        local p = {Text = text, BackgroundTransparency = 1, TextColor3 = P.text, Font = Enum.Font.Gotham, TextSize = 11,
+            TextXAlignment = Enum.TextXAlignment.Left, TextTruncate = Enum.TextTruncate.AtEnd}
+        for k, v in pairs(props or {}) do p[k] = v end
+        return mk("TextLabel", p, parent)
+    end
+
+    local Root = CtlContent
+    local Status = label(Root, "", {Position = UDim2.new(0, 10, 1, -28), Size = UDim2.new(1, -20, 0, 24), TextColor3 = P.dim, TextWrapped = true,
+        TextYAlignment = Enum.TextYAlignment.Center, TextSize = 10, TextTruncate = Enum.TextTruncate.None})
+    local function say(t, col) Status.Text = t Status.TextColor3 = col or P.dim end
+
+    -- ================= key pressing =================
+    local VIM
+    pcall(function() VIM = game:GetService("VirtualInputManager") end)
+    local VK = {Space = 0x20, Return = 0x0D, Escape = 0x1B, Tab = 0x09, Backspace = 0x08, LeftShift = 0xA0, RightShift = 0xA1,
+        LeftControl = 0xA2, RightControl = 0xA3, LeftAlt = 0xA4, RightAlt = 0xA5, Up = 0x26, Down = 0x28, Left = 0x25, Right = 0x27,
+        Delete = 0x2E, Insert = 0x2D, Home = 0x24, End = 0x23, PageUp = 0x21, PageDown = 0x22, CapsLock = 0x14}
+    for i = 0, 25 do VK[string.char(65 + i)] = 0x41 + i end
+    local DIGIT = {"Zero", "One", "Two", "Three", "Four", "Five", "Six", "Seven", "Eight", "Nine"}
+    for i, n in ipairs(DIGIT) do VK[n] = 0x30 + i - 1 end
+    for i = 1, 12 do VK["F" .. i] = 0x6F + i end
+
+    local KMAP = {}
+    pcall(function()
+        for _, item in ipairs(Enum.KeyCode:GetEnumItems()) do KMAP[item.Name:lower()] = item.Name end
+    end)
+    local ALIAS = {shift = "LeftShift", lshift = "LeftShift", rshift = "RightShift", ctrl = "LeftControl", control = "LeftControl",
+        lctrl = "LeftControl", rctrl = "RightControl", alt = "LeftAlt", lalt = "LeftAlt", ralt = "RightAlt", enter = "Return",
+        esc = "Escape", del = "Delete", caps = "CapsLock", pgup = "PageUp", pgdn = "PageDown", bksp = "Backspace"}
+    for i, n in ipairs(DIGIT) do ALIAS[tostring(i - 1)] = n end
+
+    -- default names reuse the lowest free number: delete "Btn 2" and the next new button is "Btn 2" again
+    local function freeName()
+        local used = {}
+        for _, b in ipairs(CT.Btns) do
+            local n = tostring(b.name):match("^Btn (%d+)$")
+            if n then used[tonumber(n)] = true end
+        end
+        local i = 1
+        while used[i] do i = i + 1 end
+        return "Btn " .. i
+    end
+    KMAP["mouseleft"], KMAP["mouseright"] = "MouseLeft", "MouseRight"
+    for k, v in pairs({lmb = "MouseLeft", mouse1 = "MouseLeft", click = "MouseLeft", rmb = "MouseRight", mouse2 = "MouseRight"}) do ALIAS[k] = v end
+    local function resolveKey(s)
+        s = tostring(s or ""):gsub("%s", "")
+        if s == "" then return nil end
+        local l = s:lower()
+        return ALIAS[l] or KMAP[l]
+    end
+    -- "LeftShift + E, W" -> {"LeftShift","E","W"}, invalid words
+    local function parseKeys(text)
+        local keys, bad, seen = {}, {}, {}
+        for w in tostring(text or ""):gmatch("[^%s,%+]+") do
+            local k = resolveKey(w)
+            if k then
+                if not seen[k] then seen[k] = true keys[#keys + 1] = k end
+            else
+                bad[#bad + 1] = w
+            end
+        end
+        return keys, bad
+    end
+
+    -- quick functions, grouped: {text on the chip, key, name given to a fresh button}. Games differ, these are the common ones.
+    CT.Cats = {
+        {"Move", {
+            {"Forward (W)", "W", "Forward"}, {"Back (S)", "S", "Back"}, {"Left (A)", "A", "Left"}, {"Right (D)", "D", "Right"},
+            {"Jump (Space)", "Space", "Jump"}, {"Sprint (Shift)", "LeftShift", "Sprint"}, {"Crouch (Ctrl)", "LeftControl", "Crouch"},
+            {"Crouch (C)", "C", "Crouch"}, {"Prone (Z)", "Z", "Prone"},
+        }},
+        {"Action", {
+            {"Interact (E)", "E", "Interact"}, {"Action (F)", "F", "Action"}, {"Dash (Q)", "Q", "Dash"}, {"Reload (R)", "R", "Reload"},
+            {"Emote (G)", "G", "Emote"}, {"Skill 1 (Z)", "Z", "Skill 1"}, {"Skill 2 (X)", "X", "Skill 2"}, {"Skill 3 (C)", "C", "Skill 3"},
+            {"Skill 4 (V)", "V", "Skill 4"},
+        }},
+        {"Items", {
+            {"Item 1", "One", "Item 1"}, {"Item 2", "Two", "Item 2"}, {"Item 3", "Three", "Item 3"}, {"Item 4", "Four", "Item 4"},
+            {"Item 5", "Five", "Item 5"}, {"Item 6", "Six", "Item 6"}, {"Item 7", "Seven", "Item 7"}, {"Item 8", "Eight", "Item 8"},
+            {"Item 9", "Nine", "Item 9"}, {"Item 0", "Zero", "Item 0"},
+        }},
+        {"System", {
+            {"Chat (/)", "Slash", "Chat"}, {"Player list (Tab)", "Tab", "Player list"}, {"Backpack (`)", "Backquote", "Backpack"},
+            {"Zoom in (I)", "I", "Zoom in"}, {"Zoom out (O)", "O", "Zoom out"}, {"Menu (Esc)", "Escape", "Menu"},
+            {"Enter", "Return", "Enter"}, {"Arrow up", "Up", "Up"}, {"Arrow down", "Down", "Down"}, {"Arrow left", "Left", "Left"},
+            {"Arrow right", "Right", "Right"},
+        }},
+        {"F1-F12", {
+            {"F1", "F1", "F1"}, {"F2", "F2", "F2"}, {"F3", "F3", "F3"}, {"F4", "F4", "F4"}, {"F5", "F5", "F5"}, {"F6", "F6", "F6"},
+            {"F7", "F7", "F7"}, {"F8", "F8", "F8"}, {"F9", "F9", "F9"}, {"F10", "F10", "F10"}, {"F11", "F11", "F11"}, {"F12", "F12", "F12"},
+        }},
+        {"Mouse", {
+            {"Left click", "MouseLeft", "Click"}, {"Right click", "MouseRight", "Right click"},
+        }},
+    }
+    local function canKey() return (VIM ~= nil) or (keypress ~= nil and keyrelease ~= nil) end
+    -- mouse clicks use the position of the finger / mouse, or the middle of the screen
+    local function sendMouse(name, down)
+        local right = (name == "MouseRight")
+        local pos
+        pcall(function() pos = UIS:GetMouseLocation() end)
+        if not pos then pos = workspace.CurrentCamera.ViewportSize / 2 end
+        if VIM then
+            if pcall(function() VIM:SendMouseButtonEvent(pos.X, pos.Y, right and 1 or 0, down, game, 0) end) then return true end
+        end
+        local fn = right and (down and mouse2press or mouse2release) or (down and mouse1press or mouse1release)
+        if fn and pcall(fn) then return true end
+        return false
+    end
+    local function sendKey(name, down)
+        if name == "MouseLeft" or name == "MouseRight" then return sendMouse(name, down) end
+        if VIM then
+            local ok = pcall(function() VIM:SendKeyEvent(down, Enum.KeyCode[name], false, game) end)
+            if ok then return true end
+        end
+        local fn = down and keypress or keyrelease
+        local vk = VK[name]
+        if fn and vk then
+            if pcall(fn, vk) then return true end
+        end
+        return false
+    end
+    -- two buttons holding the same key: it is released only when both let go
+    local function keyDown(name)
+        CT.Held[name] = (CT.Held[name] or 0) + 1
+        if CT.Held[name] == 1 then sendKey(name, true) end
+    end
+    local function keyUp(name)
+        local n = CT.Held[name]
+        if not n then return end
+        n = n - 1
+        if n <= 0 then CT.Held[name] = nil sendKey(name, false) else CT.Held[name] = n end
+    end
+
+    -- ================= saving =================
+    local saveToken = 0
+    local function saveNow()
+        if not writefile then return end
+        local data = {show = CT.Show, joy = {}, btns = {}}
+        for k, v in pairs(CT.Joy) do data.joy[k] = v end
+        for _, b in ipairs(CT.Btns) do
+            data.btns[#data.btns + 1] = {name = b.name, keys = b.keys, shape = b.shape, size = b.size, alpha = b.alpha, rot = b.rot,
+                xs = b.xs, ys = b.ys, drag = b.drag}
+        end
+        pcall(function()
+            if makefolder and isfolder and not isfolder("Daffzhub_file") then makefolder("Daffzhub_file") end
+            writefile(CT.File, HttpService:JSONEncode(data))
+        end)
+    end
+    local function save()
+        saveToken = saveToken + 1
+        local my = saveToken
+        task.delay(0.5, function() if my == saveToken then saveNow() end end)
+    end
+    local function num(v, lo, hi, def)
+        v = tonumber(v)
+        if not v or v ~= v then return def end
+        return math.clamp(v, lo, hi)
+    end
+    local function loadSaved()
+        local ok, txt = pcall(function() return readfile and isfile and isfile(CT.File) and readfile(CT.File) end)
+        if not ok or type(txt) ~= "string" or txt == "" then return end
+        local ok2, d = pcall(function() return HttpService:JSONDecode(txt) end)
+        if not ok2 or type(d) ~= "table" then return end
+        if d.show ~= nil then CT.Show = d.show and true or false end
+        if type(d.joy) == "table" then
+            local j = CT.Joy
+            j.on = d.joy.on == true
+            j.mode = (d.joy.mode == "smooth") and "smooth" or "stiff"
+            j.size = num(d.joy.size, 80, 240, j.size)
+            j.alpha = num(d.joy.alpha, 0, 0.9, j.alpha)
+            j.dead = num(d.joy.dead, 0.1, 0.7, j.dead)
+            j.xs = num(d.joy.xs, 0.02, 0.98, j.xs)
+            j.ys = num(d.joy.ys, 0.02, 0.98, j.ys)
+            j.drag = d.joy.drag == true
+        end
+        if type(d.btns) == "table" then
+            for _, s in ipairs(d.btns) do
+                if type(s) == "table" then
+                    local keys = {}
+                    if type(s.keys) == "table" then
+                        for _, k in ipairs(s.keys) do
+                            local r = resolveKey(k)
+                            if r then keys[#keys + 1] = r end
+                        end
+                    end
+                    local shape = (s.shape == "round" or s.shape == "wide") and s.shape or "square"
+                    CT.Btns[#CT.Btns + 1] = {id = CT.Next, name = tostring(s.name or freeName()):sub(1, 24), keys = keys, shape = shape,
+                        size = num(s.size, 24, 200, 64), alpha = num(s.alpha, 0, 0.9, 0.35), rot = num(s.rot, 0, 359, 0),
+                        xs = num(s.xs, 0.02, 0.98, 0.5), ys = num(s.ys, 0.02, 0.98, 0.5), drag = s.drag == true}
+                    CT.Next = CT.Next + 1
+                end
+            end
+        end
+    end
+    loadSaved()
+
+    -- ================= the on-screen layer =================
+    local Gui = Instance.new("ScreenGui")
+    Gui.Name = "DHControls"
+    Gui.ResetOnSpawn = false
+    Gui.IgnoreGuiInset = true
+    Gui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+    Gui.DisplayOrder = (ScreenGui.DisplayOrder or 0) - 1
+    Gui.Parent = ScreenGui.Parent
+    CT.Gui = Gui
+    Gui.Enabled = CT.Show
+
+    local function viewport()
+        local s = Gui.AbsoluteSize
+        if s.X < 10 or s.Y < 10 then
+            local c = workspace.CurrentCamera
+            s = c and c.ViewportSize or Vector2.new(800, 400)
+        end
+        return s
+    end
+
+    local function isPointer(input)
+        local t = input.UserInputType
+        return t == Enum.UserInputType.Touch or t == Enum.UserInputType.MouseButton1
+    end
+    -- does this finished input end the one we are tracking?
+    local function sameInput(active, input)
+        if active == input then return true end
+        return active.UserInputType == Enum.UserInputType.MouseButton1 and input.UserInputType == Enum.UserInputType.MouseButton1
+    end
+
+    local function releaseButton(b)
+        if b.pressed then
+            b.pressed = false
+            for _, k in ipairs(b.keys) do keyUp(k) end
+            if b.obj then b.obj.BackgroundColor3 = Color3.fromRGB(40, 40, 52) end
+        end
+    end
+
+    function CT.Visual(b)
+        local o = b.obj
+        if not o then return end
+        local s = b.size
+        if b.shape == "wide" then o.Size = UDim2.new(0, s * 2, 0, math.floor(s * 0.7)) else o.Size = UDim2.new(0, s, 0, s) end
+        local c = o:FindFirstChildOfClass("UICorner")
+        if c then c.CornerRadius = (b.shape == "round") and UDim.new(0.5, 0) or UDim.new(0, 10) end
+        o.BackgroundTransparency = b.alpha
+        o.TextTransparency = math.clamp(b.alpha - 0.2, 0, 0.6)
+        local st = o:FindFirstChildOfClass("UIStroke")
+        if st then
+            st.Transparency = math.clamp(b.alpha + 0.1, 0, 0.85)
+            st.Color = b.drag and P.gold or Color3.new(1, 1, 1)
+        end
+        o.Rotation = b.rot
+        o.Text = b.name
+        o.TextSize = math.clamp(math.floor(s / 4), 9, 22)
+        o.Position = UDim2.new(b.xs, 0, b.ys, 0)
+    end
+
+    function CT.Create(b)
+        if b.obj then b.obj:Destroy() end
+        local o = mk("TextButton", {AnchorPoint = Vector2.new(0.5, 0.5), BackgroundColor3 = Color3.fromRGB(40, 40, 52), TextColor3 = Color3.new(1, 1, 1),
+            Font = Enum.Font.GothamBold, AutoButtonColor = false, BorderSizePixel = 0, Text = b.name, Active = true,
+            TextWrapped = true}, Gui)
+        mk("UICorner", {}, o)
+        mk("UIStroke", {Thickness = 1.5, ApplyStrokeMode = Enum.ApplyStrokeMode.Border}, o)
+        b.obj = o
+        CT.Visual(b)
+        o.InputBegan:Connect(function(input)
+            if b.active or not isPointer(input) then return end
+            b.active = input
+            if b.drag then
+                b.startIn, b.sx, b.sy = input.Position, b.xs, b.ys
+            else
+                b.pressed = true
+                o.BackgroundColor3 = Color3.fromRGB(90, 90, 120)
+                for _, k in ipairs(b.keys) do keyDown(k) end
+                if #b.keys == 0 then say(b.name .. ": no keys yet. Open it in the list and type the keys.", P.warn) end
+            end
+        end)
+    end
+
+    local function removeButton(b)
+        releaseButton(b)
+        if b.obj then b.obj:Destroy() b.obj = nil end
+        for i, x in ipairs(CT.Btns) do
+            if x == b then table.remove(CT.Btns, i) break end
+        end
+    end
+
+    -- ================= joystick (8 stiff directions, sends W A S D) =================
+    local Joy = CT.Joy
+    local JoyBase = mk("Frame", {AnchorPoint = Vector2.new(0.5, 0.5), BackgroundColor3 = Color3.fromRGB(40, 40, 52), BorderSizePixel = 0,
+        Active = true, Visible = false}, Gui)
+    mk("UICorner", {CornerRadius = UDim.new(0.5, 0)}, JoyBase)
+    local JoyStroke = mk("UIStroke", {Thickness = 1.5, ApplyStrokeMode = Enum.ApplyStrokeMode.Border}, JoyBase)
+    local JoyKnob = mk("Frame", {AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.new(0.5, 0, 0.5, 0), Size = UDim2.new(0.42, 0, 0.42, 0),
+        BackgroundColor3 = Color3.fromRGB(120, 120, 150), BorderSizePixel = 0}, JoyBase)
+    mk("UICorner", {CornerRadius = UDim.new(0.5, 0)}, JoyKnob)
+    CT.JoyDir = {x = 0, y = 0}
+    CT.Analog = {x = 0, y = 0, m = 0}
+    CT.JoyOn = false
+
+    -- which of W A S D are held (whole steps: -1, 0, 1)
+    local function setKeysDir(x, y)
+        local old = CT.JoyDir
+        if old.x == x and old.y == y then return end
+        if old.x > 0 and x <= 0 then keyUp("D") end
+        if old.x < 0 and x >= 0 then keyUp("A") end
+        if old.y > 0 and y <= 0 then keyUp("W") end
+        if old.y < 0 and y >= 0 then keyUp("S") end
+        if x > 0 and old.x <= 0 then keyDown("D") end
+        if x < 0 and old.x >= 0 then keyDown("A") end
+        if y > 0 and old.y <= 0 then keyDown("W") end
+        if y < 0 and old.y >= 0 then keyDown("S") end
+        CT.JoyDir = {x = x, y = y}
+    end
+    -- ax, ay: direction (up = +y), m: strength 0..1
+    local function setJoy(ax, ay, m)
+        CT.Analog = {x = ax, y = ay, m = m}
+        local r = 0.3 * m
+        JoyKnob.Position = UDim2.new(0.5 + ax * r, 0, 0.5 - ay * r, 0)
+        local kx, ky = 0, 0
+        if m > 0 then
+            if ax > 0.38 then kx = 1 elseif ax < -0.38 then kx = -1 end
+            if ay > 0.38 then ky = 1 elseif ay < -0.38 then ky = -1 end
+        end
+        setKeysDir(kx, ky)
+    end
+
+    local joyActive, joyOrigin, joyStartX, joyStartY
+    local SECTOR = {[0] = {1, 0}, [1] = {1, 1}, [2] = {0, 1}, [3] = {-1, 1}, [4] = {-1, 0}, [5] = {-1, -1}, [6] = {0, -1}, [7] = {1, -1}}
+    local function joyFrom(pos)
+        local v = pos - joyOrigin
+        local radius = Joy.size / 2
+        local mag = v.Magnitude
+        if mag < Joy.dead * radius then setJoy(0, 0, 0) return end
+        if Joy.mode == "smooth" then
+            -- free direction, speed follows how far the finger is
+            local m = math.clamp((mag - Joy.dead * radius) / math.max(radius * (1 - Joy.dead), 1), 0.15, 1)
+            setJoy(v.X / mag, -v.Y / mag, m)
+        else
+            local ang = math.atan2(-v.Y, v.X)
+            local sec = math.floor((ang + math.pi / 8) / (math.pi / 4)) % 8
+            local d = SECTOR[sec]
+            local len = math.sqrt(d[1] * d[1] + d[2] * d[2])
+            setJoy(d[1] / len, d[2] / len, 1)
+        end
+    end
+    local function releaseJoy()
+        joyActive, joyOrigin, joyStartX = nil, nil, nil
+        setJoy(0, 0, 0)
+    end
+    JoyBase.InputBegan:Connect(function(input)
+        if joyActive or not isPointer(input) then return end
+        joyActive = input
+        if Joy.drag then
+            joyStartX, joyStartY, joyOrigin = Joy.xs, Joy.ys, input.Position
+        else
+            joyOrigin = input.Position
+            joyFrom(input.Position)
+        end
+    end)
+
+    function CT.JoyVisual()
+        JoyBase.Size = UDim2.new(0, Joy.size, 0, Joy.size)
+        JoyBase.Position = UDim2.new(Joy.xs, 0, Joy.ys, 0)
+        JoyBase.BackgroundTransparency = Joy.alpha
+        JoyStroke.Transparency = math.clamp(Joy.alpha + 0.1, 0, 0.85)
+        JoyStroke.Color = Joy.drag and P.gold or Color3.new(1, 1, 1)
+        JoyKnob.BackgroundTransparency = math.clamp(Joy.alpha - 0.15, 0, 0.8)
+        JoyBase.Visible = Joy.on or Joy.drag
+    end
+
+    -- the Roblox stick is hidden while the joystick is on (its frames are put back afterwards)
+    local function hideDefault(hide)
+        pcall(function()
+            local pg = me:FindFirstChildOfClass("PlayerGui")
+            local tg = pg and pg:FindFirstChild("TouchGui")
+            local fr = tg and tg:FindFirstChild("TouchControlFrame")
+            if not fr then return end
+            for _, n in ipairs({"ThumbstickFrame", "DynamicThumbstickFrame"}) do
+                local f = fr:FindFirstChild(n)
+                if f then
+                    if hide then
+                        if CT.OrigVis[f] == nil then CT.OrigVis[f] = f.Visible end
+                        f.Visible = false
+                    elseif CT.OrigVis[f] ~= nil then
+                        f.Visible = CT.OrigVis[f]
+                        CT.OrigVis[f] = nil
+                    end
+                end
+            end
+        end)
+    end
+
+    -- walking: the custom stick drives the character itself (camera relative), and cancels the default stick every frame
+    local MOVE = "DHCtlMove"
+    local function moveStep()
+        if not Joy.on then return end
+        CT.Tick = (CT.Tick or 0) + 1
+        if CT.Tick % 20 == 1 then hideDefault(true) end
+        local ch = me.Character
+        local hum = ch and ch:FindFirstChildOfClass("Humanoid")
+        if not hum then return end
+        local d = CT.Analog
+        if d.m <= 0 then
+            hum:Move(Vector3.new(0, 0, 0), true)
+        else
+            hum:Move(Vector3.new(d.x * d.m, 0, -d.y * d.m), true)
+        end
+    end
+    pcall(function() RunService:UnbindFromRenderStep(MOVE) end)
+    pcall(function() RunService:BindToRenderStep(MOVE, Enum.RenderPriority.Input.Value + 50, moveStep) end)
+
+    function CT.SetJoy(on)
+        Joy.on = on and true or false
+        if not Joy.on then
+            releaseJoy()
+            hideDefault(false)
+        end
+        CT.JoyVisual()
+        save()
+    end
+
+    -- ================= dragging, for buttons and the joystick =================
+    UIS.InputChanged:Connect(function(input)
+        local t = input.UserInputType
+        if t ~= Enum.UserInputType.Touch and t ~= Enum.UserInputType.MouseMovement then return end
+        local vp = viewport()
+        for _, b in ipairs(CT.Btns) do
+            local a = b.active
+            if a and b.drag and b.startIn and (a == input or (t == Enum.UserInputType.MouseMovement and a.UserInputType == Enum.UserInputType.MouseButton1)) then
+                local dlt = input.Position - b.startIn
+                b.xs = math.clamp(b.sx + dlt.X / vp.X, 0.02, 0.98)
+                b.ys = math.clamp(b.sy + dlt.Y / vp.Y, 0.02, 0.98)
+                if b.obj then b.obj.Position = UDim2.new(b.xs, 0, b.ys, 0) end
+            end
+        end
+        if joyActive and (joyActive == input or (t == Enum.UserInputType.MouseMovement and joyActive.UserInputType == Enum.UserInputType.MouseButton1)) then
+            if Joy.drag and joyStartX then
+                local dlt = input.Position - joyOrigin
+                Joy.xs = math.clamp(joyStartX + dlt.X / vp.X, 0.02, 0.98)
+                Joy.ys = math.clamp(joyStartY + dlt.Y / vp.Y, 0.02, 0.98)
+                JoyBase.Position = UDim2.new(Joy.xs, 0, Joy.ys, 0)
+            elseif not Joy.drag then
+                joyFrom(input.Position)
+            end
+        end
+    end)
+    -- a finger that ends outside its button still lets go of the keys
+    UIS.InputEnded:Connect(function(input)
+        if not isPointer(input) then return end
+        for _, b in ipairs(CT.Btns) do
+            if b.active and sameInput(b.active, input) then
+                b.active = nil
+                releaseButton(b)
+                if b.startIn then b.startIn = nil save() end
+            end
+        end
+        if joyActive and sameInput(joyActive, input) then
+            local dragged = Joy.drag and joyStartX ~= nil
+            releaseJoy()
+            if dragged then save() end
+        end
+    end)
+
+    function CT.ReleaseAll()
+        for _, b in ipairs(CT.Btns) do b.active = nil b.pressed = false end
+        releaseJoy()
+        for name in pairs(CT.Held) do
+            CT.Held[name] = nil
+            sendKey(name, false)
+        end
+    end
+    pcall(function() UIS.WindowFocusReleased:Connect(CT.ReleaseAll) end)
+
+    -- ================= the Controls tab =================
+    local list
+    local function slider(parent, y, text, minv, maxv, val, fmt, onChange)
+        label(parent, text, {Position = UDim2.new(0, 8, 0, y), Size = UDim2.new(0, 62, 0, 20), TextColor3 = P.dim, TextSize = 10})
+        local track = mk("Frame", {Position = UDim2.new(0, 72, 0, y + 7), Size = UDim2.new(1, -128, 0, 6), BackgroundColor3 = Color3.fromRGB(60, 60, 72),
+            BorderSizePixel = 0}, parent)
+        corner(track, 3)
+        local knob = mk("Frame", {AnchorPoint = Vector2.new(0.5, 0.5), Size = UDim2.new(0, 14, 0, 14), BackgroundColor3 = Color3.new(1, 1, 1),
+            BorderSizePixel = 0, Position = UDim2.new((val - minv) / (maxv - minv), 0, 0.5, 0)}, track)
+        corner(knob, 7)
+        local valLbl = label(parent, string.format(fmt, math.floor(val + 0.5)), {Position = UDim2.new(1, -52, 0, y), Size = UDim2.new(0, 46, 0, 20),
+            TextXAlignment = Enum.TextXAlignment.Right, TextSize = 10})
+        local hit = mk("TextButton", {Text = "", BackgroundTransparency = 1, Position = UDim2.new(0, 64, 0, y - 4), Size = UDim2.new(1, -120, 0, 28),
+            AutoButtonColor = false}, parent)
+        local dragging
+        local function fromX(x)
+            local f = math.clamp((x - track.AbsolutePosition.X) / math.max(track.AbsoluteSize.X, 1), 0, 1)
+            local v = minv + f * (maxv - minv)
+            knob.Position = UDim2.new(f, 0, 0.5, 0)
+            valLbl.Text = string.format(fmt, math.floor(v + 0.5))
+            onChange(v)
+        end
+        hit.InputBegan:Connect(function(input)
+            if isPointer(input) then
+                dragging = input
+                if list then list.ScrollingEnabled = false end
+                fromX(input.Position.X)
+            end
+        end)
+        hit.InputChanged:Connect(function(input)
+            if dragging and (input == dragging or input.UserInputType == Enum.UserInputType.MouseMovement) then fromX(input.Position.X) end
+        end)
+        hit.InputEnded:Connect(function(input)
+            if dragging and sameInput(dragging, input) then
+                dragging = nil
+                if list then list.ScrollingEnabled = true end
+                save()
+            end
+        end)
+    end
+
+    local function card(h, order)
+        local f = mk("Frame", {Size = UDim2.new(1, -2, 0, h), BackgroundColor3 = P.btn, BorderSizePixel = 0, LayoutOrder = order, ClipsDescendants = true}, list)
+        corner(f, 6)
+        return f
+    end
+
+    local function paintToggle(b, on, textOn, textOff)
+        b.Text = on and textOn or textOff
+        b.BackgroundColor3 = on and P.green or P.red
+    end
+
+    local Render
+    local function buttonCard(b, order)
+        local open = b.open
+        local f = card(open and 364 or 32, order)
+        local nameB = btn(f, (open and "v  " or ">  ") .. b.name, 4, 4, 100, 24, P.card)
+        nameB.Size = UDim2.new(1, -150, 0, 24)
+        nameB.TextXAlignment = Enum.TextXAlignment.Left
+        local dragB = btn(f, "", 0, 4, 66, 24, P.red)
+        dragB.Position = UDim2.new(1, -92, 0, 4)
+        paintToggle(dragB, b.drag, "Drag: ON", "Drag: OFF")
+        local delB = btn(f, "X", 0, 4, 24, 24, P.red)
+        delB.Position = UDim2.new(1, -26, 0, 4)
+        nameB.MouseButton1Click:Connect(function() b.open = not b.open Render() end)
+        dragB.MouseButton1Click:Connect(function()
+            releaseButton(b)
+            b.drag = not b.drag
+            paintToggle(dragB, b.drag, "Drag: ON", "Drag: OFF")
+            CT.Visual(b)
+            save()
+            say(b.drag and (b.name .. ": drag it with your finger. Turn Drag OFF to use it.") or (b.name .. ": ready to use."), P.dim)
+        end)
+        delB.MouseButton1Click:Connect(function()
+            removeButton(b)
+            Render()
+            save()
+            say("Button deleted.", P.dim)
+        end)
+        if not open then return f end
+
+        label(f, "Name", {Position = UDim2.new(0, 8, 0, 36), Size = UDim2.new(0, 40, 0, 22), TextColor3 = P.dim, TextSize = 10})
+        local nameBox = mk("TextBox", {Text = b.name, PlaceholderText = "name", Position = UDim2.new(0, 52, 0, 36), Size = UDim2.new(1, -60, 0, 22),
+            BackgroundColor3 = P.card, TextColor3 = P.text, PlaceholderColor3 = P.dim, Font = Enum.Font.Gotham, TextSize = 11, ClearTextOnFocus = false,
+            BorderSizePixel = 0, TextXAlignment = Enum.TextXAlignment.Left}, f)
+        corner(nameBox, 5)
+        nameBox.FocusLost:Connect(function()
+            local t = nameBox.Text:sub(1, 24)
+            if t == "" then t = b.name end
+            b.name = t
+            nameBox.Text = t
+            nameB.Text = "v  " .. t
+            CT.Visual(b)
+            save()
+        end)
+        label(f, "Keys", {Position = UDim2.new(0, 8, 0, 62), Size = UDim2.new(0, 40, 0, 22), TextColor3 = P.dim, TextSize = 10})
+        local keyBox = mk("TextBox", {Text = table.concat(b.keys, " "), PlaceholderText = "e.g. E   or   LeftShift W", Position = UDim2.new(0, 52, 0, 62),
+            Size = UDim2.new(1, -60, 0, 22), BackgroundColor3 = P.card, TextColor3 = P.text, PlaceholderColor3 = P.dim, Font = Enum.Font.Gotham,
+            TextSize = 11, ClearTextOnFocus = false, BorderSizePixel = 0, TextXAlignment = Enum.TextXAlignment.Left}, f)
+        corner(keyBox, 5)
+        keyBox.FocusLost:Connect(function()
+            releaseButton(b)
+            local keys, bad = parseKeys(keyBox.Text)
+            b.keys = keys
+            keyBox.Text = table.concat(keys, " ")
+            save()
+            if #bad > 0 then
+                say("Unknown key name: " .. table.concat(bad, ", ") .. ". Examples: E, F5, Space, Shift, Ctrl, Up.", P.warn)
+            elseif #keys == 0 then
+                say(b.name .. ": no keys.", P.dim)
+            elseif not canKey() then
+                say("Saved, but this executor has no key function (VirtualInputManager / keypress), so the keys cannot be pressed.", P.warn)
+            else
+                say(b.name .. " presses: " .. table.concat(keys, " + "), P.ok)
+            end
+        end)
+        -- quick functions: pick a group, then tap one to add or remove its key (several can be mixed in one button)
+        label(f, "Function", {Position = UDim2.new(0, 8, 0, 88), Size = UDim2.new(0, 60, 0, 18), TextColor3 = P.dim, TextSize = 10})
+        local chips = mk("Frame", {Position = UDim2.new(0, 8, 0, 108), Size = UDim2.new(1, -16, 0, 20), BackgroundTransparency = 1}, f)
+        mk("UIGridLayout", {CellSize = UDim2.new(1 / #CT.Cats, -3, 1, 0), CellPadding = UDim2.new(0, 3, 0, 0), SortOrder = Enum.SortOrder.LayoutOrder}, chips)
+        local grid = mk("Frame", {Position = UDim2.new(0, 8, 0, 132), Size = UDim2.new(1, -16, 0, 104), BackgroundTransparency = 1}, f)
+        mk("UIGridLayout", {CellSize = UDim2.new(0.333, -4, 0, 22), CellPadding = UDim2.new(0, 4, 0, 4), SortOrder = Enum.SortOrder.LayoutOrder}, grid)
+        local pb, chipB = {}, {}
+        local function hasKey(k)
+            for _, x in ipairs(b.keys) do if x == k then return true end end
+            return false
+        end
+        local function paintPresets()
+            for _, e in ipairs(pb) do e.o.BackgroundColor3 = hasKey(e.k) and P.green or P.card end
+        end
+        local function fillGrid()
+            for _, c in ipairs(grid:GetChildren()) do
+                if c:IsA("TextButton") then c:Destroy() end
+            end
+            pb = {}
+            for ci, c in ipairs(CT.Cats) do chipB[ci].BackgroundColor3 = (ci == b.cat) and P.sel or P.card end
+            for i, pr in ipairs(CT.Cats[b.cat][2]) do
+                local x = mk("TextButton", {Text = pr[1], LayoutOrder = i, BackgroundColor3 = P.card, TextColor3 = P.text, Font = Enum.Font.GothamBold,
+                    TextSize = 9, BorderSizePixel = 0, TextTruncate = Enum.TextTruncate.AtEnd}, grid)
+                corner(x, 5)
+                pb[#pb + 1] = {o = x, k = pr[2]}
+                x.MouseButton1Click:Connect(function()
+                    releaseButton(b)
+                    if hasKey(pr[2]) then
+                        for j, k in ipairs(b.keys) do
+                            if k == pr[2] then table.remove(b.keys, j) break end
+                        end
+                    else
+                        b.keys[#b.keys + 1] = pr[2]
+                        if tostring(b.name):match("^Btn %d+$") then
+                            b.name = pr[3]
+                            nameBox.Text = b.name
+                            nameB.Text = "v  " .. b.name
+                            CT.Visual(b)
+                        end
+                    end
+                    keyBox.Text = table.concat(b.keys, " ")
+                    paintPresets()
+                    save()
+                    say(b.name .. " presses: " .. ((#b.keys > 0) and table.concat(b.keys, " + ") or "(nothing)"), P.ok)
+                    if pr[2]:sub(1, 5) == "Mouse" and not (VIM or mouse1press) then
+                        say("Mouse clicks need VirtualInputManager or mouse1press, and this executor has neither.", P.warn)
+                    end
+                end)
+            end
+            paintPresets()
+        end
+        b.cat = b.cat or 1
+        for ci, c in ipairs(CT.Cats) do
+            local cb = mk("TextButton", {Text = c[1], LayoutOrder = ci, BackgroundColor3 = P.card, TextColor3 = P.text, Font = Enum.Font.GothamBold,
+                TextSize = 9, BorderSizePixel = 0, TextTruncate = Enum.TextTruncate.AtEnd}, chips)
+            corner(cb, 5)
+            chipB[ci] = cb
+            cb.MouseButton1Click:Connect(function() b.cat = ci fillGrid() end)
+        end
+        fillGrid()
+        keyBox.FocusLost:Connect(paintPresets)
+        local shapes = {{"square", "Square"}, {"round", "Round"}, {"wide", "Wide"}}
+        local sb = {}
+        label(f, "Shape", {Position = UDim2.new(0, 8, 0, 244), Size = UDim2.new(0, 40, 0, 22), TextColor3 = P.dim, TextSize = 10})
+        for i, s in ipairs(shapes) do
+            local x = mk("TextButton", {Text = s[2], Position = UDim2.new(0, 52 + (i - 1) * 64, 0, 244), Size = UDim2.new(0, 60, 0, 22),
+                BackgroundColor3 = (b.shape == s[1]) and P.sel or P.card, TextColor3 = P.text, Font = Enum.Font.GothamBold, TextSize = 10,
+                BorderSizePixel = 0}, f)
+            corner(x, 5)
+            sb[s[1]] = x
+            x.MouseButton1Click:Connect(function()
+                b.shape = s[1]
+                for k, o in pairs(sb) do o.BackgroundColor3 = (k == b.shape) and P.sel or P.card end
+                CT.Visual(b)
+                save()
+            end)
+        end
+        slider(f, 276, "Size", 24, 200, b.size, "%d", function(v) b.size = math.floor(v + 0.5) CT.Visual(b) end)
+        slider(f, 304, "Transparent", 0, 90, b.alpha * 100, "%d%%", function(v) b.alpha = math.floor(v + 0.5) / 100 CT.Visual(b) end)
+        slider(f, 332, "Rotate", 0, 359, b.rot, "%d", function(v) b.rot = math.floor(v + 0.5) CT.Visual(b) end)
+        return f
+    end
+
+    local function joyCard(order)
+        local f = card(158, order)
+        label(f, "Joystick (WASD)", {Position = UDim2.new(0, 8, 0, 4), Size = UDim2.new(1, -170, 0, 24), TextSize = 11,
+            Font = Enum.Font.GothamBold})
+        local onB = btn(f, "", 0, 4, 62, 24, P.red)
+        onB.Position = UDim2.new(1, -160, 0, 4)
+        local dragB = btn(f, "", 0, 4, 66, 24, P.red)
+        dragB.Position = UDim2.new(1, -92, 0, 4)
+        local rstB = btn(f, "R", 0, 4, 22, 24, P.card)
+        rstB.Position = UDim2.new(1, -24, 0, 4)
+        paintToggle(onB, Joy.on, "ON", "OFF")
+        paintToggle(dragB, Joy.drag, "Drag: ON", "Drag: OFF")
+        onB.MouseButton1Click:Connect(function()
+            CT.SetJoy(not Joy.on)
+            paintToggle(onB, Joy.on, "ON", "OFF")
+            if Joy.on then
+                say(canKey() and "Joystick ON. It walks your character and presses W A S D." or
+                    "Joystick ON. It walks your character, but this executor cannot press keys (no VirtualInputManager / keypress), so games that read the keyboard get nothing.",
+                    canKey() and P.ok or P.warn)
+            else
+                say("Joystick OFF. The Roblox stick is back.", P.dim)
+            end
+        end)
+        dragB.MouseButton1Click:Connect(function()
+            releaseJoy()
+            Joy.drag = not Joy.drag
+            paintToggle(dragB, Joy.drag, "Drag: ON", "Drag: OFF")
+            CT.JoyVisual()
+            save()
+            say(Joy.drag and "Joystick: drag it with your finger. Turn Drag OFF to use it." or "Joystick: ready to use.", P.dim)
+        end)
+        rstB.MouseButton1Click:Connect(function()
+            Joy.xs, Joy.ys = 0.14, 0.72
+            CT.JoyVisual()
+            save()
+            say("Joystick position reset.", P.dim)
+        end)
+        local modeB = btn(f, "", 8, 34, 150, 22, P.card)
+        local function paintMode()
+            modeB.Text = (Joy.mode == "smooth") and "Mode: Smooth (any angle)" or "Mode: Stiff (8 directions)"
+        end
+        paintMode()
+        modeB.MouseButton1Click:Connect(function()
+            releaseJoy()
+            Joy.mode = (Joy.mode == "smooth") and "stiff" or "smooth"
+            paintMode()
+            save()
+            say(Joy.mode == "smooth" and "Smooth: walk at any angle, slower when the finger is closer to the middle." or
+                "Stiff: only 8 directions (like WASD on a PC), always full speed.", P.dim)
+        end)
+        slider(f, 64, "Size", 80, 240, Joy.size, "%d", function(v) Joy.size = math.floor(v + 0.5) CT.JoyVisual() end)
+        slider(f, 92, "Transparent", 0, 90, Joy.alpha * 100, "%d%%", function(v) Joy.alpha = math.floor(v + 0.5) / 100 CT.JoyVisual() end)
+        slider(f, 120, "Dead zone", 10, 70, Joy.dead * 100, "%d%%", function(v) Joy.dead = math.floor(v + 0.5) / 100 end)
+        return f
+    end
+
+    local GUIDE = table.concat({
+        "GUIDE",
+        "- Add button: puts a button on your screen. Tap its name in the list to open its settings.",
+        "- Function: pick a group (Move, Action, Items, System, F1-F12, Mouse), then tap one (Jump, Sprint, Interact...) and the button gets that key. Tap several to mix them, tap again to remove. You do not need to know keyboard keys.",
+        "- Keys: for other keys, type PC key names with spaces, commas or +, for example  H   or   LeftShift W.  Shift, Ctrl, Alt, Space, Enter, Esc, F1...F12 and the arrows work too.",
+        "- Use it like a real key: touch = key down, hold = still down, let go = released.",
+        "- Drag ON: move the button with your finger (it does not press keys). Turn Drag OFF to use it.",
+        "- Joystick: replaces the Roblox stick. Mode Stiff = 8 directions (like WASD on a PC), Smooth = any angle. It walks your character and presses W A S D. Keep your finger on the screen, it only stops when you lift it.",
+        "- Rotate turns a button, Transparent makes it see-through, Size changes how big it is. Everything is saved, also the position.",
+        "- Keys only work if your executor can press keys. If it cannot, this tab tells you in the line below.",
+    }, "\n")
+
+    local top = mk("Frame", {Position = UDim2.new(0, 10, 0, 6), Size = UDim2.new(1, -20, 0, 28), BackgroundTransparency = 1}, Root)
+    local addB = btn(top, "+ Add button", 0, 0, 100, 28, P.green)
+    local showB = btn(top, "", 106, 0, 120, 28, P.green)
+    paintToggle(showB, CT.Show, "Buttons: SHOWN", "Buttons: HIDDEN")
+    local clrB = btn(top, "Release keys", 232, 0, 90, 28, P.btn)
+
+    list = mk("ScrollingFrame", {Position = UDim2.new(0, 10, 0, 40), Size = UDim2.new(1, -20, 1, -72), BackgroundColor3 = P.card, BorderSizePixel = 0,
+        ScrollBarThickness = 1, ScrollBarImageColor3 = Color3.fromRGB(80, 80, 90), CanvasSize = UDim2.new(0, 0, 0, 0),
+        AutomaticCanvasSize = Enum.AutomaticSize.Y}, Root)
+    corner(list, 8)
+    mk("UIListLayout", {Padding = UDim.new(0, 3), SortOrder = Enum.SortOrder.LayoutOrder}, list)
+    mk("UIPadding", {PaddingTop = UDim.new(0, 4), PaddingLeft = UDim.new(0, 4), PaddingRight = UDim.new(0, 4), PaddingBottom = UDim.new(0, 4)}, list)
+
+    Render = function()
+        for _, c in ipairs(list:GetChildren()) do
+            if c:IsA("Frame") or c:IsA("TextLabel") then c:Destroy() end
+        end
+        joyCard(0)
+        for i, b in ipairs(CT.Btns) do buttonCard(b, i) end
+        local g = label(list, GUIDE, {Size = UDim2.new(1, -2, 0, 20), AutomaticSize = Enum.AutomaticSize.Y, LayoutOrder = 1000000, TextWrapped = true, TextYAlignment = Enum.TextYAlignment.Top,
+            TextColor3 = P.dim, TextSize = 10, TextTruncate = Enum.TextTruncate.None})
+        mk("UIPadding", {PaddingLeft = UDim.new(0, 6), PaddingTop = UDim.new(0, 6), PaddingRight = UDim.new(0, 6), PaddingBottom = UDim.new(0, 6)}, g)
+    end
+
+    addB.MouseButton1Click:Connect(function()
+        local n = #CT.Btns
+        local b = {id = CT.Next, name = freeName(), keys = {}, shape = "square", size = 64, alpha = 0.35, rot = 0,
+            xs = math.clamp(0.5 + (n % 5) * 0.06, 0.05, 0.95), ys = math.clamp(0.4 + (n % 5) * 0.06, 0.05, 0.95), drag = true, open = true}
+        CT.Next = CT.Next + 1
+        CT.Btns[#CT.Btns + 1] = b
+        CT.Create(b)
+        Render()
+        save()
+        say("Button added. Type its keys below, drag it where you want, then turn Drag OFF.", P.ok)
+    end)
+    showB.MouseButton1Click:Connect(function()
+        CT.Show = not CT.Show
+        Gui.Enabled = CT.Show
+        if not CT.Show then CT.ReleaseAll() end
+        paintToggle(showB, CT.Show, "Buttons: SHOWN", "Buttons: HIDDEN")
+        save()
+    end)
+    clrB.MouseButton1Click:Connect(function()
+        CT.ReleaseAll()
+        say("All keys released.", P.ok)
+    end)
+
+    for _, b in ipairs(CT.Btns) do CT.Create(b) end
+    CT.JoyVisual()
+    if Joy.on then hideDefault(true) end
+    Render()
+    if not canKey() then
+        say("Note: this executor has no key function (VirtualInputManager / keypress). Buttons are saved, but they cannot press keys here.", P.warn)
+    else
+        say("Ready. Add a button, type its keys, drag it where you want, then turn Drag OFF.", P.dim)
+    end
+
+    ScreenGui.Destroying:Connect(function()
+        pcall(CT.ReleaseAll)
+        pcall(function() RunService:UnbindFromRenderStep(MOVE) end)
+        pcall(hideDefault, false)
+        pcall(function() Gui:Destroy() end)
+    end)
+end
+DHCtlOk, DHCtlErr = pcall(DHCtlBoot)
+if not DHCtlOk then
+    local e = Instance.new("TextLabel", CtlContent)
+    e.Size = UDim2.new(1, -20, 1, -20)
+    e.Position = UDim2.new(0, 10, 0, 10)
+    e.BackgroundTransparency = 1
+    e.TextColor3 = Color3.fromRGB(255, 130, 130)
+    e.Font = Enum.Font.Gotham
+    e.TextSize = 12
+    e.TextWrapped = true
+    e.TextXAlignment = Enum.TextXAlignment.Left
+    e.TextYAlignment = Enum.TextYAlignment.Top
+    e.Text = "Controls tab failed to start:\n" .. tostring(DHCtlErr)
+end
+
 CheckLoadingHalt()
 SetLoadProgress(78)
 
@@ -32550,26 +33197,12 @@ do
 -- ================================================
 -- 1. TOMBOL TAB
 -- ================================================
-SettingTab = Instance.new("TextButton", TabFrame)
-SettingTab.Size = UDim2.new(1, -20, 0, 40)
-SettingTab.Position = UDim2.new(0, 10, 0, 970)
-SettingTab.Text = "Setting"
-SettingTab.BackgroundColor3 = Color3.fromRGB(25,25,25)
-SettingTab.Font = Enum.Font.GothamBold
-SettingTab.TextSize = 14
-SettingTab.TextColor3 = Color3.new(1,1,1)
-Instance.new("UICorner", SettingTab).CornerRadius = UDim.new(0, 8)
+SettingTab = DHNewTab("Setting")
 
 -- ================================================
 -- 2. CONTENT FRAME
 -- ================================================
-SettingContent = Instance.new("Frame", ContentFrame)
-SettingContent.Size = UDim2.new(1, 0, 1, 0)
-SettingContent.Position = UDim2.new(0, 0, 0, 0)
-SettingContent.BackgroundColor3 = Color3.fromRGB(20,20,20)
-SettingContent.Visible = false
-SettingContent.ClipsDescendants = true
-Instance.new("UICorner", SettingContent).CornerRadius = UDim.new(0, 10)
+SettingContent = DHNewPage()
 
 -- ================================================
 -- 3. SCROLLING FRAME
@@ -35784,24 +36417,10 @@ SetLoadProgress(84)
 -- ================================================
 
 -- Credit Tab Button
-CreditTab = Instance.new("TextButton", TabFrame)
-CreditTab.Size = UDim2.new(1, -20, 0, 40)
-CreditTab.Position = UDim2.new(0, 10, 0, 1020)
-CreditTab.Text = "Credit"
-CreditTab.BackgroundColor3 = Color3.fromRGB(25,25,25)
-CreditTab.Font = Enum.Font.GothamBold
-CreditTab.TextSize = 14
-CreditTab.TextColor3 = Color3.new(1,1,1)
-Instance.new("UICorner", CreditTab).CornerRadius = UDim.new(0, 8)
+CreditTab = DHNewTab("Credit")
 
 -- Credit Content Frame
-CreditContent = Instance.new("Frame", ContentFrame)
-CreditContent.Size = UDim2.new(1, 0, 1, 0)
-CreditContent.Position = UDim2.new(0, 0, 0, 0)
-CreditContent.BackgroundColor3 = Color3.fromRGB(20,20,20)
-CreditContent.Visible = false
-CreditContent.ClipsDescendants = true
-Instance.new("UICorner", CreditContent).CornerRadius = UDim.new(0, 10)
+CreditContent = DHNewPage()
 
 -- Scrolling Frame (UTAMA)
 CreditScroll = Instance.new("ScrollingFrame", CreditContent)
@@ -36067,6 +36686,14 @@ featureItems = {
     "   • Green effect on every change. Only you see it, your real body never changes. Restore brings it back",
     "   • Online: DaffzHub users in your server see each other's avatar (ON from the start), list of people, Copy, Block and a Limit with a slider",
     "",
+    "🎮 CONTROLS TAB",
+    "   • Your own on-screen buttons that press PC keyboard keys (touch = key down, hold = still down, let go = released)",
+    "   • Pick a Function (Jump, Sprint, Interact, Dash, Reload, Item 1-3...) so you do not need to know the keys, or type any key yourself",
+    "   • One button can press several keys at the same time; add as many buttons as you want",
+    "   • Each button: rename, shape (square, round, wide), size, transparency, rotation, drag on/off and delete. All saved, also the position",
+    "   • Joystick (WASD): Stiff mode (8 directions) or Smooth mode (any angle), size, transparency, dead zone, drag, saved",
+    "   • Needs an executor that can press keys; the tab tells you if yours cannot",
+    "",
     "⚙️ SETTING TAB",
     "   • Instant Prompt toggle",
     "   • Jump Button setting",
@@ -36142,374 +36769,109 @@ WarningText.TextXAlignment = Enum.TextXAlignment.Center
 
 -- HIDE ALL CONTENT
 function HideAllContent()
-    if ScriptLockScreen then
-        ScriptLockScreen.Visible = false
-    end
-    if ScriptContent then ScriptContent.Visible = false end
-    if EditorContent then EditorContent.Visible = false end
-    if InfoContent then InfoContent.Visible = false end
-    if MusicContent then MusicContent.Visible = false end
-    if PlayerContent then PlayerContent.Visible = false end
-    if WaypointsContent then WaypointsContent.Visible = false end
-    if ReportContent then ReportContent.Visible = false end
-    if BringPartsContent then BringPartsContent.Visible = false end
-    if JoinerContent then JoinerContent.Visible = false end
-    if TrollContent then TrollContent.Visible = false end
-    if EmoteContent then EmoteContent.Visible = false end
-    if SearchContent then SearchContent.Visible = false end
-    if SettingContent then SettingContent.Visible = false end
-    if CreditContent then CreditContent.Visible = false end
-        if VisualContent then VisualContent.Visible = false end
-    if VisualTab then VisualTab.BackgroundColor3 = Color3.fromRGB(25,25,25) end
-        if AnimContent then AnimContent.Visible = false end
-    if AnimTab then AnimTab.BackgroundColor3 = Color3.fromRGB(25,25,25) end
-    if ModsContent then ModsContent.Visible = false end
-    if ModsTab then ModsTab.BackgroundColor3 = Color3.fromRGB(25,25,25) end
-    if ChatBotContent then ChatBotContent.Visible = false end
-    if ChatBotTab then ChatBotTab.BackgroundColor3 = Color3.fromRGB(25,25,25) end
-    if MsgContent then MsgContent.Visible = false end
-    if MsgTab then MsgTab.BackgroundColor3 = Color3.fromRGB(25,25,25) end
-    if TransContent then TransContent.Visible = false end
-    if TransTab then TransTab.BackgroundColor3 = Color3.fromRGB(25,25,25) end
-    if AvtContent then AvtContent.Visible = false end
-    if AvtTab then AvtTab.BackgroundColor3 = Color3.fromRGB(25,25,25) end
+    DHHidePages(ScriptLockScreen, ScriptContent, EditorContent, InfoContent, MusicContent, PlayerContent, WaypointsContent, ReportContent,
+        BringPartsContent, JoinerContent, TrollContent, EmoteContent, SearchContent, SettingContent, CreditContent, VisualContent,
+        AnimContent, ModsContent, ChatBotContent, MsgContent, TransContent, AvtContent, CtlContent)
 end
 
 -- SHOW SCRIPT TAB
 function ShowScriptTab()
-    HideAllContent()
+    DHShowTab(nil, ScriptTab)
     if ScriptTabUnlocked then
         if ScriptContent then ScriptContent.Visible = true end
     else
         if ScriptLockScreen then ScriptLockScreen.Visible = true end
     end
-    if ScriptTab then ScriptTab.BackgroundColor3 = Color3.fromRGB(30,30,30) end
-    if EditorTab then EditorTab.BackgroundColor3 = Color3.fromRGB(25,25,25) end
-    if InfoTab then InfoTab.BackgroundColor3 = Color3.fromRGB(25,25,25) end
-    if MusicTab then MusicTab.BackgroundColor3 = Color3.fromRGB(25,25,25) end
-    if PlayerTab then PlayerTab.BackgroundColor3 = Color3.fromRGB(25,25,25) end
-    if WaypointsTab then WaypointsTab.BackgroundColor3 = Color3.fromRGB(25,25,25) end
-    if ReportTab then ReportTab.BackgroundColor3 = Color3.fromRGB(25,25,25) end
-    if BringPartsTab then BringPartsTab.BackgroundColor3 = Color3.fromRGB(25,25,25) end
-    if JoinerTab then JoinerTab.BackgroundColor3 = Color3.fromRGB(25,25,25) end
-    if TrollTab then TrollTab.BackgroundColor3 = Color3.fromRGB(25,25,25) end
-    if EmoteTabBtn then EmoteTabBtn.BackgroundColor3 = Color3.fromRGB(25,25,25) end
-    if ScriptSearchTab then ScriptSearchTab.BackgroundColor3 = Color3.fromRGB(25,25,25) end
-    if SettingTab then SettingTab.BackgroundColor3 = Color3.fromRGB(25,25,25) end
-    if CreditTab then CreditTab.BackgroundColor3 = Color3.fromRGB(25,25,25) end
 end
 
 -- SHOW EDITOR TAB
 function ShowEditorTab()
-    HideAllContent()
-    if EditorContent then EditorContent.Visible = true end
-    if ScriptTab then ScriptTab.BackgroundColor3 = Color3.fromRGB(25,25,25) end
-    if EditorTab then EditorTab.BackgroundColor3 = Color3.fromRGB(30,30,30) end
-    if InfoTab then InfoTab.BackgroundColor3 = Color3.fromRGB(25,25,25) end
-    if MusicTab then MusicTab.BackgroundColor3 = Color3.fromRGB(25,25,25) end
-    if PlayerTab then PlayerTab.BackgroundColor3 = Color3.fromRGB(25,25,25) end
-    if WaypointsTab then WaypointsTab.BackgroundColor3 = Color3.fromRGB(25,25,25) end
-    if ReportTab then ReportTab.BackgroundColor3 = Color3.fromRGB(25,25,25) end
-    if BringPartsTab then BringPartsTab.BackgroundColor3 = Color3.fromRGB(25,25,25) end
-    if JoinerTab then JoinerTab.BackgroundColor3 = Color3.fromRGB(25,25,25) end
-    if TrollTab then TrollTab.BackgroundColor3 = Color3.fromRGB(25,25,25) end
-    if EmoteTabBtn then EmoteTabBtn.BackgroundColor3 = Color3.fromRGB(25,25,25) end
-    if ScriptSearchTab then ScriptSearchTab.BackgroundColor3 = Color3.fromRGB(25,25,25) end
-    if SettingTab then SettingTab.BackgroundColor3 = Color3.fromRGB(25,25,25) end
-    if CreditTab then CreditTab.BackgroundColor3 = Color3.fromRGB(25,25,25) end
+    DHShowTab(EditorContent, EditorTab)
 end
 
 -- SHOW INFO TAB
 function ShowInfoTab()
-    HideAllContent()
-    if InfoContent then InfoContent.Visible = true end
-    if ScriptTab then ScriptTab.BackgroundColor3 = Color3.fromRGB(25,25,25) end
-    if EditorTab then EditorTab.BackgroundColor3 = Color3.fromRGB(25,25,25) end
-    if InfoTab then InfoTab.BackgroundColor3 = Color3.fromRGB(30,30,30) end
-    if MusicTab then MusicTab.BackgroundColor3 = Color3.fromRGB(25,25,25) end
-    if PlayerTab then PlayerTab.BackgroundColor3 = Color3.fromRGB(25,25,25) end
-    if WaypointsTab then WaypointsTab.BackgroundColor3 = Color3.fromRGB(25,25,25) end
-    if ReportTab then ReportTab.BackgroundColor3 = Color3.fromRGB(25,25,25) end
-    if BringPartsTab then BringPartsTab.BackgroundColor3 = Color3.fromRGB(25,25,25) end
-    if JoinerTab then JoinerTab.BackgroundColor3 = Color3.fromRGB(25,25,25) end
-    if TrollTab then TrollTab.BackgroundColor3 = Color3.fromRGB(25,25,25) end
-    if EmoteTabBtn then EmoteTabBtn.BackgroundColor3 = Color3.fromRGB(25,25,25) end
-    if ScriptSearchTab then ScriptSearchTab.BackgroundColor3 = Color3.fromRGB(25,25,25) end
-    if SettingTab then SettingTab.BackgroundColor3 = Color3.fromRGB(25,25,25) end
-    if CreditTab then CreditTab.BackgroundColor3 = Color3.fromRGB(25,25,25) end
+    DHShowTab(InfoContent, InfoTab)
 end
 
 -- SHOW MUSIC TAB
 function ShowMusicTab()
-    HideAllContent()
-    if MusicContent then MusicContent.Visible = true end
-    if ScriptTab then ScriptTab.BackgroundColor3 = Color3.fromRGB(25,25,25) end
-    if EditorTab then EditorTab.BackgroundColor3 = Color3.fromRGB(25,25,25) end
-    if InfoTab then InfoTab.BackgroundColor3 = Color3.fromRGB(25,25,25) end
-    if MusicTab then MusicTab.BackgroundColor3 = Color3.fromRGB(30,30,30) end
-    if PlayerTab then PlayerTab.BackgroundColor3 = Color3.fromRGB(25,25,25) end
-    if WaypointsTab then WaypointsTab.BackgroundColor3 = Color3.fromRGB(25,25,25) end
-    if ReportTab then ReportTab.BackgroundColor3 = Color3.fromRGB(25,25,25) end
-    if BringPartsTab then BringPartsTab.BackgroundColor3 = Color3.fromRGB(25,25,25) end
-    if JoinerTab then JoinerTab.BackgroundColor3 = Color3.fromRGB(25,25,25) end
-    if TrollTab then TrollTab.BackgroundColor3 = Color3.fromRGB(25,25,25) end
-    if EmoteTabBtn then EmoteTabBtn.BackgroundColor3 = Color3.fromRGB(25,25,25) end
-    if ScriptSearchTab then ScriptSearchTab.BackgroundColor3 = Color3.fromRGB(25,25,25) end
-    if SettingTab then SettingTab.BackgroundColor3 = Color3.fromRGB(25,25,25) end
-    if CreditTab then CreditTab.BackgroundColor3 = Color3.fromRGB(25,25,25) end
+    DHShowTab(MusicContent, MusicTab)
 end
 
 -- SHOW PLAYER TAB
 function ShowPlayerTab()
-    HideAllContent()
-    if PlayerContent then PlayerContent.Visible = true end
-    if ScriptTab then ScriptTab.BackgroundColor3 = Color3.fromRGB(25,25,25) end
-    if EditorTab then EditorTab.BackgroundColor3 = Color3.fromRGB(25,25,25) end
-    if InfoTab then InfoTab.BackgroundColor3 = Color3.fromRGB(25,25,25) end
-    if MusicTab then MusicTab.BackgroundColor3 = Color3.fromRGB(25,25,25) end
-    if PlayerTab then PlayerTab.BackgroundColor3 = Color3.fromRGB(30,30,30) end
-    if WaypointsTab then WaypointsTab.BackgroundColor3 = Color3.fromRGB(25,25,25) end
-    if ReportTab then ReportTab.BackgroundColor3 = Color3.fromRGB(25,25,25) end
-    if BringPartsTab then BringPartsTab.BackgroundColor3 = Color3.fromRGB(25,25,25) end
-    if JoinerTab then JoinerTab.BackgroundColor3 = Color3.fromRGB(25,25,25) end
-    if TrollTab then TrollTab.BackgroundColor3 = Color3.fromRGB(25,25,25) end
-    if EmoteTabBtn then EmoteTabBtn.BackgroundColor3 = Color3.fromRGB(25,25,25) end
-    if ScriptSearchTab then ScriptSearchTab.BackgroundColor3 = Color3.fromRGB(25,25,25) end
-    if SettingTab then SettingTab.BackgroundColor3 = Color3.fromRGB(25,25,25) end
-    if CreditTab then CreditTab.BackgroundColor3 = Color3.fromRGB(25,25,25) end
+    DHShowTab(PlayerContent, PlayerTab)
 end
 
 -- SHOW WAYPOINTS TAB
 function ShowWaypointsTab()
-    HideAllContent()
-    if WaypointsContent then WaypointsContent.Visible = true end
-    if ScriptTab then ScriptTab.BackgroundColor3 = Color3.fromRGB(25,25,25) end
-    if EditorTab then EditorTab.BackgroundColor3 = Color3.fromRGB(25,25,25) end
-    if InfoTab then InfoTab.BackgroundColor3 = Color3.fromRGB(25,25,25) end
-    if MusicTab then MusicTab.BackgroundColor3 = Color3.fromRGB(25,25,25) end
-    if PlayerTab then PlayerTab.BackgroundColor3 = Color3.fromRGB(25,25,25) end
-    if WaypointsTab then WaypointsTab.BackgroundColor3 = Color3.fromRGB(30,30,30) end
-    if ReportTab then ReportTab.BackgroundColor3 = Color3.fromRGB(25,25,25) end
-    if BringPartsTab then BringPartsTab.BackgroundColor3 = Color3.fromRGB(25,25,25) end
-    if JoinerTab then JoinerTab.BackgroundColor3 = Color3.fromRGB(25,25,25) end
-    if TrollTab then TrollTab.BackgroundColor3 = Color3.fromRGB(25,25,25) end
-    if EmoteTabBtn then EmoteTabBtn.BackgroundColor3 = Color3.fromRGB(25,25,25) end
-    if ScriptSearchTab then ScriptSearchTab.BackgroundColor3 = Color3.fromRGB(25,25,25) end
-    if SettingTab then SettingTab.BackgroundColor3 = Color3.fromRGB(25,25,25) end
-    if CreditTab then CreditTab.BackgroundColor3 = Color3.fromRGB(25,25,25) end
+    DHShowTab(WaypointsContent, WaypointsTab)
 end
 
 -- SHOW REPORT TAB
 function ShowReportTab()
-    HideAllContent()
-    if ReportContent then ReportContent.Visible = true end
-    if ScriptTab then ScriptTab.BackgroundColor3 = Color3.fromRGB(25,25,25) end
-    if EditorTab then EditorTab.BackgroundColor3 = Color3.fromRGB(25,25,25) end
-    if InfoTab then InfoTab.BackgroundColor3 = Color3.fromRGB(25,25,25) end
-    if MusicTab then MusicTab.BackgroundColor3 = Color3.fromRGB(25,25,25) end
-    if PlayerTab then PlayerTab.BackgroundColor3 = Color3.fromRGB(25,25,25) end
-    if WaypointsTab then WaypointsTab.BackgroundColor3 = Color3.fromRGB(25,25,25) end
-    if ReportTab then ReportTab.BackgroundColor3 = Color3.fromRGB(30,30,30) end
-    if BringPartsTab then BringPartsTab.BackgroundColor3 = Color3.fromRGB(25,25,25) end
-    if JoinerTab then JoinerTab.BackgroundColor3 = Color3.fromRGB(25,25,25) end
-    if TrollTab then TrollTab.BackgroundColor3 = Color3.fromRGB(25,25,25) end
-    if EmoteTabBtn then EmoteTabBtn.BackgroundColor3 = Color3.fromRGB(25,25,25) end
-    if ScriptSearchTab then ScriptSearchTab.BackgroundColor3 = Color3.fromRGB(25,25,25) end
-    if SettingTab then SettingTab.BackgroundColor3 = Color3.fromRGB(25,25,25) end
-    if CreditTab then CreditTab.BackgroundColor3 = Color3.fromRGB(25,25,25) end
+    DHShowTab(ReportContent, ReportTab)
 end
 
 -- SHOW BRING PARTS TAB
 function ShowBringPartsTab()
-    HideAllContent()
-    if BringPartsContent then BringPartsContent.Visible = true end
-    if ScriptTab then ScriptTab.BackgroundColor3 = Color3.fromRGB(25,25,25) end
-    if EditorTab then EditorTab.BackgroundColor3 = Color3.fromRGB(25,25,25) end
-    if InfoTab then InfoTab.BackgroundColor3 = Color3.fromRGB(25,25,25) end
-    if MusicTab then MusicTab.BackgroundColor3 = Color3.fromRGB(25,25,25) end
-    if PlayerTab then PlayerTab.BackgroundColor3 = Color3.fromRGB(25,25,25) end
-    if WaypointsTab then WaypointsTab.BackgroundColor3 = Color3.fromRGB(25,25,25) end
-    if ReportTab then ReportTab.BackgroundColor3 = Color3.fromRGB(25,25,25) end
-    if BringPartsTab then BringPartsTab.BackgroundColor3 = Color3.fromRGB(30,30,30) end
-    if JoinerTab then JoinerTab.BackgroundColor3 = Color3.fromRGB(25,25,25) end
-    if TrollTab then TrollTab.BackgroundColor3 = Color3.fromRGB(25,25,25) end
-    if EmoteTabBtn then EmoteTabBtn.BackgroundColor3 = Color3.fromRGB(25,25,25) end
-    if ScriptSearchTab then ScriptSearchTab.BackgroundColor3 = Color3.fromRGB(25,25,25) end
-    if SettingTab then SettingTab.BackgroundColor3 = Color3.fromRGB(25,25,25) end
-    if CreditTab then CreditTab.BackgroundColor3 = Color3.fromRGB(25,25,25) end
+    DHShowTab(BringPartsContent, BringPartsTab)
 end
 
 -- SHOW JOINER TAB
 function ShowJoinerTab()
-    HideAllContent()
-    if JoinerContent then JoinerContent.Visible = true end
+    DHShowTab(JoinerContent, JoinerTab)
     if updateJobsList then updateJobsList() end
     if updatePlacesList then updatePlacesList() end
-    if ScriptTab then ScriptTab.BackgroundColor3 = Color3.fromRGB(25,25,25) end
-    if EditorTab then EditorTab.BackgroundColor3 = Color3.fromRGB(25,25,25) end
-    if InfoTab then InfoTab.BackgroundColor3 = Color3.fromRGB(25,25,25) end
-    if MusicTab then MusicTab.BackgroundColor3 = Color3.fromRGB(25,25,25) end
-    if PlayerTab then PlayerTab.BackgroundColor3 = Color3.fromRGB(25,25,25) end
-    if WaypointsTab then WaypointsTab.BackgroundColor3 = Color3.fromRGB(25,25,25) end
-    if ReportTab then ReportTab.BackgroundColor3 = Color3.fromRGB(25,25,25) end
-    if BringPartsTab then BringPartsTab.BackgroundColor3 = Color3.fromRGB(25,25,25) end
-    if JoinerTab then JoinerTab.BackgroundColor3 = Color3.fromRGB(30,30,30) end
-    if TrollTab then TrollTab.BackgroundColor3 = Color3.fromRGB(25,25,25) end
-    if EmoteTabBtn then EmoteTabBtn.BackgroundColor3 = Color3.fromRGB(25,25,25) end
-    if ScriptSearchTab then ScriptSearchTab.BackgroundColor3 = Color3.fromRGB(25,25,25) end
-    if SettingTab then SettingTab.BackgroundColor3 = Color3.fromRGB(25,25,25) end
-    if CreditTab then CreditTab.BackgroundColor3 = Color3.fromRGB(25,25,25) end
 end
 
 -- SHOW TROLL TAB
 function ShowTrollTab()
-    HideAllContent()
-    if TrollContent then TrollContent.Visible = true end
-    if ScriptTab then ScriptTab.BackgroundColor3 = Color3.fromRGB(25,25,25) end
-    if EditorTab then EditorTab.BackgroundColor3 = Color3.fromRGB(25,25,25) end
-    if InfoTab then InfoTab.BackgroundColor3 = Color3.fromRGB(25,25,25) end
-    if MusicTab then MusicTab.BackgroundColor3 = Color3.fromRGB(25,25,25) end
-    if PlayerTab then PlayerTab.BackgroundColor3 = Color3.fromRGB(25,25,25) end
-    if WaypointsTab then WaypointsTab.BackgroundColor3 = Color3.fromRGB(25,25,25) end
-    if ReportTab then ReportTab.BackgroundColor3 = Color3.fromRGB(25,25,25) end
-    if BringPartsTab then BringPartsTab.BackgroundColor3 = Color3.fromRGB(25,25,25) end
-    if JoinerTab then JoinerTab.BackgroundColor3 = Color3.fromRGB(25,25,25) end
-    if TrollTab then TrollTab.BackgroundColor3 = Color3.fromRGB(30,30,30) end
-    if EmoteTabBtn then EmoteTabBtn.BackgroundColor3 = Color3.fromRGB(25,25,25) end
-    if ScriptSearchTab then ScriptSearchTab.BackgroundColor3 = Color3.fromRGB(25,25,25) end
-    if SettingTab then SettingTab.BackgroundColor3 = Color3.fromRGB(25,25,25) end
-    if CreditTab then CreditTab.BackgroundColor3 = Color3.fromRGB(25,25,25) end
+    DHShowTab(TrollContent, TrollTab)
 end
 
 -- SHOW EMOTE TAB
 function ShowEmoteTab()
-    HideAllContent()
-    if EmoteContent then EmoteContent.Visible = true end
-    if ScriptTab then ScriptTab.BackgroundColor3 = Color3.fromRGB(25,25,25) end
-    if EditorTab then EditorTab.BackgroundColor3 = Color3.fromRGB(25,25,25) end
-    if InfoTab then InfoTab.BackgroundColor3 = Color3.fromRGB(25,25,25) end
-    if MusicTab then MusicTab.BackgroundColor3 = Color3.fromRGB(25,25,25) end
-    if PlayerTab then PlayerTab.BackgroundColor3 = Color3.fromRGB(25,25,25) end
-    if WaypointsTab then WaypointsTab.BackgroundColor3 = Color3.fromRGB(25,25,25) end
-    if ReportTab then ReportTab.BackgroundColor3 = Color3.fromRGB(25,25,25) end
-    if BringPartsTab then BringPartsTab.BackgroundColor3 = Color3.fromRGB(25,25,25) end
-    if JoinerTab then JoinerTab.BackgroundColor3 = Color3.fromRGB(25,25,25) end
-    if TrollTab then TrollTab.BackgroundColor3 = Color3.fromRGB(25,25,25) end
-    if EmoteTabBtn then EmoteTabBtn.BackgroundColor3 = Color3.fromRGB(30,30,30) end
-    if ScriptSearchTab then ScriptSearchTab.BackgroundColor3 = Color3.fromRGB(25,25,25) end
-    if SettingTab then SettingTab.BackgroundColor3 = Color3.fromRGB(25,25,25) end
-    if CreditTab then CreditTab.BackgroundColor3 = Color3.fromRGB(25,25,25) end
+    DHShowTab(EmoteContent, EmoteTabBtn)
     if EDoSearch and ECurrentPage == nil then
-        EDoSearch("")
+    EDoSearch("")
     end
 end
 
 -- SHOW SEARCH TAB
 function ShowSearchTab()
-    HideAllContent()
-    if SearchContent then SearchContent.Visible = true end
-    if ScriptTab then ScriptTab.BackgroundColor3 = Color3.fromRGB(25,25,25) end
-    if EditorTab then EditorTab.BackgroundColor3 = Color3.fromRGB(25,25,25) end
-    if InfoTab then InfoTab.BackgroundColor3 = Color3.fromRGB(25,25,25) end
-    if MusicTab then MusicTab.BackgroundColor3 = Color3.fromRGB(25,25,25) end
-    if PlayerTab then PlayerTab.BackgroundColor3 = Color3.fromRGB(25,25,25) end
-    if WaypointsTab then WaypointsTab.BackgroundColor3 = Color3.fromRGB(25,25,25) end
-    if ReportTab then ReportTab.BackgroundColor3 = Color3.fromRGB(25,25,25) end
-    if BringPartsTab then BringPartsTab.BackgroundColor3 = Color3.fromRGB(25,25,25) end
-    if JoinerTab then JoinerTab.BackgroundColor3 = Color3.fromRGB(25,25,25) end
-    if TrollTab then TrollTab.BackgroundColor3 = Color3.fromRGB(25,25,25) end
-    if EmoteTabBtn then EmoteTabBtn.BackgroundColor3 = Color3.fromRGB(25,25,25) end
-    if ScriptSearchTab then ScriptSearchTab.BackgroundColor3 = Color3.fromRGB(30,30,30) end
-    if SettingTab then SettingTab.BackgroundColor3 = Color3.fromRGB(25,25,25) end
-    if CreditTab then CreditTab.BackgroundColor3 = Color3.fromRGB(25,25,25) end
+    DHShowTab(SearchContent, ScriptSearchTab)
 end
 
 -- SHOW VISUAL TAB
 function ShowVisualTab()
-    HideAllContent()
-    if VisualContent then VisualContent.Visible = true end
-    for _, b in ipairs(TabFrame:GetChildren()) do
-        if b:IsA("TextButton") then
-            b.BackgroundColor3 = Color3.fromRGB(25,25,25)
-        end
-    end
-    if VisualTab then VisualTab.BackgroundColor3 = Color3.fromRGB(30,30,30) end
+    DHShowTab(VisualContent, VisualTab)
 end
 
 -- SHOW ANIMATION TAB
 function ShowAnimationTab()
-    HideAllContent()
-    if AnimContent then AnimContent.Visible = true end
-    for _, b in ipairs(TabFrame:GetChildren()) do
-        if b:IsA("TextButton") then
-            b.BackgroundColor3 = Color3.fromRGB(25,25,25)
-        end
-    end
-    if AnimTab then AnimTab.BackgroundColor3 = Color3.fromRGB(30,30,30) end
+    DHShowTab(AnimContent, AnimTab)
 end
 
 -- SHOW MODS TAB
 function ShowModsTab()
-    HideAllContent()
-    if ModsContent then ModsContent.Visible = true end
-    for _, b in ipairs(TabFrame:GetChildren()) do
-        if b:IsA("TextButton") then
-            b.BackgroundColor3 = Color3.fromRGB(25,25,25)
-        end
-    end
-    if ModsTab then ModsTab.BackgroundColor3 = Color3.fromRGB(30,30,30) end
+    DHShowTab(ModsContent, ModsTab)
 end
 -- SHOW CHATBOT TAB
 function ShowChatBotTab()
-    HideAllContent()
-    if ChatBotContent then ChatBotContent.Visible = true end
-    for _, b in ipairs(TabFrame:GetChildren()) do
-        if b:IsA("TextButton") then
-            b.BackgroundColor3 = Color3.fromRGB(25,25,25)
-        end
-    end
-    if ChatBotTab then ChatBotTab.BackgroundColor3 = Color3.fromRGB(30,30,30) end
+    DHShowTab(ChatBotContent, ChatBotTab)
     if DHBot and DHBot.OnShow then DHBot.OnShow() end
 end
 
 -- SHOW SETTING TAB
 function ShowSettingTab()
-    HideAllContent()
-    if SettingContent then SettingContent.Visible = true end
-    if ScriptTab then ScriptTab.BackgroundColor3 = Color3.fromRGB(25,25,25) end
-    if EditorTab then EditorTab.BackgroundColor3 = Color3.fromRGB(25,25,25) end
-    if InfoTab then InfoTab.BackgroundColor3 = Color3.fromRGB(25,25,25) end
-    if MusicTab then MusicTab.BackgroundColor3 = Color3.fromRGB(25,25,25) end
-    if PlayerTab then PlayerTab.BackgroundColor3 = Color3.fromRGB(25,25,25) end
-    if WaypointsTab then WaypointsTab.BackgroundColor3 = Color3.fromRGB(25,25,25) end
-    if ReportTab then ReportTab.BackgroundColor3 = Color3.fromRGB(25,25,25) end
-    if BringPartsTab then BringPartsTab.BackgroundColor3 = Color3.fromRGB(25,25,25) end
-    if JoinerTab then JoinerTab.BackgroundColor3 = Color3.fromRGB(25,25,25) end
-    if TrollTab then TrollTab.BackgroundColor3 = Color3.fromRGB(25,25,25) end
-    if EmoteTabBtn then EmoteTabBtn.BackgroundColor3 = Color3.fromRGB(25,25,25) end
-    if ScriptSearchTab then ScriptSearchTab.BackgroundColor3 = Color3.fromRGB(25,25,25) end
-    if SettingTab then SettingTab.BackgroundColor3 = Color3.fromRGB(30,30,30) end
-    if CreditTab then CreditTab.BackgroundColor3 = Color3.fromRGB(25,25,25) end
+    DHShowTab(SettingContent, SettingTab)
 end
 
 -- SHOW CREDIT TAB
 function ShowCreditTab()
-    HideAllContent()
-    if CreditContent then CreditContent.Visible = true end
-    if ScriptTab then ScriptTab.BackgroundColor3 = Color3.fromRGB(25,25,25) end
-    if EditorTab then EditorTab.BackgroundColor3 = Color3.fromRGB(25,25,25) end
-    if InfoTab then InfoTab.BackgroundColor3 = Color3.fromRGB(25,25,25) end
-    if MusicTab then MusicTab.BackgroundColor3 = Color3.fromRGB(25,25,25) end
-    if PlayerTab then PlayerTab.BackgroundColor3 = Color3.fromRGB(25,25,25) end
-    if WaypointsTab then WaypointsTab.BackgroundColor3 = Color3.fromRGB(25,25,25) end
-    if ReportTab then ReportTab.BackgroundColor3 = Color3.fromRGB(25,25,25) end
-    if BringPartsTab then BringPartsTab.BackgroundColor3 = Color3.fromRGB(25,25,25) end
-    if JoinerTab then JoinerTab.BackgroundColor3 = Color3.fromRGB(25,25,25) end
-    if TrollTab then TrollTab.BackgroundColor3 = Color3.fromRGB(25,25,25) end
-    if EmoteTabBtn then EmoteTabBtn.BackgroundColor3 = Color3.fromRGB(25,25,25) end
-    if ScriptSearchTab then ScriptSearchTab.BackgroundColor3 = Color3.fromRGB(25,25,25) end
-    if SettingTab then SettingTab.BackgroundColor3 = Color3.fromRGB(25,25,25) end
-    if CreditTab then CreditTab.BackgroundColor3 = Color3.fromRGB(30,30,30) end
+    DHShowTab(CreditContent, CreditTab)
 end
 
 -- UNLOCK SCRIPT TAB
@@ -36585,6 +36947,7 @@ if ChatBotTab then addTabButtonBorder(ChatBotTab) end
 if MsgTab then addTabButtonBorder(MsgTab) end
 if TransTab then addTabButtonBorder(TransTab) end
 if AvtTab then addTabButtonBorder(AvtTab) end
+if CtlTab then addTabButtonBorder(CtlTab) end
 addTabButtonBorder(SettingTab)
 addTabButtonBorder(CreditTab)
 
