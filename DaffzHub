@@ -32286,7 +32286,16 @@ DHAvtBoot = function()
                         task.wait(0.6)
                         gotA = math.max(gotA, count())
                     end
-                    NET.Dbg = {name = tostring(r.name), want = want, got = gotA}
+                    -- which kinds were asked for and which arrived (for bug reports)
+                    local wk, gk = {}, {}
+                    for _, a in ipairs(type(r.look.a) == "table" and r.look.a or {}) do wk[#wk + 1] = tostring(type(a) == "table" and a.t or "?") end
+                    for _, c in ipairs(model:GetChildren()) do
+                        if c:IsA("Accessory") then
+                            local okT, tn = pcall(function() return c.AccessoryType.Name end)
+                            gk[#gk + 1] = okT and tn or "?"
+                        end
+                    end
+                    NET.Dbg = {name = tostring(r.name), want = want, got = gotA, wk = table.concat(wk, ","), gk = table.concat(gk, ",")}
                 end)
                 NET.Building[uid] = nil
                 NET.BuildBusy = false
@@ -32430,7 +32439,7 @@ DHAvtBoot = function()
                 sayOn("No other DaffzHub user in this server right now.")
             else
                 sayOn(#rows .. " DaffzHub user" .. (#rows == 1 and "" or "s") .. " here. " .. (NET.On and "Their avatars show on your screen only." or "Avatars are OFF.")
-                    .. (NET.Dbg and (" Last avatar: " .. NET.Dbg.name .. ", accessories " .. NET.Dbg.got .. "/" .. NET.Dbg.want .. ".") or ""))
+                    .. (NET.Dbg and (" Last avatar: " .. NET.Dbg.name .. ", accessories " .. NET.Dbg.got .. "/" .. NET.Dbg.want .. ". Asked: " .. tostring(NET.Dbg.wk) .. ". Got: " .. tostring(NET.Dbg.gk) .. ".") or ""))
             end
             for i, u in ipairs(rows) do
                 local row = mk("Frame", {Size = UDim2.new(1, -2, 0, 36), LayoutOrder = i, BackgroundColor3 = P.btn, BorderSizePixel = 0}, list)
