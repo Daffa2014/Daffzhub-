@@ -32521,8 +32521,8 @@ DHCtlBoot = function()
         local data = {show = CT.Show, joy = {}, btns = {}}
         for k, v in pairs(CT.Joy) do data.joy[k] = v end
         for _, b in ipairs(CT.Btns) do
-            data.btns[#data.btns + 1] = {name = b.name, keys = b.keys, shape = b.shape, size = b.size, alpha = b.alpha, rot = b.rot,
-                xs = b.xs, ys = b.ys, drag = b.drag}
+            if not b.sys then data.btns[#data.btns + 1] = {name = b.name, keys = b.keys, shape = b.shape, size = b.size, alpha = b.alpha, rot = b.rot,
+                xs = b.xs, ys = b.ys, drag = b.drag} end
         end
         pcall(function()
             if makefolder and isfolder and not isfolder("Daffzhub_file") then makefolder("Daffzhub_file") end
@@ -32559,7 +32559,7 @@ DHCtlBoot = function()
         end
         if type(d.btns) == "table" then
             for _, s in ipairs(d.btns) do
-                if type(s) == "table" then
+                if type(s) == "table" and not s.sys then
                     local keys = {}
                     if type(s.keys) == "table" then
                         for _, k in ipairs(s.keys) do
@@ -32570,7 +32570,7 @@ DHCtlBoot = function()
                     local shape = (s.shape == "round" or s.shape == "wide") and s.shape or "square"
                     CT.Btns[#CT.Btns + 1] = {id = CT.Next, name = tostring(s.name or freeName()):sub(1, 24), keys = keys, shape = shape,
                         size = num(s.size, 24, 200, 64), alpha = num(s.alpha, 0, 0.9, 0.35), rot = num(s.rot, 0, 359, 0),
-                        xs = num(s.xs, 0.02, 0.98, 0.5), ys = num(s.ys, 0.02, 0.98, 0.5), drag = s.drag == true}
+                        xs = num(s.xs, 0.02, 0.98, 0.5), ys = num(s.ys, 0.02, 0.98, 0.5), drag = s.drag == true, sys = s.sys == true}
                     CT.Next = CT.Next + 1
                 end
             end
@@ -32660,6 +32660,7 @@ DHCtlBoot = function()
     end
 
     local function removeButton(b)
+        if b.sys then return end
         releaseButton(b)
         if b.obj then b.obj:Destroy() b.obj = nil end
         for i, x in ipairs(CT.Btns) do
@@ -32930,6 +32931,7 @@ DHCtlBoot = function()
         paintToggle(dragB, b.drag, "Drag: ON", "Drag: OFF")
         local delB = btn(f, "X", 0, 4, 24, 24, P.red)
         delB.Position = UDim2.new(1, -26, 0, 4)
+        if b.sys then delB.Visible = false end
         nameB.MouseButton1Click:Connect(function() b.open = not b.open Render() end)
         dragB.MouseButton1Click:Connect(function()
             releaseButton(b)
@@ -33128,7 +33130,7 @@ DHCtlBoot = function()
         local CP = {On = true, Pend = {}, State = "off", Gen = 0, Ref = 0, Last = {}, File = "Daffzhub_file/ControlPlayer.json", KeyOver = ""}
         DHCp = CP
         CP.Url = "wss://njgmdqqqvbgkghtibnlo.supabase.co/realtime/v1/websocket"
-        CP.KeyConst = "sb_publishable_QyIcRsTdbsFi-ia3jSeTCA_Oxi7bKQZ"
+        CP.KeyConst = "PASTE_PUBLISHABLE_KEY_HERE"
         local TOPIC
 
         local function loadCp()
@@ -33211,7 +33213,7 @@ DHCtlBoot = function()
             pcall(function() f = syn and syn.websocket and syn.websocket.connect end)
             return f
         end
-        function CP.Want() return CP.On or CP.Out ~= nil or CP.In ~= nil or CP.Ctl ~= nil end
+        function CP.Want() return (not CP.Locked) and (CP.On or CP.Out ~= nil or CP.In ~= nil or CP.Ctl ~= nil) end
         local function closeWs()
             CP.Gen = CP.Gen + 1
             local w = CP.Ws
@@ -33309,7 +33311,7 @@ DHCtlBoot = function()
         local function onReq(msg)
             local uid = tonumber(msg.f)
             local p = uid and playerOf(uid)
-            if not p or uid == me.UserId or not CP.On then return end
+            if not p or uid == me.UserId or not CP.On or CP.Locked then return end
             if DHNet and DHNet.Blocked and DHNet.Blocked[uid] then return end
             if CP.Pend[uid] then return end
             local n = 0
@@ -33357,6 +33359,14 @@ DHCtlBoot = function()
                 if cam and hum then cam.CameraSubject = hum end
             end)
             pcall(CT.ReleaseAll)
+            -- the built-in Jump button is not saved: it disappears when control ends and comes back with defaults next time
+            for i = #CT.Btns, 1, -1 do
+                local sb = CT.Btns[i]
+                if sb.sys then
+                    pcall(function() if sb.obj then sb.obj:Destroy() sb.obj = nil end end)
+                    table.remove(CT.Btns, i)
+                end
+            end
             Gui.Enabled = CT.Show
             if not Joy.on then hideDefault(false) end
             CT.JoyVisual()
@@ -33378,10 +33388,16 @@ DHCtlBoot = function()
             -- a round Jump button must exist (Space), so the user can set its size in the list
             local has = false
             for _, b in ipairs(CT.Btns) do
+                if b.sys then
+                    -- the built-in Jump button always keeps its Space key
+                    local hs = false
+                    for _, key in ipairs(b.keys) do if key == "Space" then hs = true end end
+                    if not hs then b.keys = {"Space"} end
+                end
                 for _, key in ipairs(b.keys) do if key == "Space" then has = true end end
             end
             if not has then
-                local b = {id = CT.Next, name = "Jump", keys = {"Space"}, shape = "round", size = 84, alpha = 0.35, rot = 0, xs = 0.86, ys = 0.72, drag = false}
+                local b = {id = CT.Next, name = "Jump", keys = {"Space"}, shape = "round", size = 84, alpha = 0.35, rot = 0, xs = 0.86, ys = 0.72, drag = false, sys = true}
                 CT.Next = CT.Next + 1
                 CT.Btns[#CT.Btns + 1] = b
                 CT.Create(b)
@@ -33449,6 +33465,7 @@ DHCtlBoot = function()
 
         -- A asks B (returns text, color for the caller to show)
         function CP.Ask(uid, name)
+            if CP.Locked then return "Control Player is turned off by staff.", P.warn end
             if CP.Ctl then return "You are already controlling " .. CP.Ctl.name .. ". Stop first.", P.warn end
             if CP.Out and os.clock() - CP.Out.at < 40 then return "Still waiting for " .. CP.Out.name .. " to answer.", P.warn end
             if not CP.Key() then return "Control Player needs a Realtime key (Controls tab).", P.warn end
@@ -33463,6 +33480,19 @@ DHCtlBoot = function()
             sendC({t = "req", f = me.UserId, to = uid})
             rerender()
             return "Asked " .. tostring(name) .. ". Waiting for Allow...", P.ok
+        end
+
+        function CP.SetLocked(v)
+            v = v and true or false
+            if CP.Locked == v then return end
+            CP.Locked = v
+            if v then
+                pcall(function() if CP.Ctl then stopCtl(true, "Control Player was turned off by staff.") end end)
+                pcall(function() if CP.In then stopIn(true, "Control Player was turned off by staff.") end end)
+                for uid in pairs(CP.Pend) do deny(uid, true) end
+                CP.Out = nil
+            end
+            rerender()
         end
 
         -- ---------- per-frame work ----------
@@ -33568,6 +33598,7 @@ DHCtlBoot = function()
         end
         local function statusText()
             local s = CP.State
+            if CP.Locked then return "Control Player is turned off by staff.", P.warn end
             if not CP.Key() then return "Needs a Realtime key. Paste it below.", P.warn end
             if s == "nows" then return "This executor has no WebSocket. Control Player cannot work here.", P.warn end
             if s == "online" then return CP.On and "Ready. Others can ask to control you." or "Connected. Requests to you are OFF.", P.ok end
@@ -35899,6 +35930,728 @@ pcall(function()
 end)
 
 -- ================================================
+-- STAFF PANEL (Setting tab, only for Owner / Admin).
+-- Owner: add/remove admins, kick (with a message), block (with a date), warn, announce, switch server features off, see the log, answer block appeals.
+-- Admin: block, warn, announce (own server), kick (3 per 24 hours).
+-- Everything is checked by the DaffzHub server (the hub only asks). Every 30 seconds the hub asks the server one small question:
+-- "am I blocked? any command for me? what is switched off?" (it sends your user ID; your name and staff key only when you have a staff key).
+-- ================================================
+DHStaff = {Role = nil, Flags = {}, After = nil, Alive = true, KickLeft = nil, KickNext = nil, Sel = nil}
+
+DHStaffBoot = function()
+    local S = DHStaff
+    local HS = game:GetService("HttpService")
+    local C = {
+        bg = Color3.fromRGB(22, 22, 26), card = Color3.fromRGB(35, 35, 42), text = Color3.fromRGB(225, 225, 232), dim = Color3.fromRGB(150, 150, 160),
+        blue = Color3.fromRGB(40, 140, 200), green = Color3.fromRGB(30, 150, 60), red = Color3.fromRGB(170, 50, 50), yellow = Color3.fromRGB(200, 150, 20),
+        gold = Color3.fromRGB(255, 200, 60), ok = Color3.fromRGB(110, 220, 130), bad = Color3.fromRGB(255, 130, 130), grey = Color3.fromRGB(70, 70, 80),
+    }
+
+    -- ---------- small helpers ----------
+    local function N(class, parent, props)
+        local o = Instance.new(class)
+        o.ZIndex = 31
+        for k, v in pairs(props or {}) do o[k] = v end
+        o.Parent = parent
+        return o
+    end
+    local function Round(o, r) local c = Instance.new("UICorner") c.CornerRadius = UDim.new(0, r or 6) c.Parent = o end
+    local function Lbl(parent, text, props)
+        local p = {BackgroundTransparency = 1, Text = text, Font = Enum.Font.Gotham, TextSize = 11, TextColor3 = C.text,
+            TextXAlignment = Enum.TextXAlignment.Left, TextWrapped = true}
+        for k, v in pairs(props or {}) do p[k] = v end
+        return N("TextLabel", parent, p)
+    end
+    local function Btn(parent, text, color, props)
+        local p = {BackgroundColor3 = color, Text = text, Font = Enum.Font.GothamBold, TextSize = 11, TextColor3 = Color3.new(1, 1, 1), AutoButtonColor = true}
+        for k, v in pairs(props or {}) do p[k] = v end
+        local b = N("TextButton", parent, p)
+        Round(b, 6)
+        return b
+    end
+    local function Box(parent, placeholder, props)
+        local p = {BackgroundColor3 = C.card, Text = "", PlaceholderText = placeholder, PlaceholderColor3 = Color3.fromRGB(120, 120, 130), Font = Enum.Font.Gotham,
+            TextSize = 12, TextColor3 = Color3.new(1, 1, 1), ClearTextOnFocus = false, TextXAlignment = Enum.TextXAlignment.Left, BorderSizePixel = 0}
+        for k, v in pairs(props or {}) do p[k] = v end
+        local b = N("TextBox", parent, p)
+        Round(b, 6)
+        return b
+    end
+    local function Do(fn) task.spawn(function() local ok, e = pcall(fn) if not ok then warn("[DaffzHub staff] " .. tostring(e)) end end) end
+
+    -- "2026-11-13T05:41:02.557Z" -> seconds since 1970 (UTC), and back to the viewer's local time
+    local function utc(s)
+        local y, m, d, h, mi, se = string.match(tostring(s or ""), "(%d+)-(%d+)-(%d+)T(%d+):(%d+):(%d+)")
+        if not y then return nil end
+        y, m, d, h, mi, se = tonumber(y), tonumber(m), tonumber(d), tonumber(h), tonumber(mi), tonumber(se)
+        local yy = (m <= 2) and (y - 1) or y
+        local era = math.floor(yy / 400)
+        local yoe = yy - era * 400
+        local mp = (m + 9) % 12
+        local doy = math.floor((153 * mp + 2) / 5) + d - 1
+        local doe = yoe * 365 + math.floor(yoe / 4) - math.floor(yoe / 100) + doy
+        return (era * 146097 + doe - 719468) * 86400 + h * 3600 + mi * 60 + se
+    end
+    local function when(iso) local e = utc(iso) return e and os.date("%d %b %Y %H:%M", e) or "?" end
+    local function untilText(iso) return iso and ("until " .. when(iso)) or "permanent" end
+    S.Utc, S.When = utc, when
+
+    -- server call: returns data | nil, errorText, dataTable, statusCode
+    function S.Req(tbl)
+        local req = (syn and syn.request) or (http and http.request) or http_request or request
+        if not req then return nil, "Your executor has no request function." end
+        local ok, r = pcall(req, {Url = DHDet.Proxy, Method = "POST", Headers = {["Content-Type"] = "application/json"}, Body = HS:JSONEncode(tbl)})
+        if not ok or type(r) ~= "table" then return nil, "Request failed. Check your connection." end
+        local okj, d = pcall(function() return HS:JSONDecode(r.Body or "") end)
+        if not okj or type(d) ~= "table" then d = {} end
+        if r.StatusCode ~= 200 then return nil, tostring(d.error or ("Server error " .. tostring(r.StatusCode))), d, r.StatusCode end
+        return d
+    end
+    function S.Call(op, extra)
+        local t = {action = "staff", op = op, uid = Player.UserId}
+        local key = DHDet and DHDet.Key or ""
+        if key ~= "" or op == "accept" or op == "appeal" then
+            local nm = Player.DisplayName
+            if nm == nil or nm == "" then nm = Player.Name end
+            t.name = nm
+        end
+        if key ~= "" then t.key = key end
+        for k, v in pairs(extra or {}) do t[k] = v end
+        return S.Req(t)
+    end
+
+    -- ---------- popups (invitation, warning, announcement, confirmations) ----------
+    local UI = N("ScreenGui", ScreenGui.Parent, {Name = "DHStaffUI", ResetOnSpawn = false, IgnoreGuiInset = true, DisplayOrder = (ScreenGui.DisplayOrder or 0) + 5})
+    UI.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+    local Stack = N("Frame", UI, {AnchorPoint = Vector2.new(0.5, 0), Position = UDim2.new(0.5, 0, 0, 56), Size = UDim2.new(0, 300, 0, 10), BackgroundTransparency = 1, AutomaticSize = Enum.AutomaticSize.Y})
+    local sl = Instance.new("UIListLayout")
+    sl.Padding = UDim.new(0, 6)
+    sl.SortOrder = Enum.SortOrder.LayoutOrder
+    sl.Parent = Stack
+
+    -- buttons = {{text, color, function}, ...}; input = placeholder text (or nil). Returns the card and the input box.
+    function S.Card(title, text, buttons, input, accent)
+        local f = N("Frame", Stack, {Size = UDim2.new(1, 0, 0, 10), BackgroundColor3 = C.bg, BackgroundTransparency = 0.05, BorderSizePixel = 0, AutomaticSize = Enum.AutomaticSize.Y})
+        Round(f, 8)
+        local st = Instance.new("UIStroke")
+        st.Thickness = 1.5
+        st.Color = accent or C.gold
+        st.Parent = f
+        local lay = Instance.new("UIListLayout")
+        lay.Padding = UDim.new(0, 6)
+        lay.SortOrder = Enum.SortOrder.LayoutOrder
+        lay.Parent = f
+        local pad = Instance.new("UIPadding")
+        pad.PaddingTop, pad.PaddingBottom, pad.PaddingLeft, pad.PaddingRight = UDim.new(0, 8), UDim.new(0, 8), UDim.new(0, 10), UDim.new(0, 10)
+        pad.Parent = f
+        Lbl(f, title, {Size = UDim2.new(1, 0, 0, 16), Font = Enum.Font.GothamBold, TextSize = 12, TextColor3 = accent or C.gold, LayoutOrder = 1})
+        Lbl(f, text, {Size = UDim2.new(1, 0, 0, 14), AutomaticSize = Enum.AutomaticSize.Y, LayoutOrder = 2})
+        local box
+        if input then box = Box(f, input, {Size = UDim2.new(1, 0, 0, 28), LayoutOrder = 3}) end
+        local row = N("Frame", f, {Size = UDim2.new(1, 0, 0, 28), BackgroundTransparency = 1, LayoutOrder = 4})
+        local n = #buttons
+        for i, b in ipairs(buttons) do
+            local bt = Btn(row, b[1], b[2], {Size = UDim2.new(1 / n, -4, 1, 0), Position = UDim2.new((i - 1) / n, (i == 1) and 0 or 2, 0, 0)})
+            bt.MouseButton1Click:Connect(function()
+                if b[3] then Do(function() b[3](box and box.Text or "") end) end
+                if not b.keep then f:Destroy() end
+            end)
+        end
+        return f, box
+    end
+    local function Toast(text, color) if DHAlertToast then pcall(DHAlertToast, text, color or C.gold, 8) end end
+    S.Toast = Toast
+
+    -- ---------- the block screen ----------
+    function S.ShowBan(ban)
+        S.Banned = ban ~= nil
+        if not S.BanGui then
+            local g = N("ScreenGui", ScreenGui.Parent, {Name = "DHStaffBan", ResetOnSpawn = false, IgnoreGuiInset = true, DisplayOrder = 100000})
+            local dim = N("Frame", g, {Size = UDim2.new(1, 0, 1, 0), BackgroundColor3 = Color3.fromRGB(8, 8, 12), BackgroundTransparency = 0.15, BorderSizePixel = 0, Active = true})
+            local card = N("Frame", dim, {AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.new(0.5, 0, 0.5, 0), Size = UDim2.new(0, 320, 0, 10), BackgroundColor3 = C.bg,
+                BorderSizePixel = 0, AutomaticSize = Enum.AutomaticSize.Y})
+            Round(card, 10)
+            local st = Instance.new("UIStroke")
+            st.Thickness = 2
+            st.Color = C.red
+            st.Parent = card
+            local lay = Instance.new("UIListLayout")
+            lay.Padding = UDim.new(0, 8)
+            lay.SortOrder = Enum.SortOrder.LayoutOrder
+            lay.Parent = card
+            local pad = Instance.new("UIPadding")
+            pad.PaddingTop, pad.PaddingBottom, pad.PaddingLeft, pad.PaddingRight = UDim.new(0, 12), UDim.new(0, 12), UDim.new(0, 14), UDim.new(0, 14)
+            pad.Parent = card
+            Lbl(card, "You are blocked from DaffzHub", {Size = UDim2.new(1, 0, 0, 20), Font = Enum.Font.GothamBold, TextSize = 15, TextColor3 = C.bad, LayoutOrder = 1})
+            local info = Lbl(card, "", {Size = UDim2.new(1, 0, 0, 14), AutomaticSize = Enum.AutomaticSize.Y, TextSize = 12, LayoutOrder = 2})
+            local ap = Lbl(card, "", {Size = UDim2.new(1, 0, 0, 14), AutomaticSize = Enum.AutomaticSize.Y, TextColor3 = C.dim, LayoutOrder = 3})
+            local abox = Box(card, "Write your appeal (one time only)", {Size = UDim2.new(1, 0, 0, 60), MultiLine = true, TextWrapped = true, TextYAlignment = Enum.TextYAlignment.Top, LayoutOrder = 4})
+            local send = Btn(card, "Send appeal", C.blue, {Size = UDim2.new(1, 0, 0, 30), LayoutOrder = 5})
+            local msg = Lbl(card, "", {Size = UDim2.new(1, 0, 0, 14), AutomaticSize = Enum.AutomaticSize.Y, LayoutOrder = 6})
+            local close = Btn(card, "Close", C.grey, {Size = UDim2.new(1, 0, 0, 28), LayoutOrder = 7, Visible = false})
+            close.MouseButton1Click:Connect(function() if S.BanGui then S.BanGui:Destroy() S.BanGui = nil end end)
+            send.MouseButton1Click:Connect(function()
+                Do(function()
+                    local data, err = S.Call("appeal", {text = abox.Text})
+                    if data then msg.Text, msg.TextColor3 = "Appeal sent.", C.ok send.Visible, abox.Visible = false, false
+                    else msg.Text, msg.TextColor3 = tostring(err), C.bad end
+                end)
+            end)
+            S.BanGui = g
+            S.BanUi = {info = info, ap = ap, abox = abox, send = send, close = close}
+        end
+        local u = S.BanUi
+        if not u then return end
+        if ban then
+            u.info.Text = "Reason: " .. tostring(ban.reason or "-") .. "\nBlock " .. untilText(ban["until"]) .. "\nDaffzHub has been stopped on your device."
+            local a = ban.appeal_status
+            if a == "pending" then u.ap.Text, u.abox.Visible, u.send.Visible = "Your appeal was sent. Waiting for the owner.", false, false
+            elseif a == "rejected" then u.ap.Text, u.abox.Visible, u.send.Visible = "Your appeal was rejected" .. ((ban.appeal_reply and ban.appeal_reply ~= "") and (": " .. tostring(ban.appeal_reply)) or "."), false, false
+            else u.ap.Text, u.abox.Visible, u.send.Visible = "If you think this is a mistake, you can send one appeal to the owner.", true, true end
+            u.close.Visible = false
+        else
+            u.info.Text = "Your block has ended. Run DaffzHub again to use it."
+            u.ap.Text, u.abox.Visible, u.send.Visible, u.close.Visible = "", false, false, true
+        end
+    end
+
+    -- ---------- Setting tab: row + panel ----------
+    local panel = N("Frame", SettingContent, {Size = UDim2.new(1, -20, 1, -20), Position = UDim2.new(0, 10, 0, 10), BackgroundColor3 = C.bg, BorderSizePixel = 0, ZIndex = 30, Visible = false})
+    Round(panel, 10)
+    local title = Lbl(panel, "Staff Panel", {Size = UDim2.new(1, -90, 0, 22), Position = UDim2.new(0, 12, 0, 6), Font = Enum.Font.GothamBold, TextSize = 16, TextColor3 = Color3.fromRGB(100, 200, 255)})
+    local sub = Lbl(panel, "", {Size = UDim2.new(1, -90, 0, 14), Position = UDim2.new(0, 12, 0, 28), TextSize = 10, TextColor3 = C.dim})
+    local closeB = Btn(panel, "Close", C.red, {Size = UDim2.new(0, 60, 0, 24), Position = UDim2.new(1, -70, 0, 6)})
+    closeB.MouseButton1Click:Connect(function() panel.Visible = false end)
+    local bar = N("ScrollingFrame", panel, {Size = UDim2.new(1, -24, 0, 28), Position = UDim2.new(0, 12, 0, 46), BackgroundTransparency = 1, ScrollBarThickness = 0,
+        CanvasSize = UDim2.new(0, 0, 0, 0), AutomaticCanvasSize = Enum.AutomaticSize.X, ScrollingDirection = Enum.ScrollingDirection.X, BorderSizePixel = 0})
+    local bl = Instance.new("UIListLayout")
+    bl.FillDirection = Enum.FillDirection.Horizontal
+    bl.Padding = UDim.new(0, 4)
+    bl.SortOrder = Enum.SortOrder.LayoutOrder
+    bl.Parent = bar
+    local pages, tabBtns, curTab = {}, {}, nil
+
+    local function Page()
+        local p = N("ScrollingFrame", panel, {Size = UDim2.new(1, -24, 1, -86), Position = UDim2.new(0, 12, 0, 78), BackgroundTransparency = 1, ScrollBarThickness = 3,
+            CanvasSize = UDim2.new(0, 0, 0, 0), AutomaticCanvasSize = Enum.AutomaticSize.Y, BorderSizePixel = 0, Visible = false})
+        local l = Instance.new("UIListLayout")
+        l.Padding = UDim.new(0, 5)
+        l.SortOrder = Enum.SortOrder.LayoutOrder
+        l.Parent = p
+        return p
+    end
+    local function Item(page, h, order)
+        local f = N("Frame", page, {Size = UDim2.new(1, -6, 0, h), BackgroundColor3 = C.card, BorderSizePixel = 0, LayoutOrder = order or 100})
+        Round(f, 6)
+        return f
+    end
+    local function Clear(page, from)
+        for _, c in ipairs(page:GetChildren()) do
+            if c:IsA("GuiObject") and (c.LayoutOrder or 0) >= (from or 100) then c:Destroy() end
+        end
+    end
+    local function Say(label, text, color) label.Text, label.TextColor3 = text, color or C.dim end
+
+    function S.Select(name)
+        curTab = name
+        for k, p in pairs(pages) do p.page.Visible = (k == name) end
+        for k, b in pairs(tabBtns) do b.BackgroundColor3 = (k == name) and C.blue or C.grey end
+        local p = pages[name]
+        if p and p.refresh then Do(p.refresh) end
+    end
+    local function AddTab(name, text, ownerOnly, refresh)
+        local pg = Page()
+        pages[name] = {page = pg, refresh = refresh, owner = ownerOnly}
+        local b = Btn(bar, text, C.grey, {Size = UDim2.new(0, 78, 1, 0), LayoutOrder = #bar:GetChildren()})
+        tabBtns[name] = b
+        b.MouseButton1Click:Connect(function() S.Select(name) end)
+        return pg
+    end
+    local isOwner = function() return S.Role == "owner" end
+
+    -- ===== Users =====
+    local users = AddTab("users", "Users", false, function() S.RefreshPlayers() end)
+    local sr = Item(users, 34, 1)
+    local qbox = Box(sr, "Username or user ID", {Size = UDim2.new(1, -86, 0, 26), Position = UDim2.new(0, 4, 0, 4)})
+    local find = Btn(sr, "Find", C.blue, {Size = UDim2.new(0, 74, 0, 26), Position = UDim2.new(1, -78, 0, 4)})
+    local sel = Item(users, 236, 2)
+    sel.Visible = false
+    local selName = Lbl(sel, "", {Size = UDim2.new(1, -12, 0, 16), Position = UDim2.new(0, 8, 0, 4), Font = Enum.Font.GothamBold, TextSize = 12, TextWrapped = false})
+    local selInfo = Lbl(sel, "", {Size = UDim2.new(1, -12, 0, 28), Position = UDim2.new(0, 8, 0, 22), TextSize = 10, TextColor3 = C.dim, TextYAlignment = Enum.TextYAlignment.Top})
+    local reason = Box(sel, "Reason (shown to the player)", {Size = UDim2.new(1, -16, 0, 26), Position = UDim2.new(0, 8, 0, 54)})
+    local DUR = {{"1 hour", 3600}, {"6 hours", 21600}, {"1 day", 86400}, {"7 days", 604800}, {"30 days", 2592000}, {"Permanent", false}, {"Custom date", -1}}
+    local durI = 3
+    Lbl(sel, "Block for:", {Size = UDim2.new(0, 60, 0, 26), Position = UDim2.new(0, 8, 0, 86), TextSize = 11, TextColor3 = C.dim, TextWrapped = false})
+    local durB = Btn(sel, DUR[durI][1], C.grey, {Size = UDim2.new(0, 104, 0, 26), Position = UDim2.new(0, 70, 0, 86)})
+    local custom = Box(sel, "2026-11-20 18:30 (your time)", {Size = UDim2.new(1, -190, 0, 26), Position = UDim2.new(0, 180, 0, 86), Visible = false, TextSize = 10})
+    durB.MouseButton1Click:Connect(function()
+        durI = durI % #DUR + 1
+        durB.Text = DUR[durI][1]
+        custom.Visible = DUR[durI][2] == -1
+    end)
+    local warnB = Btn(sel, "Warn", C.yellow, {Size = UDim2.new(0.25, -6, 0, 30), Position = UDim2.new(0, 8, 0, 120)})
+    local kickB = Btn(sel, "Kick", C.red, {Size = UDim2.new(0.25, -6, 0, 30), Position = UDim2.new(0.25, 4, 0, 120)})
+    local blockB = Btn(sel, "Block", C.red, {Size = UDim2.new(0.25, -6, 0, 30), Position = UDim2.new(0.5, 0, 0, 120)})
+    local unbanB = Btn(sel, "Unblock", C.green, {Size = UDim2.new(0.25, -6, 0, 30), Position = UDim2.new(0.75, -4, 0, 120)})
+    local adminB = Btn(sel, "Make admin", C.blue, {Size = UDim2.new(0.5, -12, 0, 28), Position = UDim2.new(0, 8, 0, 156)})
+    local clearB = Btn(sel, "Clear warnings", C.grey, {Size = UDim2.new(0.5, -12, 0, 28), Position = UDim2.new(0.5, 4, 0, 156)})
+    local selMsg = Lbl(sel, "", {Size = UDim2.new(1, -16, 0, 40), Position = UDim2.new(0, 8, 0, 190), TextSize = 10, TextYAlignment = Enum.TextYAlignment.Top})
+    local plLabel = Lbl(users, "PLAYERS IN THIS SERVER", {Size = UDim2.new(1, -6, 0, 16), Font = Enum.Font.GothamBold, TextColor3 = C.dim, LayoutOrder = 3})
+
+    local function KickText()
+        if S.Role ~= "admin" then return "Kick" end
+        if S.KickLeft == nil then return "Kick" end
+        return "Kick " .. tostring(S.KickLeft) .. "/3"
+    end
+    local function UpdateHeader()
+        if not S.Role then return end
+        local t = (S.Role == "owner") and "OWNER" or "ADMIN"
+        if S.Role == "admin" and S.KickLeft ~= nil then
+            t = t .. "  |  Kicks left: " .. S.KickLeft .. "/3"
+            if S.KickLeft == 0 and S.KickNext then t = t .. " (back at " .. os.date("%H:%M", math.floor(S.KickNext / 1000)) .. ")" end
+        end
+        sub.Text = t
+        sub.TextColor3 = (S.Role == "admin" and S.KickLeft == 1) and C.gold or ((S.Role == "admin" and S.KickLeft == 0) and C.bad or C.dim)
+        kickB.Text = KickText()
+        kickB.BackgroundColor3 = (S.Role == "admin" and S.KickLeft == 0) and C.grey or ((S.Role == "admin" and S.KickLeft == 1) and C.yellow or C.red)
+    end
+    S.UpdateHeader = UpdateHeader
+
+    local function ShowSel(uid, name, st)
+        S.Sel = {uid = uid, name = name}
+        sel.Visible = true
+        selName.Text = tostring(name) .. "  (ID " .. tostring(uid) .. ")"
+        local parts = {}
+        if st then
+            if st.staff == "owner" then parts[#parts + 1] = "OWNER" elseif st.staff == "active" then parts[#parts + 1] = "ADMIN" end
+            parts[#parts + 1] = st.ban and ("BLOCKED " .. untilText(st.ban["until"]) .. " (" .. tostring(st.ban.reason or "-") .. ")") or "not blocked"
+            parts[#parts + 1] = tostring(st.warns or 0) .. " warning(s)"
+        end
+        selInfo.Text = table.concat(parts, "  |  ")
+        adminB.Visible, clearB.Visible = isOwner(), isOwner()
+        Say(selMsg, "")
+        UpdateHeader()
+    end
+    local function Lookup(extra)
+        Do(function()
+            local data, err = S.Call("lookup", extra)
+            if not data then sel.Visible = true Say(selMsg, tostring(err), C.bad) return end
+            ShowSel(data.uid, data.name, data)
+        end)
+    end
+    find.MouseButton1Click:Connect(function()
+        if qbox.Text == "" then return end
+        Lookup({q = qbox.Text})
+    end)
+    function S.RefreshPlayers()
+        Clear(users, 4)
+        local n = 0
+        for _, p in ipairs(Players:GetPlayers()) do
+            if p ~= Player then
+                n = n + 1
+                local it = Item(users, 30, 100 + n)
+                Lbl(it, p.DisplayName .. "  (@" .. p.Name .. ")", {Size = UDim2.new(1, -86, 1, 0), Position = UDim2.new(0, 8, 0, 0), TextWrapped = false, TextTruncate = Enum.TextTruncate.AtEnd})
+                local b = Btn(it, "Select", C.blue, {Size = UDim2.new(0, 70, 0, 22), Position = UDim2.new(1, -76, 0, 4)})
+                b.MouseButton1Click:Connect(function()
+                    ShowSel(p.UserId, p.DisplayName, nil)
+                    Lookup({target = p.UserId, tname = p.DisplayName})
+                end)
+            end
+        end
+        if n == 0 then Lbl(users, "Nobody else is here.", {Size = UDim2.new(1, -6, 0, 16), LayoutOrder = 101, TextColor3 = C.dim}) end
+    end
+
+    local function CurTarget()
+        local s = S.Sel
+        if not s then return nil end
+        return {target = s.uid, tname = s.name}
+    end
+    local function WithTarget(extra)
+        local t = CurTarget()
+        for k, v in pairs(extra or {}) do t[k] = v end
+        return t
+    end
+    local function Refresh1()
+        local s = S.Sel
+        if s then Lookup({target = s.uid, tname = s.name}) end
+    end
+    warnB.MouseButton1Click:Connect(function()
+        if not S.Sel then return end
+        Do(function()
+            local data, err = S.Call("warn", WithTarget({reason = reason.Text}))
+            if not data then Say(selMsg, tostring(err), C.bad) return end
+            Say(selMsg, data.auto and ("Warned. That was warning " .. data.limit .. ": blocked for 1 day.") or ("Warned (" .. data.count .. "/" .. data.limit .. ")."), C.ok)
+            Refresh1()
+        end)
+    end)
+    kickB.MouseButton1Click:Connect(function()
+        local s = S.Sel
+        if not s then return end
+        if S.Role == "admin" and S.KickLeft == 0 then Say(selMsg, "No kicks left. They come back 24 hours after each kick.", C.bad) return end
+        S.Card("Kick " .. tostring(s.name) .. "?", "They are removed from the game. This works only if they use DaffzHub. A message is optional.", {
+            {"Kick", C.red, function(msg)
+                local data, err, d = S.Call("kick", WithTarget({msg = msg ~= "" and msg or reason.Text}))
+                if data then
+                    if data.kickLeft ~= nil then S.KickLeft = data.kickLeft UpdateHeader() end
+                    Say(selMsg, "Kick sent. It arrives within about 30 seconds.", C.ok)
+                else
+                    if d and d.kickLeft ~= nil then S.KickLeft, S.KickNext = d.kickLeft, d.kickNext UpdateHeader() end
+                    Say(selMsg, tostring(err), C.bad)
+                end
+            end},
+            {"Cancel", C.grey},
+        }, "Message to the player (optional)", C.red)
+    end)
+    blockB.MouseButton1Click:Connect(function()
+        local s = S.Sel
+        if not s then return end
+        local untilIso, desc = nil, "permanently"
+        local d = DUR[durI][2]
+        if d == -1 then
+            local y, m, dd, h, mi = string.match(custom.Text, "^%s*(%d+)-(%d+)-(%d+)%s+(%d+):(%d+)%s*$")
+            if not y then Say(selMsg, "Type the date like 2026-11-20 18:30 (your own time).", C.bad) return end
+            local t = os.time({year = tonumber(y), month = tonumber(m), day = tonumber(dd), hour = tonumber(h), min = tonumber(mi), sec = 0})
+            if not t or t <= os.time() + 30 then Say(selMsg, "The end time must be in the future.", C.bad) return end
+            untilIso, desc = os.date("!%Y-%m-%dT%H:%M:%SZ", t), "until " .. os.date("%d %b %Y %H:%M", t)
+        elseif d then
+            local t = os.time() + d
+            untilIso, desc = os.date("!%Y-%m-%dT%H:%M:%SZ", t), "until " .. os.date("%d %b %Y %H:%M", t)
+        end
+        S.Card("Block " .. tostring(s.name) .. "?", "DaffzHub stops for them and the server refuses them, " .. desc .. ".\nReason: " .. (reason.Text ~= "" and reason.Text or "No reason given"), {
+            {"Block", C.red, function()
+                local data, err = S.Call("ban", WithTarget({reason = reason.Text, ["until"] = untilIso}))
+                Say(selMsg, data and "Blocked." or tostring(err), data and C.ok or C.bad)
+                Refresh1()
+            end},
+            {"Cancel", C.grey},
+        }, nil, C.red)
+    end)
+    unbanB.MouseButton1Click:Connect(function()
+        if not S.Sel then return end
+        Do(function()
+            local data, err = S.Call("unban", CurTarget())
+            Say(selMsg, data and "Unblocked." or tostring(err), data and C.ok or C.bad)
+            Refresh1()
+        end)
+    end)
+    adminB.MouseButton1Click:Connect(function()
+        if not S.Sel then return end
+        Do(function()
+            local data, err = S.Call("invite", CurTarget())
+            Say(selMsg, data and "Invitation sent. It lasts 10 minutes." or tostring(err), data and C.ok or C.bad)
+        end)
+    end)
+    clearB.MouseButton1Click:Connect(function()
+        if not S.Sel then return end
+        Do(function()
+            local data, err = S.Call("clearwarns", CurTarget())
+            Say(selMsg, data and "Warnings cleared." or tostring(err), data and C.ok or C.bad)
+            Refresh1()
+        end)
+    end)
+
+    -- ===== Bans =====
+    local bans = AddTab("bans", "Blocked", false, function() S.RefreshBans() end)
+    local bTop = Item(bans, 30, 1)
+    local bRef = Btn(bTop, "Refresh", C.blue, {Size = UDim2.new(0, 80, 0, 22), Position = UDim2.new(1, -86, 0, 4)})
+    local bMsg = Lbl(bTop, "", {Size = UDim2.new(1, -100, 1, 0), Position = UDim2.new(0, 8, 0, 0), TextSize = 10, TextWrapped = false})
+    function S.RefreshBans()
+        local data, err = S.Call("bans")
+        Clear(bans, 100)
+        if not data then Say(bMsg, tostring(err), C.bad) return end
+        Say(bMsg, #data.bans .. " active block(s)")
+        for i, b in ipairs(data.bans) do
+            local it = Item(bans, 52, 100 + i)
+            Lbl(it, tostring(b.name or b.uid) .. "  (ID " .. tostring(b.uid) .. ")", {Size = UDim2.new(1, -90, 0, 16), Position = UDim2.new(0, 8, 0, 3), Font = Enum.Font.GothamBold, TextWrapped = false})
+            Lbl(it, untilText(b["until"]) .. " | " .. tostring(b.reason or "-") .. " | by " .. tostring(b.by_name or "?") .. (b.appeal_status == "pending" and " | APPEAL" or ""),
+                {Size = UDim2.new(1, -90, 0, 28), Position = UDim2.new(0, 8, 0, 20), TextSize = 10, TextColor3 = C.dim, TextYAlignment = Enum.TextYAlignment.Top})
+            local u = Btn(it, "Unblock", C.green, {Size = UDim2.new(0, 70, 0, 24), Position = UDim2.new(1, -76, 0, 14)})
+            u.MouseButton1Click:Connect(function()
+                Do(function()
+                    local d2, e2 = S.Call("unban", {target = b.uid, tname = b.name})
+                    if not d2 then Say(bMsg, tostring(e2), C.bad) end
+                    S.RefreshBans()
+                end)
+            end)
+        end
+    end
+    bRef.MouseButton1Click:Connect(function() Do(S.RefreshBans) end)
+
+    -- ===== Announce =====
+    local ann = AddTab("announce", "Announce", false)
+    local aBox = Box(Item(ann, 70, 1), "Announcement text (max 200 characters)", {Size = UDim2.new(1, -8, 1, -8), Position = UDim2.new(0, 4, 0, 4), MultiLine = true, TextWrapped = true, TextYAlignment = Enum.TextYAlignment.Top})
+    aBox.BackgroundColor3 = C.bg
+    local scopes = {{"server", "This server"}, {"map", "This map"}, {"all", "Everybody"}}
+    local scopeI = 1
+    local aRow = Item(ann, 34, 2)
+    local aScope = Btn(aRow, "To: This server", C.grey, {Size = UDim2.new(0.5, -8, 0, 26), Position = UDim2.new(0, 4, 0, 4)})
+    local aSend = Btn(aRow, "Send", C.green, {Size = UDim2.new(0.5, -8, 0, 26), Position = UDim2.new(0.5, 4, 0, 4)})
+    local aMsg = Lbl(ann, "Admins can announce to their own server (one per minute). The owner can also reach a whole map or everybody.", {Size = UDim2.new(1, -6, 0, 14), AutomaticSize = Enum.AutomaticSize.Y, LayoutOrder = 3, TextSize = 10, TextColor3 = C.dim})
+    aScope.MouseButton1Click:Connect(function()
+        if not isOwner() then Say(aMsg, "Admins can only announce to their own server.", C.bad) return end
+        scopeI = scopeI % #scopes + 1
+        aScope.Text = "To: " .. scopes[scopeI][2]
+    end)
+    aSend.MouseButton1Click:Connect(function()
+        Do(function()
+            local sc = isOwner() and scopes[scopeI][1] or "server"
+            local room = (sc == "map") and ("m:" .. tostring(game.PlaceId)) or DHDet.Room()
+            local data, err = S.Call("announce", {text = aBox.Text, scope = sc, room = room})
+            Say(aMsg, data and "Announcement sent. It arrives within about 30 seconds." or tostring(err), data and C.ok or C.bad)
+            if data then aBox.Text = "" end
+        end)
+    end)
+
+    -- ===== Admins (owner) =====
+    local adm = AddTab("admins", "Admins", true, function() S.RefreshAdmins() end)
+    local invRow = Item(adm, 34, 1)
+    local iBox = Box(invRow, "Username or user ID", {Size = UDim2.new(1, -96, 0, 26), Position = UDim2.new(0, 4, 0, 4)})
+    local iBtn = Btn(invRow, "Invite", C.blue, {Size = UDim2.new(0, 84, 0, 26), Position = UDim2.new(1, -88, 0, 4)})
+    local iMsg = Lbl(adm, "The person gets a popup with Accept / Decline (10 minutes). After Accept their DaffzHub receives the access by itself. Removing an admin is silent.", {Size = UDim2.new(1, -6, 0, 14), AutomaticSize = Enum.AutomaticSize.Y, LayoutOrder = 2, TextSize = 10, TextColor3 = C.dim})
+    function S.RefreshAdmins()
+        local data, err = S.Call("admins")
+        Clear(adm, 100)
+        if not data then Say(iMsg, tostring(err), C.bad) return end
+        for i, a in ipairs(data.admins) do
+            local it = Item(adm, 40, 100 + i)
+            local active = a.status == "active"
+            Lbl(it, tostring(a.name or a.uid) .. "  (ID " .. tostring(a.uid) .. ")", {Size = UDim2.new(1, -90, 0, 16), Position = UDim2.new(0, 8, 0, 3), Font = Enum.Font.GothamBold, TextWrapped = false})
+            Lbl(it, active and ("Admin since " .. when(a.accepted_at)) or ("Invited, waiting (until " .. when(a.expires_at) .. ")"), {Size = UDim2.new(1, -90, 0, 14), Position = UDim2.new(0, 8, 0, 21), TextSize = 10, TextColor3 = active and C.ok or C.gold, TextWrapped = false})
+            local r = Btn(it, active and "Remove" or "Cancel", C.red, {Size = UDim2.new(0, 70, 0, 24), Position = UDim2.new(1, -76, 0, 8)})
+            r.MouseButton1Click:Connect(function()
+                Do(function()
+                    local d2, e2 = S.Call(active and "unadmin" or "uninvite", {target = a.uid, tname = a.name})
+                    if not d2 then Say(iMsg, tostring(e2), C.bad) end
+                    S.RefreshAdmins()
+                end)
+            end)
+        end
+    end
+    iBtn.MouseButton1Click:Connect(function()
+        if iBox.Text == "" then return end
+        Do(function()
+            local data, err = S.Call("invite", {q = iBox.Text})
+            Say(iMsg, data and ("Invitation sent to " .. tostring(data.name) .. ". It lasts 10 minutes.") or tostring(err), data and C.ok or C.bad)
+            if data then iBox.Text = "" S.RefreshAdmins() end
+        end)
+    end)
+
+    -- ===== Switches (owner) =====
+    local sw = AddTab("switches", "Switches", true, function() S.RefreshSwitches() end)
+    local FL = {{"msg_server", "Message: Server"}, {"msg_map", "Message: Map"}, {"msg_global", "Message: Global"}, {"msg_private", "Message: Private"},
+        {"msg_group", "Message: Group"}, {"online", "Online avatars (Avatar tab)"}, {"control", "Control Player"}}
+    Lbl(sw, "ON = people can use it. OFF = switched off for everybody (you, the owner, can still use it). Takes effect within about 30 seconds.", {Size = UDim2.new(1, -6, 0, 14), AutomaticSize = Enum.AutomaticSize.Y, LayoutOrder = 1, TextSize = 10, TextColor3 = C.dim})
+    local swBtn = {}
+    local swMsg = Lbl(sw, "", {Size = UDim2.new(1, -6, 0, 14), AutomaticSize = Enum.AutomaticSize.Y, LayoutOrder = 3, TextSize = 10})
+    for i, f in ipairs(FL) do
+        local it = Item(sw, 34, 10 + i)
+        Lbl(it, f[2], {Size = UDim2.new(1, -90, 1, 0), Position = UDim2.new(0, 8, 0, 0), TextSize = 12, TextWrapped = false})
+        local b = Btn(it, "ON", C.green, {Size = UDim2.new(0, 70, 0, 24), Position = UDim2.new(1, -76, 0, 5)})
+        swBtn[f[1]] = b
+        b.MouseButton1Click:Connect(function()
+            Do(function()
+                local off = not (S.Flags[f[1]] == true)
+                local data, err = S.Call("flag", {flag = f[1], off = off})
+                if data then S.Flags = data.flags or S.Flags Say(swMsg, f[2] .. (off and " is OFF." or " is ON."), C.ok) else Say(swMsg, tostring(err), C.bad) end
+                S.PaintSwitches()
+            end)
+        end)
+    end
+    function S.PaintSwitches()
+        for k, b in pairs(swBtn) do
+            local off = S.Flags[k] == true
+            b.Text, b.BackgroundColor3 = off and "OFF" or "ON", off and C.red or C.green
+        end
+    end
+    function S.RefreshSwitches() S.PaintSwitches() end
+
+    -- ===== Appeals (owner) =====
+    local apl = AddTab("appeals", "Appeals", true, function() S.RefreshAppeals() end)
+    local aReply = Box(Item(apl, 34, 1), "Reply to the person (optional)", {Size = UDim2.new(1, -8, 0, 26), Position = UDim2.new(0, 4, 0, 4)})
+    local apMsg = Lbl(apl, "", {Size = UDim2.new(1, -6, 0, 14), AutomaticSize = Enum.AutomaticSize.Y, LayoutOrder = 2, TextSize = 10})
+    function S.RefreshAppeals()
+        local data, err = S.Call("appeals")
+        Clear(apl, 100)
+        if not data then Say(apMsg, tostring(err), C.bad) return end
+        Say(apMsg, #data.appeals == 0 and "No appeals waiting." or (#data.appeals .. " appeal(s) waiting."))
+        for i, a in ipairs(data.appeals) do
+            local it = Item(apl, 96, 100 + i)
+            Lbl(it, tostring(a.name or a.uid) .. "  (ID " .. tostring(a.uid) .. ")  |  Reason: " .. tostring(a.reason or "-"), {Size = UDim2.new(1, -12, 0, 14), Position = UDim2.new(0, 8, 0, 3), Font = Enum.Font.GothamBold, TextWrapped = false})
+            Lbl(it, tostring(a.appeal or ""), {Size = UDim2.new(1, -16, 0, 40), Position = UDim2.new(0, 8, 0, 20), TextSize = 10, TextYAlignment = Enum.TextYAlignment.Top})
+            local ok = Btn(it, "Accept + unblock", C.green, {Size = UDim2.new(0.5, -10, 0, 26), Position = UDim2.new(0, 8, 0, 64)})
+            local no = Btn(it, "Reject", C.red, {Size = UDim2.new(0.5, -10, 0, 26), Position = UDim2.new(0.5, 2, 0, 64)})
+            local function Rv(acc)
+                Do(function()
+                    local d2, e2 = S.Call("review", {id = a.id, accept = acc, reply = aReply.Text})
+                    if not d2 then Say(apMsg, tostring(e2), C.bad) end
+                    S.RefreshAppeals()
+                end)
+            end
+            ok.MouseButton1Click:Connect(function() Rv(true) end)
+            no.MouseButton1Click:Connect(function() Rv(false) end)
+        end
+    end
+
+    -- ===== Log (owner) =====
+    local lg = AddTab("log", "Log", true, function() S.RefreshLog() end)
+    local lTop = Item(lg, 30, 1)
+    local lMsg = Lbl(lTop, "The last 100 staff actions", {Size = UDim2.new(1, -100, 1, 0), Position = UDim2.new(0, 8, 0, 0), TextSize = 10, TextColor3 = C.dim, TextWrapped = false})
+    local lRef = Btn(lTop, "Refresh", C.blue, {Size = UDim2.new(0, 80, 0, 22), Position = UDim2.new(1, -86, 0, 4)})
+    function S.RefreshLog()
+        local data, err = S.Call("log")
+        Clear(lg, 100)
+        if not data then Say(lMsg, tostring(err), C.bad) return end
+        for i, e in ipairs(data.log) do
+            local line = when(e.at) .. "  " .. tostring(e.actor_name or "?") .. " (" .. tostring(e.actor_role or "?") .. ") " .. tostring(e.action)
+            if e.target_name then line = line .. " > " .. tostring(e.target_name) end
+            if e.detail and e.detail ~= "" then line = line .. ": " .. tostring(e.detail) end
+            local it = Item(lg, 30, 100 + i)
+            it.AutomaticSize = Enum.AutomaticSize.Y
+            Lbl(it, line, {Size = UDim2.new(1, -12, 0, 16), Position = UDim2.new(0, 6, 0, 0), AutomaticSize = Enum.AutomaticSize.Y, TextSize = 10})
+        end
+    end
+    lRef.MouseButton1Click:Connect(function() Do(S.RefreshLog) end)
+
+    -- the tabs the person may see
+    function S.ApplyRole()
+        for k, p in pairs(pages) do
+            local ok = (not p.owner) or isOwner()
+            tabBtns[k].Visible = ok
+            if not ok and curTab == k then S.Select("users") end
+        end
+        UpdateHeader()
+    end
+
+    -- ---------- the row in the Setting tab ----------
+    function S.UpdateRow()
+        if S.Role and not S.Row and OtherContainer then
+            local y = OtherContainer.Size.Y.Offset
+            local row = N("Frame", OtherContainer, {Size = UDim2.new(1, -20, 0, 50), Position = UDim2.new(0, 10, 0, y), BackgroundColor3 = Color3.fromRGB(35, 35, 35), ZIndex = 1})
+            Round(row, 6)
+            Lbl(row, "Staff Panel", {Size = UDim2.new(0.7, -10, 0, 24), Position = UDim2.new(0, 10, 0, 6), TextSize = 14, ZIndex = 1, TextWrapped = false})
+            Lbl(row, "Block, warn, kick, announce", {Size = UDim2.new(0.7, -10, 0, 14), Position = UDim2.new(0, 10, 0, 29), TextSize = 10, TextColor3 = Color3.fromRGB(150, 150, 150), ZIndex = 1, TextWrapped = false})
+            local open = Btn(row, "Open", Color3.fromRGB(40, 140, 200), {Size = UDim2.new(0, 60, 0, 30), Position = UDim2.new(1, -70, 0.5, -15), ZIndex = 1, TextSize = 14})
+            Round(open, 15)
+            open.MouseButton1Click:Connect(function()
+                S.ApplyRole()
+                panel.Visible = true
+                S.Select(curTab or "users")
+            end)
+            OtherContainer.Size = UDim2.new(1, 0, 0, y + 60)
+            S.Row = row
+        elseif not S.Role and S.Row then
+            local y = S.Row.Position.Y.Offset
+            if OtherContainer and OtherContainer.Size.Y.Offset == y + 60 then OtherContainer.Size = UDim2.new(1, 0, 0, y) end
+            S.Row:Destroy()
+            S.Row = nil
+            panel.Visible = false
+        end
+        if S.Role then S.ApplyRole() end
+    end
+
+    -- ---------- commands from the server ----------
+    local function Handle(c)
+        local p = type(c.payload) == "table" and c.payload or {}
+        local by = tostring(c.by or "staff")
+        if c.kind == "kick" then
+            local m = (type(p.msg) == "string" and p.msg ~= "") and (": " .. p.msg) or ""
+            pcall(function() Player:Kick("Kicked by DaffzHub staff (" .. by .. ")" .. m) end)
+        elseif c.kind == "warn" then
+            local t = "Warning " .. tostring(p.count or "?") .. "/" .. tostring(p.limit or 3) .. " from " .. by .. ": " .. tostring(p.reason or "-") .. "\nAt " .. tostring(p.limit or 3) .. " warnings you are blocked for 1 day."
+            Toast("Warning from staff", C.yellow)
+            S.Card("Warning from DaffzHub staff", t, {{"OK", C.grey}}, nil, C.yellow)
+        elseif c.kind == "announce" then
+            Toast("Announcement from " .. by, C.gold)
+            S.Card("Announcement from " .. by, tostring(p.text or ""), {{"OK", C.grey}}, nil, C.blue)
+        end
+    end
+
+    function S.Poll()
+        if S.Busy then return end
+        S.Busy = true
+        local data, err = S.Call("poll", {room = DHDet.Room(), map = "m:" .. tostring(game.PlaceId), after = S.After})
+        S.Busy = false
+        if not data then S.LastErr = err return end
+        S.LastErr = nil
+        if data.role ~= S.Role then
+            S.Role = (data.role == "owner" or data.role == "admin") and data.role or nil
+            S.UpdateRow()
+        end
+        S.KickLeft, S.KickNext = data.kickLeft, data.kickNext
+        if type(data.flags) == "table" then
+            S.Flags = data.flags
+            if DHCp and DHCp.SetLocked then pcall(DHCp.SetLocked, S.Flags.control == true) end
+            if S.Role == "owner" then pcall(S.PaintSwitches) end
+        end
+        if S.Role then UpdateHeader() end
+        -- the invitation
+        if data.invite and not S.InvCard then
+            local f
+            f = S.Card("Admin invitation", tostring(data.invite.from or "The owner") .. " invited you to be a DaffzHub Admin.\nAdmins can block, warn, announce and kick (3 per day).", {
+                {"Accept", C.green, function()
+                    local d2, e2 = S.Call("accept")
+                    S.InvCard = nil
+                    if d2 and type(d2.key) == "string" then
+                        DHDet.Key = d2.key
+                        pcall(DHDet.SaveKey)
+                        Toast("You are now a DaffzHub Admin", C.ok)
+                        S.Poll()
+                    else
+                        Toast("Could not accept: " .. tostring(e2), C.bad)
+                    end
+                end},
+                {"Decline", C.red, function() S.InvCard = nil S.Call("decline") end},
+            }, nil, C.blue)
+            S.InvCard = f
+        elseif not data.invite and S.InvCard then
+            pcall(function() S.InvCard:Destroy() end)
+            S.InvCard = nil
+        end
+        -- commands (kick, warn, announcement)
+        if type(data.cmds) == "table" then
+            for _, c in ipairs(data.cmds) do
+                if type(c) == "table" and (not S.After or c.id > S.After) then
+                    S.After = c.id
+                    pcall(Handle, c)
+                end
+            end
+        end
+        if data.last and (not S.After or data.last > S.After) then S.After = data.last end
+        -- blocked: show the screen and stop the hub
+        if type(data.ban) == "table" then
+            S.ShowBan(data.ban)
+            if not S.Stopped then
+                S.Stopped = true
+                pcall(function() ScreenGui:Destroy() end)
+            end
+        elseif S.Banned then
+            S.Banned = false
+            S.ShowBan(nil)
+        end
+    end
+
+    S.Alive = true
+    Do(function()
+        task.wait(3)
+        while S.Alive and (ScreenGui.Parent or S.Banned) do
+            pcall(S.Poll)
+            task.wait(30)
+        end
+    end)
+    ScreenGui.Destroying:Connect(function()
+        if not S.Banned then
+            S.Alive = false
+            pcall(function() UI:Destroy() end)
+        end
+    end)
+end
+
+do
+    local okS, errS = pcall(DHStaffBoot)
+    if not okS then DHStaffErr = errS end
+end
+
+-- ================================================
 -- MOVE BUTTON (Setting tab): move, resize or hide game buttons
 -- Adapted from the "Perfect UI Manager" sample. DaffzHub's own UI is never touched.
 -- ================================================
@@ -37282,6 +38035,11 @@ featureItems = {
     "   • Control player: take control of another DaffzHub user in your server, only after they tap Allow (popup + Controls tab)",
     "   • Your camera moves to them, you get the joystick and a round Jump button (size adjustable in the list); they see \"Controlled by\" and can turn it off any time",
     "   • Works over WebSocket (the tab tells you if your executor has none). Only walking and jumping are sent",
+    "",
+    "🛡 STAFF PANEL (Setting tab, only Owner and Admin see it)",
+    "   • Owner: add or remove admins (invitation with Accept), kick with a message, block with a date and time, warn, announce, switch Message / Online / Control Player off, staff log, answer block appeals",
+    "   • Admin: block, warn, announce to their own server, kick up to 3 times per 24 hours (the panel shows how many are left)",
+    "   • Warnings: 3 warnings give an automatic 1 day block. A blocked person sees the reason and the end time and can send one appeal",
     "",
     "⚙️ SETTING TAB",
     "   • Instant Prompt toggle",
