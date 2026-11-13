@@ -31749,6 +31749,7 @@ DHAvtBoot = function()
         local NET = {On = true, LimitOn = false, Limit = 8, Blocked = {}, Remote = {}, People = {}, Have = {}, Pup = {}, Building = {},
             File = "Daffzhub_file/Avatar/Online.json", PushSig = nil, PushAt = 0, Alive = true, Here = true}
         AV.Net = NET
+        DHNet = NET
         NET.PropList = {"Head", "Face", "Torso", "LeftArm", "RightArm", "LeftLeg", "RightLeg", "Shirt", "Pants", "GraphicTShirt",
             "HeightScale", "WidthScale", "DepthScale", "HeadScale", "BodyTypeScale", "ProportionScale"}
         NET.ColList = {"HeadColor", "TorsoColor", "LeftArmColor", "RightArmColor", "LeftLegColor", "RightLegColor"}
@@ -32239,10 +32240,20 @@ DHAvtBoot = function()
                 local stl = label(row, blocked and "blocked" or (shares and "shares an avatar" or "no avatar"),
                     {Position = UDim2.new(0, 38, 0, 19), Size = UDim2.new(0, 118, 0, 14), TextSize = 9,
                      TextColor3 = blocked and P.warn or (shares and P.ok or P.dim)})
-                local cp2 = btn(row, "Copy", 166, 5, 90, 26, P.blue)
+                local cp2 = btn(row, "Copy", 166, 5, 62, 26, P.blue)
                 cp2.TextSize = 10
-                local bb = btn(row, blocked and "Unblock" or "Block", 262, 5, 90, 26, blocked and P.sel or P.red)
+                local bb = btn(row, blocked and "Unblock" or "Block", 232, 5, 62, 26, blocked and P.sel or P.red)
                 bb.TextSize = 10
+                local ctB = btn(row, "Control", 298, 5, 62, 26, P.green)
+                ctB.TextSize = 10
+                ctB.MouseButton1Click:Connect(function()
+                    if DHCp and DHCp.Ask then
+                        local t, c = DHCp.Ask(u.uid, nm)
+                        sayOn(t, c)
+                    else
+                        sayOn("Control Player did not start (see the Controls tab).", P.warn)
+                    end
+                end)
                 cp2.MouseButton1Click:Connect(function()
                     if AV.Busy then sayOn("Busy, one moment...", P.warn) return end
                     takeAll(u.uid, nm)
@@ -32331,6 +32342,7 @@ CtlContent = DHNewPage()
 
 function ShowCtlTab()
     DHShowTab(CtlContent, CtlTab)
+    if DHCtl and DHCtl.OnShow then pcall(DHCtl.OnShow) end
 end
 CtlTab.MouseButton1Click:Connect(ShowCtlTab)
 
@@ -32490,10 +32502,12 @@ DHCtlBoot = function()
     end
     -- two buttons holding the same key: it is released only when both let go
     local function keyDown(name)
+        if CT.Remote and name == "Space" then CT.Remote.Jump(true) return end
         CT.Held[name] = (CT.Held[name] or 0) + 1
         if CT.Held[name] == 1 then sendKey(name, true) end
     end
     local function keyUp(name)
+        if CT.Remote and name == "Space" then CT.Remote.Jump(false) return end
         local n = CT.Held[name]
         if not n then return end
         n = n - 1
@@ -32516,6 +32530,7 @@ DHCtlBoot = function()
         end)
     end
     local function save()
+        CT.Save = save
         saveToken = saveToken + 1
         local my = saveToken
         task.delay(0.5, function() if my == saveToken then saveNow() end end)
@@ -32684,6 +32699,7 @@ DHCtlBoot = function()
         CT.Analog = {x = ax, y = ay, m = m}
         local r = 0.3 * m
         JoyKnob.Position = UDim2.new(0.5 + ax * r, 0, 0.5 - ay * r, 0)
+        if CT.Remote then CT.Remote.Move(ax, ay, m) setKeysDir(0, 0) return end
         local kx, ky = 0, 0
         if m > 0 then
             if ax > 0.38 then kx = 1 elseif ax < -0.38 then kx = -1 end
@@ -32715,6 +32731,7 @@ DHCtlBoot = function()
         joyActive, joyOrigin, joyStartX = nil, nil, nil
         setJoy(0, 0, 0)
     end
+    CT.ReleaseJoy = releaseJoy
     JoyBase.InputBegan:Connect(function(input)
         if joyActive or not isPointer(input) then return end
         joyActive = input
@@ -32733,7 +32750,7 @@ DHCtlBoot = function()
         JoyStroke.Transparency = math.clamp(Joy.alpha + 0.1, 0, 0.85)
         JoyStroke.Color = Joy.drag and P.gold or Color3.new(1, 1, 1)
         JoyKnob.BackgroundTransparency = math.clamp(Joy.alpha - 0.15, 0, 0.8)
-        JoyBase.Visible = Joy.on or Joy.drag
+        JoyBase.Visible = Joy.on or Joy.drag or CT.Remote ~= nil
     end
 
     -- the Roblox stick is hidden while the joystick is on (its frames are put back afterwards)
@@ -32758,9 +32775,19 @@ DHCtlBoot = function()
         end)
     end
 
+    CT.HideDefault = hideDefault
     -- walking: the custom stick drives the character itself (camera relative), and cancels the default stick every frame
     local MOVE = "DHCtlMove"
     local function moveStep()
+        if CT.Remote then
+            -- controlling someone else: my own character stands still, the stick only sends to the other player
+            CT.Tick = (CT.Tick or 0) + 1
+            if CT.Tick % 20 == 1 then hideDefault(true) end
+            local ch0 = me.Character
+            local hum0 = ch0 and ch0:FindFirstChildOfClass("Humanoid")
+            if hum0 then hum0:Move(Vector3.new(0, 0, 0), true) end
+            return
+        end
         if not Joy.on then return end
         CT.Tick = (CT.Tick or 0) + 1
         if CT.Tick % 20 == 1 then hideDefault(true) end
@@ -33094,6 +33121,558 @@ DHCtlBoot = function()
         return f
     end
 
+    -- ================= CONTROL PLAYER: a DaffzHub user (A) walks another DaffzHub user (B), only after B allows it =================
+    -- Messages go through Supabase Realtime (WebSocket, Broadcast). B gets a popup with Allow / Deny, A's camera moves to B,
+    -- A's joystick + Jump button drive B's character. B can stop it any time. Only move + jump are ever accepted.
+    local function CPBoot()
+        local CP = {On = true, Pend = {}, State = "off", Gen = 0, Ref = 0, Last = {}, File = "Daffzhub_file/ControlPlayer.json", KeyOver = ""}
+        DHCp = CP
+        CP.Url = "wss://njgmdqqqvbgkghtibnlo.supabase.co/realtime/v1/websocket"
+        CP.KeyConst = "sb_publishable_QyIcRsTdbsFi-ia3jSeTCA_Oxi7bKQZ"
+        local TOPIC
+
+        local function loadCp()
+            local ok, txt = pcall(function() return readfile and isfile and isfile(CP.File) and readfile(CP.File) end)
+            if not ok or type(txt) ~= "string" or txt == "" then return end
+            local ok2, d = pcall(function() return HttpService:JSONDecode(txt) end)
+            if not ok2 or type(d) ~= "table" then return end
+            if d.on ~= nil then CP.On = d.on and true or false end
+            if type(d.key) == "string" then CP.KeyOver = d.key:gsub("%s", "") end
+        end
+        local function saveCp()
+            pcall(function()
+                if not writefile then return end
+                if makefolder and isfolder and not isfolder("Daffzhub_file") then makefolder("Daffzhub_file") end
+                writefile(CP.File, HttpService:JSONEncode({on = CP.On, key = CP.KeyOver}))
+            end)
+        end
+        loadCp()
+        function CP.Key()
+            if CP.KeyOver ~= "" then return CP.KeyOver end
+            if CP.KeyConst ~= "" and CP.KeyConst ~= "PASTE_PUBLISHABLE_KEY_HERE" then return CP.KeyConst end
+            return nil
+        end
+        local function rerender() if CT.Rerender then pcall(CT.Rerender) end end
+
+        -- ---------- overlay: popups (B), top chip (A), bottom panel (B) ----------
+        local OV = Instance.new("ScreenGui")
+        OV.Name = "DHControlPlayer"
+        OV.ResetOnSpawn = false
+        OV.IgnoreGuiInset = true
+        OV.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+        OV.DisplayOrder = (ScreenGui.DisplayOrder or 0) - 1
+        OV.Parent = ScreenGui.Parent
+        CP.Gui = OV
+        local Pop = mk("Frame", {AnchorPoint = Vector2.new(0.5, 0), Position = UDim2.new(0.5, 0, 0, 48), Size = UDim2.new(0, 280, 0, 10),
+            BackgroundTransparency = 1, AutomaticSize = Enum.AutomaticSize.Y}, OV)
+        mk("UIListLayout", {Padding = UDim.new(0, 4), SortOrder = Enum.SortOrder.LayoutOrder}, Pop)
+        local Chip = mk("Frame", {AnchorPoint = Vector2.new(0.5, 0), Position = UDim2.new(0.5, 0, 0, 8), Size = UDim2.new(0, 250, 0, 30),
+            BackgroundColor3 = Color3.fromRGB(20, 20, 26), BackgroundTransparency = 0.15, BorderSizePixel = 0, Visible = false}, OV)
+        corner(Chip, 8)
+        local ChipL = label(Chip, "", {Position = UDim2.new(0, 10, 0, 0), Size = UDim2.new(1, -78, 1, 0), Font = Enum.Font.GothamBold, TextSize = 11})
+        local ChipB = btn(Chip, "Stop", 0, 4, 56, 22, P.red)
+        ChipB.Position = UDim2.new(1, -62, 0, 4)
+        local Panel = mk("Frame", {AnchorPoint = Vector2.new(0.5, 1), Position = UDim2.new(0.5, 0, 1, -14), Size = UDim2.new(0, 290, 0, 34),
+            BackgroundColor3 = Color3.fromRGB(20, 20, 26), BackgroundTransparency = 0.1, BorderSizePixel = 0, Visible = false}, OV)
+        corner(Panel, 8)
+        mk("UIStroke", {Thickness = 1.5, Color = P.gold}, Panel)
+        local PanelL = label(Panel, "", {Position = UDim2.new(0, 10, 0, 0), Size = UDim2.new(1, -96, 1, 0), Font = Enum.Font.GothamBold, TextSize = 11})
+        local PanelB = btn(Panel, "Turn off", 0, 5, 74, 24, P.red)
+        PanelB.Position = UDim2.new(1, -80, 0, 5)
+
+        local function notify(title, text)
+            pcall(function() game:GetService("StarterGui"):SetCore("SendNotification", {Title = title, Text = text, Duration = 6}) end)
+        end
+        local function playerOf(uid)
+            for _, p in ipairs(Players:GetPlayers()) do
+                if p.UserId == uid then return p end
+            end
+        end
+
+        -- ---------- websocket ----------
+        local function send(obj)
+            local w = CP.Ws
+            if not w or CP.State ~= "online" then return false end
+            local ok = pcall(function() w:Send(HttpService:JSONEncode(obj)) end)
+            return ok
+        end
+        local function sendC(data)
+            CP.Ref = CP.Ref + 1
+            return send({topic = TOPIC, event = "broadcast", ref = tostring(CP.Ref),
+                payload = {type = "broadcast", event = "c", payload = data}})
+        end
+        CP.Send = sendC
+
+        local handle
+        local function wsFn()
+            local f
+            pcall(function() f = WebSocket and WebSocket.connect end)
+            if f then return f end
+            pcall(function() f = syn and syn.websocket and syn.websocket.connect end)
+            return f
+        end
+        function CP.Want() return CP.On or CP.Out ~= nil or CP.In ~= nil or CP.Ctl ~= nil end
+        local function closeWs()
+            CP.Gen = CP.Gen + 1
+            local w = CP.Ws
+            CP.Ws = nil
+            if w then pcall(function() w:Close() end) end
+        end
+        local function connect()
+            if CP.Busy then return end
+            local key = CP.Key()
+            if not key then CP.State = "nokey" return end
+            local fn = wsFn()
+            if not fn then CP.State = "nows" return end
+            CP.Busy = true
+            CP.State = "connecting"
+            CP.Gen = CP.Gen + 1
+            local gen = CP.Gen
+            TOPIC = "realtime:dhctl-" .. tostring(game.JobId ~= "" and game.JobId or "local")
+            task.spawn(function()
+                local ok, ws = pcall(fn, CP.Url .. "?apikey=" .. key .. "&vsn=1.0.0")
+                CP.Busy = false
+                if not ok or not ws then CP.State = "error" CP.RetryAt = os.clock() + (CP.Back or 5) CP.Back = math.min((CP.Back or 5) * 2, 60) rerender() return end
+                if gen ~= CP.Gen then pcall(function() ws:Close() end) return end
+                CP.Ws = ws
+                pcall(function()
+                    ws.OnMessage:Connect(function(m) if gen == CP.Gen then handle(m) end end)
+                end)
+                pcall(function()
+                    ws.OnClose:Connect(function()
+                        if gen == CP.Gen then
+                            CP.Ws = nil
+                            CP.State = "error"
+                            CP.RetryAt = os.clock() + (CP.Back or 5)
+                            rerender()
+                        end
+                    end)
+                end)
+                CP.State = "joining"
+                CP.Joined = false
+                local okj = pcall(function()
+                    ws:Send(HttpService:JSONEncode({topic = TOPIC, event = "phx_join", ref = "1", join_ref = "1",
+                        payload = {config = {broadcast = {self = false, ack = false}, presence = {enabled = false}, private = false}}}))
+                end)
+                if not okj then CP.State = "error" CP.RetryAt = os.clock() + 5 end
+                rerender()
+            end)
+        end
+        CP.Connect = connect
+
+        -- ---------- B side: who is controlling me ----------
+        local function stopIn(tellA, why)
+            local c = CP.In
+            if not c then return end
+            CP.In = nil
+            if tellA then sendC({t = "stop", f = me.UserId, to = c.uid, k = c.k}) end
+            Panel.Visible = false
+            pcall(function()
+                local ch = me.Character
+                local hum = ch and ch:FindFirstChildOfClass("Humanoid")
+                if hum then hum:Move(Vector3.new(0, 0, 0), false) hum.Jump = false end
+            end)
+            if why then say(why, P.dim) notify("DaffzHub", why) end
+            rerender()
+        end
+        CP.StopIn = stopIn
+
+        local function allow(uid)
+            local rq = CP.Pend[uid]
+            CP.Pend[uid] = nil
+            if not rq then return end
+            if CP.In or not playerOf(uid) then
+                sendC({t = "no", f = me.UserId, to = uid, why = "busy"})
+            else
+                local k
+                pcall(function() k = HttpService:GenerateGUID(false) end)
+                k = k or (tostring(math.random(1e9)) .. tostring(os.clock()))
+                CP.In = {uid = uid, name = rq.name, k = k, last = os.clock(), wx = 0, wz = 0, j = false, hb = 0}
+                sendC({t = "ok", f = me.UserId, to = uid, k = k})
+                PanelL.Text = "Controlled by: " .. rq.name
+                Panel.Visible = true
+                say("You are controlled by " .. rq.name .. ". Tap Turn off to stop.", P.warn)
+            end
+            if rq.ui then rq.ui:Destroy() end
+            rerender()
+        end
+        local function deny(uid, silent)
+            local rq = CP.Pend[uid]
+            CP.Pend[uid] = nil
+            if rq and rq.ui then rq.ui:Destroy() end
+            if not silent then sendC({t = "no", f = me.UserId, to = uid, why = "denied"}) end
+            rerender()
+        end
+        CP.Allow, CP.Deny = allow, deny
+        PanelB.MouseButton1Click:Connect(function() stopIn(true, "Control turned off.") end)
+
+        local function onReq(msg)
+            local uid = tonumber(msg.f)
+            local p = uid and playerOf(uid)
+            if not p or uid == me.UserId or not CP.On then return end
+            if DHNet and DHNet.Blocked and DHNet.Blocked[uid] then return end
+            if CP.Pend[uid] then return end
+            local n = 0
+            for _ in pairs(CP.Pend) do n = n + 1 end
+            if n >= 3 then return end
+            local nm = p.DisplayName ~= "" and p.DisplayName or p.Name
+            local rq = {name = nm, at = os.clock()}
+            CP.Pend[uid] = rq
+            local f = mk("Frame", {Size = UDim2.new(1, 0, 0, 56), BackgroundColor3 = Color3.fromRGB(20, 20, 26), BackgroundTransparency = 0.1,
+                BorderSizePixel = 0, LayoutOrder = uid % 1000}, Pop)
+            corner(f, 8)
+            mk("UIStroke", {Thickness = 1.5, Color = P.gold}, f)
+            label(f, nm .. " wants to control you", {Position = UDim2.new(0, 10, 0, 4), Size = UDim2.new(1, -20, 0, 20), Font = Enum.Font.GothamBold, TextSize = 11})
+            local a = btn(f, "Allow", 10, 28, 124, 24, P.green)
+            local d = btn(f, "Deny", 146, 28, 124, 24, P.red)
+            a.MouseButton1Click:Connect(function() allow(uid) end)
+            d.MouseButton1Click:Connect(function() deny(uid) end)
+            rq.ui = f
+            notify("DaffzHub", nm .. " wants to control you. Allow or Deny.")
+            rerender()
+        end
+
+        local function onInp(msg)
+            local c = CP.In
+            if not c or tonumber(msg.f) ~= c.uid or msg.k ~= c.k then return end
+            local x, z = tonumber(msg.x) or 0, tonumber(msg.z) or 0
+            local mag = math.sqrt(x * x + z * z)
+            if mag > 1 then x, z = x / mag, z / mag end
+            c.wx, c.wz, c.j, c.last = x, z, msg.j == 1, os.clock()
+        end
+
+        -- ---------- A side: I control someone ----------
+        local function stopCtl(tellB, why)
+            local c = CP.Ctl
+            CP.Out = nil
+            if not c then return end
+            CP.Ctl = nil
+            if tellB then sendC({t = "stop", f = me.UserId, to = c.uid, k = c.k}) end
+            CT.Remote = nil
+            Chip.Visible = false
+            pcall(function()
+                local cam = workspace.CurrentCamera
+                local ch = me.Character
+                local hum = ch and ch:FindFirstChildOfClass("Humanoid")
+                if cam and hum then cam.CameraSubject = hum end
+            end)
+            pcall(CT.ReleaseAll)
+            Gui.Enabled = CT.Show
+            if not Joy.on then hideDefault(false) end
+            CT.JoyVisual()
+            if why then say(why, P.dim) notify("DaffzHub", why) end
+            rerender()
+        end
+        CP.StopCtl = stopCtl
+        ChipB.MouseButton1Click:Connect(function() stopCtl(true, "Stopped controlling.") end)
+
+        local function startCtl(uid, name, k)
+            CP.Ctl = {uid = uid, name = name, k = k, lastHb = os.clock(), ax = 0, ay = 0, m = 0, jump = false, sent = {x = 0, z = 0, j = 0}, at = 0}
+            CP.Out = nil
+            pcall(CT.ReleaseAll)
+            local c = CP.Ctl
+            CT.Remote = {
+                Move = function(ax, ay, m) c.ax, c.ay, c.m = ax, ay, m end,
+                Jump = function(d) c.jump = d and true or false end,
+            }
+            -- a round Jump button must exist (Space), so the user can set its size in the list
+            local has = false
+            for _, b in ipairs(CT.Btns) do
+                for _, key in ipairs(b.keys) do if key == "Space" then has = true end end
+            end
+            if not has then
+                local b = {id = CT.Next, name = "Jump", keys = {"Space"}, shape = "round", size = 84, alpha = 0.35, rot = 0, xs = 0.86, ys = 0.72, drag = false}
+                CT.Next = CT.Next + 1
+                CT.Btns[#CT.Btns + 1] = b
+                CT.Create(b)
+                pcall(CT.Save)
+            end
+            Gui.Enabled = true
+            hideDefault(true)
+            CT.JoyVisual()
+            ChipL.Text = "Controlling: " .. name
+            Chip.Visible = true
+            say("Controlling " .. name .. ". Use the joystick and the Jump button. Tap Stop to finish.", P.ok)
+            notify("DaffzHub", "Controlling " .. name)
+            rerender()
+        end
+
+        local function onOk(msg)
+            local o = CP.Out
+            if not o or tonumber(msg.f) ~= o.uid or type(msg.k) ~= "string" then return end
+            if CP.Ctl then return end
+            startCtl(o.uid, o.name, msg.k)
+        end
+        local function onNo(msg)
+            local o = CP.Out
+            if not o or tonumber(msg.f) ~= o.uid then return end
+            CP.Out = nil
+            say(o.name .. (msg.why == "busy" and " is already controlled by someone." or " said no."), P.warn)
+            rerender()
+        end
+
+        handle = function(raw)
+            local ok, m = pcall(function() return HttpService:JSONDecode(raw) end)
+            if not ok or type(m) ~= "table" then return end
+            if m.event == "phx_reply" and m.topic == TOPIC then
+                local st = type(m.payload) == "table" and m.payload.status
+                if st == "ok" and not CP.Joined then
+                    CP.Joined = true
+                    CP.State = "online"
+                    CP.Back = 5
+                    rerender()
+                elseif st == "error" then
+                    CP.State = "error"
+                    CP.RetryAt = os.clock() + 20
+                    rerender()
+                end
+                return
+            end
+            if m.event ~= "broadcast" or type(m.payload) ~= "table" or m.payload.event ~= "c" then return end
+            local d = m.payload.payload
+            if type(d) ~= "table" or tonumber(d.to) ~= me.UserId then return end
+            local t = d.t
+            if t == "req" then onReq(d)
+            elseif t == "ok" then onOk(d)
+            elseif t == "no" then onNo(d)
+            elseif t == "inp" then onInp(d)
+            elseif t == "hb" then
+                local c = CP.Ctl
+                if c and tonumber(d.f) == c.uid and d.k == c.k then c.lastHb = os.clock() end
+            elseif t == "stop" then
+                local c, i = CP.Ctl, CP.In
+                if c and tonumber(d.f) == c.uid and d.k == c.k then stopCtl(false, c.name .. " turned control off.")
+                elseif i and tonumber(d.f) == i.uid and d.k == i.k then stopIn(false, i.name .. " stopped controlling you.")
+                elseif CP.Out and tonumber(d.f) == CP.Out.uid then CP.Out = nil rerender() end
+            end
+        end
+
+        -- A asks B (returns text, color for the caller to show)
+        function CP.Ask(uid, name)
+            if CP.Ctl then return "You are already controlling " .. CP.Ctl.name .. ". Stop first.", P.warn end
+            if CP.Out and os.clock() - CP.Out.at < 40 then return "Still waiting for " .. CP.Out.name .. " to answer.", P.warn end
+            if not CP.Key() then return "Control Player needs a Realtime key (Controls tab).", P.warn end
+            if not wsFn() then return "This executor has no WebSocket, so Control Player cannot work here.", P.warn end
+            if CP.State ~= "online" then
+                connect()
+                return "Connecting... tap Control again in a few seconds.", P.warn
+            end
+            if CP.Last[uid] and os.clock() - CP.Last[uid] < 8 then return "Wait a few seconds before asking again.", P.warn end
+            CP.Last[uid] = os.clock()
+            CP.Out = {uid = uid, name = tostring(name), at = os.clock()}
+            sendC({t = "req", f = me.UserId, to = uid})
+            rerender()
+            return "Asked " .. tostring(name) .. ". Waiting for Allow...", P.ok
+        end
+
+        -- ---------- per-frame work ----------
+        local lastSend, hbAt = 0, 0
+        local function frame()
+            local now = os.clock()
+            -- A: camera on B, send the input
+            local c = CP.Ctl
+            if c then
+                local target = playerOf(c.uid)
+                if not target then stopCtl(false, c.name .. " left the server.") return end
+                if now - c.lastHb > 12 then stopCtl(true, "Lost connection to " .. c.name .. ".") return end
+                pcall(function()
+                    local cam = workspace.CurrentCamera
+                    local hum = target.Character and target.Character:FindFirstChildOfClass("Humanoid")
+                    if cam and hum and cam.CameraSubject ~= hum then cam.CameraSubject = hum end
+                end)
+                local x, z = 0, 0
+                if c.m > 0 then
+                    local cam = workspace.CurrentCamera
+                    local lv = cam and cam.CFrame.LookVector or Vector3.new(0, 0, -1)
+                    lv = Vector3.new(lv.X, 0, lv.Z)
+                    lv = lv.Magnitude > 0.001 and lv.Unit or Vector3.new(0, 0, -1)
+                    local rv = Vector3.new(-lv.Z, 0, lv.X)
+                    local w = rv * (c.ax * c.m) + lv * (c.ay * c.m)
+                    x, z = math.floor(w.X * 100 + 0.5) / 100, math.floor(w.Z * 100 + 0.5) / 100
+                end
+                local j = c.jump and 1 or 0
+                local changed = math.abs(x - c.sent.x) > 0.02 or math.abs(z - c.sent.z) > 0.02 or j ~= c.sent.j
+                if (changed and now - lastSend >= 0.08) or now - lastSend >= 1 then
+                    lastSend = now
+                    c.sent = {x = x, z = z, j = j}
+                    sendC({t = "inp", f = me.UserId, to = c.uid, k = c.k, x = x, z = z, j = j})
+                end
+            end
+            -- B: apply the input
+            local i = CP.In
+            if i then
+                if not playerOf(i.uid) then stopIn(false, i.name .. " left the server.") return end
+                if now - i.last > 8 then stopIn(true, "Control ended (no signal).") return end
+                pcall(function()
+                    local hum = me.Character and me.Character:FindFirstChildOfClass("Humanoid")
+                    if hum then
+                        hum:Move(Vector3.new(i.wx, 0, i.wz), false)
+                        hum.Jump = i.j
+                    end
+                end)
+                if now - hbAt >= 2 then
+                    hbAt = now
+                    sendC({t = "hb", f = me.UserId, to = i.uid, k = i.k})
+                end
+            end
+        end
+        pcall(function() RunService:UnbindFromRenderStep("DHCpApply") end)
+        pcall(function() RunService:BindToRenderStep("DHCpApply", Enum.RenderPriority.Input.Value + 60, frame) end)
+
+        -- ---------- connection keeper, heartbeat, request timeouts ----------
+        local lastBeat = 0
+        task.spawn(function()
+            while OV.Parent do
+                task.wait(1)
+                local now = os.clock()
+                if CP.Want() then
+                    if CP.State == "off" or CP.State == "nokey" or CP.State == "nows" or (CP.State == "error" and now >= (CP.RetryAt or 0)) then
+                        if not CP.Busy then connect() end
+                    end
+                    if CP.State == "online" and now - lastBeat >= 20 then
+                        lastBeat = now
+                        CP.Ref = CP.Ref + 1
+                        send({topic = "phoenix", event = "heartbeat", payload = {}, ref = tostring(CP.Ref)})
+                    end
+                elseif CP.Ws then
+                    closeWs()
+                    CP.State = "off"
+                end
+                if CP.Out and now - CP.Out.at > 40 then
+                    say("No answer from " .. CP.Out.name .. ".", P.warn)
+                    CP.Out = nil
+                    rerender()
+                end
+                for uid, rq in pairs(CP.Pend) do
+                    if now - rq.at > 40 then deny(uid, true) end
+                end
+            end
+        end)
+        Players.PlayerRemoving:Connect(function(p)
+            if CP.Pend[p.UserId] then deny(p.UserId, true) end
+        end)
+
+        -- ---------- the card in the Controls tab ----------
+        local function players()
+            local out = {}
+            local pe = DHNet and DHNet.People
+            if type(pe) == "table" then
+                for _, u in ipairs(pe) do
+                    if type(u) == "table" and type(u.uid) == "number" and u.uid ~= me.UserId and playerOf(u.uid) then
+                        if not (DHNet.Blocked and DHNet.Blocked[u.uid]) then out[#out + 1] = u end
+                    end
+                end
+                table.sort(out, function(a, b) return tostring(a.name):lower() < tostring(b.name):lower() end)
+            end
+            return out
+        end
+        local function statusText()
+            local s = CP.State
+            if not CP.Key() then return "Needs a Realtime key. Paste it below.", P.warn end
+            if s == "nows" then return "This executor has no WebSocket. Control Player cannot work here.", P.warn end
+            if s == "online" then return CP.On and "Ready. Others can ask to control you." or "Connected. Requests to you are OFF.", P.ok end
+            if s == "connecting" or s == "joining" then return "Connecting...", P.dim end
+            if s == "error" then return "Connection failed, retrying. Check Realtime is enabled in Supabase.", P.warn end
+            return "Not connected.", P.dim
+        end
+        function CP.Height()
+            local h = 62
+            if not CP.Key() or CP.KeyOver ~= "" or CP.KeyConst == "PASTE_PUBLISHABLE_KEY_HERE" then h = h + 28 end
+            if CP.Ctl then h = h + 28 end
+            if CP.In then h = h + 28 end
+            for _ in pairs(CP.Pend) do h = h + 28 end
+            local n = math.min(#players(), 6)
+            h = h + 22 + (n > 0 and n * 28 or 18) + 6
+            return h
+        end
+        function CP.Fill(f)
+            label(f, "Control player (DaffzHub users)", {Position = UDim2.new(0, 8, 0, 4), Size = UDim2.new(1, -110, 0, 24), TextSize = 11, Font = Enum.Font.GothamBold})
+            local onB = btn(f, "", 0, 4, 90, 24, P.red)
+            onB.Position = UDim2.new(1, -96, 0, 4)
+            paintToggle(onB, CP.On, "Allow: ON", "Allow: OFF")
+            onB.MouseButton1Click:Connect(function()
+                CP.On = not CP.On
+                saveCp()
+                if CP.On and CP.State ~= "online" then connect() end
+                rerender()
+            end)
+            local st, col = statusText()
+            label(f, st, {Position = UDim2.new(0, 8, 0, 30), Size = UDim2.new(1, -16, 0, 26), TextColor3 = col, TextWrapped = true, TextSize = 10,
+                TextTruncate = Enum.TextTruncate.None, TextYAlignment = Enum.TextYAlignment.Top})
+            local y = 60
+            if not CP.Key() or CP.KeyOver ~= "" or CP.KeyConst == "PASTE_PUBLISHABLE_KEY_HERE" then
+                label(f, "Key", {Position = UDim2.new(0, 8, 0, y), Size = UDim2.new(0, 26, 0, 22), TextColor3 = P.dim, TextSize = 10})
+                local kb = mk("TextBox", {Text = CP.KeyOver, PlaceholderText = "Supabase publishable key (sb_publishable_...)", Position = UDim2.new(0, 36, 0, y),
+                    Size = UDim2.new(1, -112, 0, 22), BackgroundColor3 = P.card, TextColor3 = P.text, PlaceholderColor3 = P.dim, Font = Enum.Font.Gotham,
+                    TextSize = 10, ClearTextOnFocus = false, BorderSizePixel = 0, TextXAlignment = Enum.TextXAlignment.Left}, f)
+                corner(kb, 5)
+                local sv = btn(f, "Save", 0, y, 68, 22, P.blue)
+                sv.Position = UDim2.new(1, -72, 0, y)
+                sv.MouseButton1Click:Connect(function()
+                    CP.KeyOver = kb.Text:gsub("%s", "")
+                    saveCp()
+                    closeWs()
+                    CP.State = "off"
+                    CP.Back = 5
+                    if CP.Key() then connect() end
+                    rerender()
+                end)
+                y = y + 28
+            end
+            if CP.Ctl then
+                label(f, "Controlling: " .. CP.Ctl.name, {Position = UDim2.new(0, 8, 0, y), Size = UDim2.new(1, -90, 0, 24), TextColor3 = P.ok, Font = Enum.Font.GothamBold})
+                local b = btn(f, "Stop", 0, y, 70, 24, P.red)
+                b.Position = UDim2.new(1, -76, 0, y)
+                b.MouseButton1Click:Connect(function() stopCtl(true, "Stopped controlling.") end)
+                y = y + 28
+            end
+            if CP.In then
+                label(f, "Controlled by: " .. CP.In.name, {Position = UDim2.new(0, 8, 0, y), Size = UDim2.new(1, -90, 0, 24), TextColor3 = P.warn, Font = Enum.Font.GothamBold})
+                local b = btn(f, "Turn off", 0, y, 70, 24, P.red)
+                b.Position = UDim2.new(1, -76, 0, y)
+                b.MouseButton1Click:Connect(function() stopIn(true, "Control turned off.") end)
+                y = y + 28
+            end
+            for uid, rq in pairs(CP.Pend) do
+                label(f, rq.name .. " wants to control you", {Position = UDim2.new(0, 8, 0, y), Size = UDim2.new(1, -150, 0, 24), TextColor3 = P.gold, Font = Enum.Font.GothamBold})
+                local a = btn(f, "Allow", 0, y, 64, 24, P.green)
+                a.Position = UDim2.new(1, -140, 0, y)
+                local d = btn(f, "Deny", 0, y, 64, 24, P.red)
+                d.Position = UDim2.new(1, -72, 0, y)
+                a.MouseButton1Click:Connect(function() allow(uid) end)
+                d.MouseButton1Click:Connect(function() deny(uid) end)
+                y = y + 28
+            end
+            label(f, "Pick a DaffzHub user in this server to control:", {Position = UDim2.new(0, 8, 0, y), Size = UDim2.new(1, -16, 0, 20), TextColor3 = P.dim, TextSize = 10})
+            y = y + 22
+            local pl = players()
+            if #pl == 0 then
+                label(f, "Nobody else with DaffzHub here (see the Online tab).", {Position = UDim2.new(0, 8, 0, y), Size = UDim2.new(1, -16, 0, 16), TextColor3 = P.dim, TextSize = 10})
+            end
+            for i = 1, math.min(#pl, 6) do
+                local u = pl[i]
+                label(f, tostring(u.name), {Position = UDim2.new(0, 8, 0, y), Size = UDim2.new(1, -90, 0, 24), Font = Enum.Font.GothamBold})
+                local b = btn(f, "Control", 0, y, 70, 24, P.blue)
+                b.Position = UDim2.new(1, -76, 0, y)
+                b.MouseButton1Click:Connect(function()
+                    local t, c2 = CP.Ask(u.uid, u.name)
+                    say(t, c2)
+                end)
+                y = y + 28
+            end
+        end
+
+        function CT.OnShow() rerender() end
+        if CP.On and CP.Key() then connect() end
+        ScreenGui.Destroying:Connect(function()
+            pcall(function() if CP.Ctl then stopCtl(true) end end)
+            pcall(function() if CP.In then stopIn(true) end end)
+            pcall(closeWs)
+            pcall(function() RunService:UnbindFromRenderStep("DHCpApply") end)
+            pcall(function() OV:Destroy() end)
+        end)
+    end
+
     local GUIDE = table.concat({
         "GUIDE",
         "- Add button: puts a button on your screen. Tap its name in the list to open its settings.",
@@ -33123,6 +33702,7 @@ DHCtlBoot = function()
         for _, c in ipairs(list:GetChildren()) do
             if c:IsA("Frame") or c:IsA("TextLabel") then c:Destroy() end
         end
+        if DHCp then local cf = card(DHCp.Height(), -1) DHCp.Fill(cf) end
         joyCard(0)
         for i, b in ipairs(CT.Btns) do buttonCard(b, i) end
         local g = label(list, GUIDE, {Size = UDim2.new(1, -2, 0, 20), AutomaticSize = Enum.AutomaticSize.Y, LayoutOrder = 1000000, TextWrapped = true, TextYAlignment = Enum.TextYAlignment.Top,
@@ -33156,6 +33736,12 @@ DHCtlBoot = function()
     for _, b in ipairs(CT.Btns) do CT.Create(b) end
     CT.JoyVisual()
     if Joy.on then hideDefault(true) end
+    CT.Rerender = Render
+    CT.Save = save
+    do
+        local okc, errc = pcall(CPBoot)
+        if not okc then DHCpErr = errc end
+    end
     Render()
     if not canKey() then
         say("Note: this executor has no key function (VirtualInputManager / keypress). Buttons are saved, but they cannot press keys here.", P.warn)
@@ -36693,6 +37279,9 @@ featureItems = {
     "   • Each button: rename, shape (square, round, wide), size, transparency, rotation, drag on/off and delete. All saved, also the position",
     "   • Joystick (WASD): Stiff mode (8 directions) or Smooth mode (any angle), size, transparency, dead zone, drag, saved",
     "   • Needs an executor that can press keys; the tab tells you if yours cannot",
+    "   • Control player: take control of another DaffzHub user in your server, only after they tap Allow (popup + Controls tab)",
+    "   • Your camera moves to them, you get the joystick and a round Jump button (size adjustable in the list); they see \"Controlled by\" and can turn it off any time",
+    "   • Works over WebSocket (the tab tells you if your executor has none). Only walking and jumping are sent",
     "",
     "⚙️ SETTING TAB",
     "   • Instant Prompt toggle",
