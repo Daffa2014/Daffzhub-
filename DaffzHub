@@ -35933,6 +35933,7 @@ end)
 -- STAFF PANEL (Setting tab, only for Owner / Admin).
 -- Owner: add/remove admins, kick (with a message), block (with a date), warn, announce, switch server features off, see the log, answer block appeals.
 -- Admin: block, warn, announce (own server), kick (3 per 24 hours).
+-- Security: the server flags a copy that stays in the same server after a kick (the kick code was removed); flagged copies lose the online features until the owner clears it. A watchdog keeps the check loop alive.
 -- Everything is checked by the DaffzHub server (the hub only asks). Every 30 seconds the hub asks the server one small question:
 -- "am I blocked? any command for me? what is switched off?" (it sends your user ID; your name and staff key only when you have a staff key).
 -- ================================================
@@ -36174,7 +36175,7 @@ DHStaffBoot = function()
     local sr = Item(users, 34, 1)
     local qbox = Box(sr, "Username or user ID", {Size = UDim2.new(1, -86, 0, 26), Position = UDim2.new(0, 4, 0, 4)})
     local find = Btn(sr, "Find", C.blue, {Size = UDim2.new(0, 74, 0, 26), Position = UDim2.new(1, -78, 0, 4)})
-    local sel = Item(users, 236, 2)
+    local sel = Item(users, 268, 2)
     sel.Visible = false
     local selName = Lbl(sel, "", {Size = UDim2.new(1, -12, 0, 16), Position = UDim2.new(0, 8, 0, 4), Font = Enum.Font.GothamBold, TextSize = 12, TextWrapped = false})
     local selInfo = Lbl(sel, "", {Size = UDim2.new(1, -12, 0, 28), Position = UDim2.new(0, 8, 0, 22), TextSize = 10, TextColor3 = C.dim, TextYAlignment = Enum.TextYAlignment.Top})
@@ -36195,7 +36196,8 @@ DHStaffBoot = function()
     local unbanB = Btn(sel, "Unblock", C.green, {Size = UDim2.new(0.25, -6, 0, 30), Position = UDim2.new(0.75, -4, 0, 120)})
     local adminB = Btn(sel, "Make admin", C.blue, {Size = UDim2.new(0.5, -12, 0, 28), Position = UDim2.new(0, 8, 0, 156)})
     local clearB = Btn(sel, "Clear warnings", C.grey, {Size = UDim2.new(0.5, -12, 0, 28), Position = UDim2.new(0.5, 4, 0, 156)})
-    local selMsg = Lbl(sel, "", {Size = UDim2.new(1, -16, 0, 40), Position = UDim2.new(0, 8, 0, 190), TextSize = 10, TextYAlignment = Enum.TextYAlignment.Top})
+    local tamperB = Btn(sel, "Clear 'modified copy' flag", C.yellow, {Size = UDim2.new(1, -16, 0, 28), Position = UDim2.new(0, 8, 0, 190), Visible = false})
+    local selMsg = Lbl(sel, "", {Size = UDim2.new(1, -16, 0, 40), Position = UDim2.new(0, 8, 0, 222), TextSize = 10, TextYAlignment = Enum.TextYAlignment.Top})
     local plLabel = Lbl(users, "PLAYERS IN THIS SERVER", {Size = UDim2.new(1, -6, 0, 16), Font = Enum.Font.GothamBold, TextColor3 = C.dim, LayoutOrder = 3})
 
     local function KickText()
@@ -36226,8 +36228,10 @@ DHStaffBoot = function()
             if st.staff == "owner" then parts[#parts + 1] = "OWNER" elseif st.staff == "active" then parts[#parts + 1] = "ADMIN" end
             parts[#parts + 1] = st.ban and ("BLOCKED " .. untilText(st.ban["until"]) .. " (" .. tostring(st.ban.reason or "-") .. ")") or "not blocked"
             parts[#parts + 1] = tostring(st.warns or 0) .. " warning(s)"
+            if st.tampered then parts[#parts + 1] = "MODIFIED COPY (online features off)" end
         end
         selInfo.Text = table.concat(parts, "  |  ")
+        tamperB.Visible = isOwner() and st ~= nil and st.tampered == true
         adminB.Visible, clearB.Visible = isOwner(), isOwner()
         Say(selMsg, "")
         UpdateHeader()
@@ -36339,6 +36343,14 @@ DHStaffBoot = function()
         Do(function()
             local data, err = S.Call("invite", CurTarget())
             Say(selMsg, data and "Invitation sent. It lasts 10 minutes." or tostring(err), data and C.ok or C.bad)
+        end)
+    end)
+    tamperB.MouseButton1Click:Connect(function()
+        if not S.Sel then return end
+        Do(function()
+            local data, err = S.Call("untamper", CurTarget())
+            Say(selMsg, data and "Flag cleared. Their online features work again." or tostring(err), data and C.ok or C.bad)
+            Refresh1()
         end)
     end)
     clearB.MouseButton1Click:Connect(function()
@@ -36594,6 +36606,7 @@ DHStaffBoot = function()
         local okc, data, err = pcall(function() return S.Call("poll", {room = DHDet.Room(), map = "m:" .. tostring(game.PlaceId), after = S.After}) end)
         S.Busy = false
         S.Polls = (S.Polls or 0) + 1
+        S.LastPoll = os.clock()
         if not okc then S.LastErr = "poll crashed: " .. tostring(data) return end
         if not data then S.LastErr = err return end
         S.LastErr = nil
@@ -36655,11 +36668,26 @@ DHStaffBoot = function()
     end
 
     S.Alive = true
+    -- the poll function is kept in a local, so replacing DHStaff.Poll from outside changes nothing
+    local origPoll = S.Poll
     Do(function()
         task.wait(3)
         while S.Alive and (ScreenGui.Parent or S.Banned) do
-            local okp, ep = pcall(S.Poll)
+            local okp, ep = pcall(origPoll)
             if not okp then S.Busy = false S.LastErr = "poll error: " .. tostring(ep) end
+            task.wait(30)
+        end
+    end)
+    -- WATCHDOG: if the check loop stops (killed or broken), this one polls instead and puts DHStaff.Poll back
+    Do(function()
+        task.wait(45)
+        while S.Alive and (ScreenGui.Parent or S.Banned) do
+            if S.Poll ~= origPoll then S.Poll = origPoll end
+            if os.clock() - (S.LastPoll or 0) > 150 then
+                S.Busy = false
+                local okp, ep = pcall(origPoll)
+                if not okp then S.LastErr = "watchdog poll error: " .. tostring(ep) end
+            end
             task.wait(30)
         end
     end)
@@ -38568,6 +38596,7 @@ featureItems = {
     "   • Executor check: which functions your executor has",
     "   • Shows which DaffzHub features will not work",
     "   • Test button (safe) and Copy report",
+    "   • Security: a modified copy that ignores a kick loses the online features",
     "",
     "🛡 STAFF PANEL (Setting tab, only Owner and Admin see it)",
     "   • Owner: add or remove admins (invitation with Accept), kick with a message, block with a date and time, warn, announce, switch Message / Online / Control Player off, staff log, answer block appeals",
