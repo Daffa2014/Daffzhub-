@@ -36230,7 +36230,7 @@ DHStaffBoot = function()
                 local agT = ag < 60 and "baru saja" or (ag < 3600 and (math.floor(ag / 60) .. " menit yang lalu") or (ag < 86400 and (math.floor(ag / 3600) .. " jam yang lalu") or (math.floor(ag / 86400) .. " hari yang lalu")))
                 parts[#parts + 1] = st.hub.online and "DaffzHub user (online)" or ("DaffzHub user (terakhir " .. agT .. ")")
             elseif st.hub == false then
-                parts[#parts + 1] = "NOT a DaffzHub user"
+                parts[#parts + 1] = "not detected using DaffzHub (offline / never chatted)"
             end
             if st.staff == "owner" then parts[#parts + 1] = "OWNER" elseif st.staff == "active" then parts[#parts + 1] = "ADMIN" end
             parts[#parts + 1] = st.ban and ("BLOCKED " .. untilText(st.ban["until"]) .. " (" .. tostring(st.ban.reason or "-") .. ")") or "not blocked"
