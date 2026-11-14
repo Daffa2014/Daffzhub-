@@ -39337,9 +39337,9 @@ CheckLoadingHalt()
 SetLoadProgress(96)
 
 -- ================================================
--- INITIALIZE
+-- INITIALIZE (the hub opens on the Home tab)
 -- ================================================
-ShowScriptTab()
+if not pcall(ShowCreditTab) then ShowScriptTab() end
 
 CheckLoadingHalt()
 SetLoadProgress(100)
