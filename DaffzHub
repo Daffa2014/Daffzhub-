@@ -36524,27 +36524,46 @@ DHStaffBoot = function()
 
     -- ---------- the row in the Setting tab ----------
     function S.UpdateRow()
-        if S.Role and not S.Row and OtherContainer then
-            local y = OtherContainer.Size.Y.Offset
-            local row = N("Frame", OtherContainer, {Size = UDim2.new(1, -20, 0, 50), Position = UDim2.new(0, 10, 0, y), BackgroundColor3 = Color3.fromRGB(35, 35, 35), ZIndex = 1})
-            Round(row, 6)
-            Lbl(row, "Staff Panel", {Size = UDim2.new(0.7, -10, 0, 24), Position = UDim2.new(0, 10, 0, 6), TextSize = 14, ZIndex = 1, TextWrapped = false})
-            Lbl(row, "Block, warn, kick, announce", {Size = UDim2.new(0.7, -10, 0, 14), Position = UDim2.new(0, 10, 0, 29), TextSize = 10, TextColor3 = Color3.fromRGB(150, 150, 150), ZIndex = 1, TextWrapped = false})
-            local open = Btn(row, "Open", Color3.fromRGB(40, 140, 200), {Size = UDim2.new(0, 60, 0, 30), Position = UDim2.new(1, -70, 0.5, -15), ZIndex = 1, TextSize = 14})
-            Round(open, 15)
-            open.MouseButton1Click:Connect(function()
-                S.ApplyRole()
-                panel.Visible = true
-                S.Select(curTab or "users")
-            end)
-            OtherContainer.Size = UDim2.new(1, 0, 0, y + 60)
-            S.Row = row
+        -- SubTabs at the top of the Setting tab: "Setting | Staff Panel" (only for Owner / Admin)
+        if S.Role and not S.Row then
+            local bar = N("Frame", SettingContent, {Size = UDim2.new(1, -20, 0, 32), Position = UDim2.new(0, 10, 0, 6), BackgroundTransparency = 1, ZIndex = 31})
+            local ON, OFF = Color3.fromRGB(40, 140, 200), Color3.fromRGB(35, 35, 45)
+            local b1 = Btn(bar, "Setting", ON, {Size = UDim2.new(0.5, -3, 1, 0), Position = UDim2.new(0, 0, 0, 0), TextSize = 13, ZIndex = 31})
+            local b2 = Btn(bar, "Staff Panel", OFF, {Size = UDim2.new(0.5, -3, 1, 0), Position = UDim2.new(0.5, 3, 0, 0), TextSize = 13, ZIndex = 31})
+            Round(b1, 6)
+            Round(b2, 6)
+            local function pick(staff)
+                panel.Visible = staff
+                b1.BackgroundColor3 = staff and OFF or ON
+                b2.BackgroundColor3 = staff and ON or OFF
+                if staff then
+                    S.ApplyRole()
+                    S.Select(curTab or "users")
+                end
+            end
+            b1.MouseButton1Click:Connect(function() pick(false) end)
+            b2.MouseButton1Click:Connect(function() pick(true) end)
+            S.Pick = pick
+            closeB.Visible = false
+            panel.Position = UDim2.new(0, 10, 0, 44)
+            panel.Size = UDim2.new(1, -20, 1, -54)
+            if SettingScroll then
+                SettingScroll.Position = UDim2.new(0, 10, 0, 44)
+                SettingScroll.Size = UDim2.new(1, -20, 1, -54)
+            end
+            S.Row = bar
         elseif not S.Role and S.Row then
-            local y = S.Row.Position.Y.Offset
-            if OtherContainer and OtherContainer.Size.Y.Offset == y + 60 then OtherContainer.Size = UDim2.new(1, 0, 0, y) end
             S.Row:Destroy()
             S.Row = nil
+            S.Pick = nil
             panel.Visible = false
+            closeB.Visible = true
+            panel.Position = UDim2.new(0, 10, 0, 10)
+            panel.Size = UDim2.new(1, -20, 1, -20)
+            if SettingScroll then
+                SettingScroll.Position = UDim2.new(0, 10, 0, 10)
+                SettingScroll.Size = UDim2.new(1, -20, 1, -20)
+            end
         end
         if S.Role then S.ApplyRole() end
     end
