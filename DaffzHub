@@ -16,7 +16,7 @@ local ok, err = pcall(function()
 -- UPDATE GUARD: if a newer DaffzHub exists, this old copy loads it and stops.
 -- version.txt (public repo) holds two things: the newest version number and the link of the newest file.
 -- ================================================
-DHVersionNumber = "1.1"
+DHVersionNumber = "1.2"
 DHCredit = "DaffzHub by Daffz"
 DHMark1 = "daffz-21ec-967f"
 DHUpdate = {
@@ -33130,7 +33130,7 @@ DHCtlBoot = function()
         local CP = {On = true, Pend = {}, State = "off", Gen = 0, Ref = 0, Last = {}, File = "Daffzhub_file/ControlPlayer.json", KeyOver = ""}
         DHCp = CP
         CP.Url = "wss://njgmdqqqvbgkghtibnlo.supabase.co/realtime/v1/websocket"
-        CP.KeyConst = "PASTE_PUBLISHABLE_KEY_HERE"
+        CP.KeyConst = "sb_publishable_QyIcRsTdbsFi-ia3jSeTCA_Oxi7bKQZ"
         local TOPIC
 
         local function loadCp()
@@ -37752,11 +37752,11 @@ CheckLoadingHalt()
 SetLoadProgress(84)
 
 -- ================================================
--- TAB CREDIT (DIPERBAIKI DENGAN SCROLL)
+-- TAB HOME (was Credit; at the top of the tab list, see "HOME TAB FIRST" below)
 -- ================================================
 
--- Credit Tab Button
-CreditTab = DHNewTab("Credit")
+-- Home Tab Button
+CreditTab = DHNewTab("Home")
 
 -- Credit Content Frame
 CreditContent = DHNewPage()
@@ -37776,6 +37776,7 @@ CreditScroll.ScrollingEnabled = true
 CreditLayout = Instance.new("UIListLayout", CreditScroll)
 CreditLayout.Padding = UDim.new(0, 10)
 CreditLayout.HorizontalAlignment = Enum.HorizontalAlignment.Center
+CreditLayout.SortOrder = Enum.SortOrder.LayoutOrder
 
 -- Auto update canvas size
 CreditLayout:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function()
@@ -37785,6 +37786,7 @@ end)
 -- HEADER
 Header = Instance.new("TextLabel", CreditScroll)
 Header.Size = UDim2.new(1, 0, 0, 50)
+Header.LayoutOrder = 1
 Header.BackgroundTransparency = 1
 Header.Text = "DAFFZHUB"
 Header.Font = Enum.Font.GothamBold
@@ -37794,6 +37796,7 @@ Header.TextColor3 = Color3.fromRGB(255, 200, 0)
 -- OWNER INFO
 OwnerFrame = Instance.new("Frame", CreditScroll)
 OwnerFrame.Size = UDim2.new(1, 0, 0, 70)
+OwnerFrame.LayoutOrder = 2
 OwnerFrame.BackgroundColor3 = Color3.fromRGB(25,25,25)
 Instance.new("UICorner", OwnerFrame).CornerRadius = UDim.new(0, 8)
 
@@ -37818,6 +37821,7 @@ OwnerName.TextColor3 = Color3.fromRGB(0, 200, 255)
 -- VERSION
 VersionFrame = Instance.new("Frame", CreditScroll)
 VersionFrame.Size = UDim2.new(1, 0, 0, 50)
+VersionFrame.LayoutOrder = 3
 VersionFrame.BackgroundColor3 = Color3.fromRGB(25,25,25)
 Instance.new("UICorner", VersionFrame).CornerRadius = UDim.new(0, 8)
 
@@ -37830,9 +37834,476 @@ VersionText.Font = Enum.Font.GothamBold
 VersionText.TextSize = 18
 VersionText.TextColor3 = Color3.fromRGB(80, 200, 80)
 
+-- ================================================
+-- HOME: executor check. Which functions the executor has, which DaffzHub features need them, a safe Test and a Copy report.
+-- DHHome.Has("name") -> true (exists / tested OK), false (missing or test failed), so future features can ask before they run.
+-- Wrapped in a function (the 200-local limit of Kawaii) and pcall'd: if it fails, the rest of the hub is not touched.
+-- ================================================
+function DHHomeBoot()
+    local H = {Res = {}, Tested = {}, Items = {}}
+    DHHome = H
+
+    local env
+    pcall(function() env = getfenv(1) end)
+    if type(env) ~= "table" then
+        pcall(function() env = getgenv() end)
+    end
+    if type(env) ~= "table" then env = _G end
+
+    -- resolve "a.b" in the executor environment
+    local function get(path)
+        local cur = env
+        for part in string.gmatch(path, "[^%.]+") do
+            if type(cur) ~= "table" then return nil end
+            local ok, v = pcall(function() return cur[part] end)
+            if not ok then return nil end
+            cur = v
+        end
+        return cur
+    end
+
+    -- Group A: used by DaffzHub. {name, {paths}, "features that need it", kind}
+    local A = {
+        {"request", {"request", "http_request", "syn.request", "http.request", "fluxus.request"}, "Online, Message, ChatBot, Translate, Staff Panel, update check"},
+        {"WebSocket", {"WebSocket.connect", "syn.websocket.connect"}, "Control Player"},
+        {"writefile", {"writefile"}, "all saves (scripts, theme, controls, keys)"},
+        {"readfile", {"readfile"}, "loading saved data"},
+        {"isfile", {"isfile"}, "loading saved data"},
+        {"isfolder", {"isfolder"}, "saves"},
+        {"makefolder", {"makefolder"}, "saves"},
+        {"listfiles", {"listfiles"}, "saved script lists"},
+        {"delfile", {"delfile"}, "deleting saved scripts"},
+        {"delfolder", {"delfolder"}, "reset / clean up"},
+        {"setclipboard", {"setclipboard", "toclipboard", "syn.write_clipboard"}, "all Copy buttons"},
+        {"loadstring", {"loadstring"}, "running scripts, Editor, Script tab"},
+        {"getgenv", {"getgenv"}, "staff key, shared settings"},
+        {"queue_on_teleport", {"queue_on_teleport", "queueonteleport", "syn.queue_on_teleport", "fluxus.queue_on_teleport"}, "Auto Execute"},
+        {"identifyexecutor", {"identifyexecutor", "getexecutorname"}, "executor name in Info and Home"},
+        {"VirtualInputManager", {"__VIM"}, "Controls (button presses)"},
+        {"keypress", {"keypress"}, "Controls (keyboard buttons)"},
+        {"keyrelease", {"keyrelease"}, "Controls (keyboard buttons)"},
+        {"mouse1press", {"mouse1press"}, "Controls (mouse buttons)"},
+        {"mouse1release", {"mouse1release"}, "Controls (mouse buttons)"},
+        {"mouse2press", {"mouse2press"}, "Controls (mouse buttons)"},
+        {"gethui", {"gethui", "get_hidden_gui"}, "hidden UI parent"},
+        {"hookmetamethod", {"hookmetamethod"}, "some scripts (hooks)"},
+        {"hookfunction", {"hookfunction", "replaceclosure"}, "some scripts (hooks)"},
+        {"getnamecallmethod", {"getnamecallmethod"}, "some scripts (hooks)"},
+        {"newcclosure", {"newcclosure"}, "some scripts (hooks)"},
+        {"checkcaller", {"checkcaller"}, "some scripts (hooks)"},
+        {"isnetworkowner", {"isnetworkowner"}, "Bring Part / physics scripts"},
+        {"sethiddenproperty", {"sethiddenproperty"}, "physics scripts"},
+    }
+
+    -- Group B: other common executor functions (not used yet, for future updates)
+    local B = {
+        "appendfile", "loadfile", "dofile", "getrawmetatable", "setrawmetatable", "setreadonly", "isreadonly", "make_writeable",
+        "getrenv", "getreg", "getgc", "getinstances", "getnilinstances", "getscripts", "getloadedmodules", "getrunningscripts",
+        "getconnections", "firesignal", "fireclickdetector", "firetouchinterest", "fireproximityprompt",
+        "Drawing", "cloneref", "compareinstances", "getcustomasset", "decompile", "saveinstance",
+        "getthreadidentity", "setthreadidentity", "protectgui", "setfpscap", "getfpscap",
+        "mousemoverel", "mousemoveabs", "mouse1click", "mouse2click", "mousescroll",
+        "gethiddenproperty", "setsimulationradius", "getsenv", "getcallingscript", "getscriptclosure", "getscripthash",
+        "crypt", "base64_encode", "lz4compress", "lz4decompress", "isrbxactive", "isscriptable", "setscriptable",
+        "debug.getupvalue", "debug.setupvalue", "debug.getconstant", "debug.getinfo", "debug.getstack",
+        "clonefunction", "islclosure", "iscclosure", "is_synapse_function", "isexecutorclosure",
+        "getcallbackvalue", "getproperties", "gethiddenproperties", "firecustomsignal", "replicatesignal",
+    }
+
+    local function exists(paths)
+        for _, p in ipairs(paths) do
+            local v
+            if p == "__VIM" then
+                local ok, s = pcall(function() return game:GetService("VirtualInputManager") end)
+                v = ok and s or nil
+            else
+                v = get(p)
+            end
+            if v ~= nil and v ~= false then return true end
+        end
+        return false
+    end
+
+    for _, a in ipairs(A) do
+        H.Items[#H.Items + 1] = {name = a[1], paths = a[2], feat = a[3], group = "A"}
+    end
+    for _, n in ipairs(B) do
+        H.Items[#H.Items + 1] = {name = n, paths = {n}, feat = "", group = "B"}
+    end
+    local byName = {}
+    for _, it in ipairs(H.Items) do
+        it.has = exists(it.paths)
+        H.Res[it.name] = it.has
+        byName[it.name] = it
+    end
+
+    -- true / false; a test that failed counts as false
+    function H.Has(name)
+        local it = byName[name]
+        if not it then
+            local v = get(name)
+            return v ~= nil and v ~= false
+        end
+        if H.Tested[name] == false then return false end
+        return it.has
+    end
+
+    -- run the first function that exists from a list of paths
+    local function first(paths)
+        for _, p in ipairs(paths) do
+            local v = get(p)
+            if type(v) == "function" then return v end
+        end
+    end
+
+    -- ---------- safe tests (never touch the clipboard, teleport queue or other players) ----------
+    local TEST = {}
+    local TESTDIR, TESTFILE = "Daffzhub_file", "Daffzhub_file/_homecheck.txt"
+
+    TEST.writefile = function()
+        if not (writefile and readfile) then return false end
+        if makefolder and isfolder and not isfolder(TESTDIR) then makefolder(TESTDIR) end
+        writefile(TESTFILE, "ok123")
+        local back = readfile(TESTFILE)
+        local good = (back == "ok123")
+        local r = {writefile = good, readfile = good}
+        if isfile then r.isfile = (isfile(TESTFILE) == true) end
+        if delfile then pcall(delfile, TESTFILE) end
+        return r
+    end
+    TEST.isfolder = function()
+        if not (isfolder and makefolder) then return false end
+        if not isfolder(TESTDIR) then makefolder(TESTDIR) end
+        return isfolder(TESTDIR) == true
+    end
+    TEST.listfiles = function()
+        if not listfiles then return false end
+        if makefolder and isfolder and not isfolder(TESTDIR) then makefolder(TESTDIR) end
+        return type(listfiles(TESTDIR)) == "table"
+    end
+    TEST.loadstring = function()
+        local f = loadstring("return 1 + 1")
+        return type(f) == "function" and f() == 2
+    end
+    TEST.getgenv = function()
+        return type(getgenv()) == "table"
+    end
+    TEST.identifyexecutor = function()
+        local f = first({"identifyexecutor", "getexecutorname"})
+        local n = f and f()
+        return type(n) == "string" and #n > 0
+    end
+    TEST.checkcaller = function()
+        return type(checkcaller()) == "boolean"
+    end
+    TEST.gethui = function()
+        local f = first({"gethui", "get_hidden_gui"})
+        local g = f and f()
+        return typeof(g) == "Instance"
+    end
+    TEST.VirtualInputManager = function()
+        -- key UP of F12: harmless even if the key was not down
+        local vim = game:GetService("VirtualInputManager")
+        vim:SendKeyEvent(false, Enum.KeyCode.F12, false, game)
+        return true
+    end
+    TEST.Drawing = function()
+        local d = Drawing.new("Line")
+        d.Visible = false
+        d:Remove()
+        return true
+    end
+    TEST.cloneref = function()
+        local s = cloneref(game:GetService("Players"))
+        return s ~= nil
+    end
+    TEST.getrawmetatable = function()
+        return type(getrawmetatable(game)) == "table"
+    end
+    TEST.getconnections = function()
+        return type(getconnections(game:GetService("RunService").Heartbeat)) == "table"
+    end
+    TEST.getinstances = function()
+        return type(getinstances()) == "table"
+    end
+    TEST.crypt = function()
+        local c = get("crypt")
+        if type(c) ~= "table" then return false end
+        local enc = (c.base64 and c.base64.encode) or c.base64encode or get("base64_encode")
+        if type(enc) ~= "function" then return false end
+        return enc("a") == "YQ=="
+    end
+    TEST.base64_encode = function()
+        return get("base64_encode")("a") == "YQ=="
+    end
+    TEST["debug.getinfo"] = function()
+        return type(debug.getinfo(1)) == "table"
+    end
+    TEST.WebSocket = function()
+        -- only a real connection counts: Control Player has to be online
+        if DHCp and DHCp.State == "online" then return true end
+        return nil
+    end
+    -- the network test is async (see H.Test)
+
+    local function runOne(name, fn)
+        local ok, r = pcall(fn)
+        if not ok then
+            H.Tested[name] = false
+            H.Err = H.Err or {}
+            H.Err[name] = tostring(r)
+            return
+        end
+        if type(r) == "table" then
+            for k, v in pairs(r) do H.Tested[k] = (v == true) end
+        elseif r == nil then
+            H.Tested[name] = nil
+        else
+            H.Tested[name] = (r == true)
+        end
+    end
+
+    -- ---------- UI ----------
+    local GREEN, RED, ORANGE, GRAY = Color3.fromRGB(90, 220, 110), Color3.fromRGB(255, 90, 90), Color3.fromRGB(255, 180, 60), Color3.fromRGB(170, 170, 180)
+    local card = Instance.new("Frame", CreditScroll)
+    card.Name = "DH_Home"
+    card.Size = UDim2.new(1, 0, 0, 0)
+    card.AutomaticSize = Enum.AutomaticSize.Y
+    card.BackgroundColor3 = Color3.fromRGB(25, 25, 25)
+    Instance.new("UICorner", card).CornerRadius = UDim.new(0, 8)
+    local pad = Instance.new("UIPadding", card)
+    pad.PaddingTop = UDim.new(0, 10)
+    pad.PaddingBottom = UDim.new(0, 12)
+    pad.PaddingLeft = UDim.new(0, 12)
+    pad.PaddingRight = UDim.new(0, 12)
+    local lay = Instance.new("UIListLayout", card)
+    lay.Padding = UDim.new(0, 6)
+    lay.SortOrder = Enum.SortOrder.LayoutOrder
+    H.Card = card
+    card.LayoutOrder = 50
+
+    local order = 0
+    local function label(text, size, color, font)
+        order = order + 1
+        local l = Instance.new("TextLabel", card)
+        l.LayoutOrder = order
+        l.Size = UDim2.new(1, 0, 0, 0)
+        l.AutomaticSize = Enum.AutomaticSize.Y
+        l.BackgroundTransparency = 1
+        l.Text = text
+        l.Font = font or Enum.Font.Gotham
+        l.TextSize = size or 13
+        l.TextColor3 = color or Color3.new(1, 1, 1)
+        l.TextXAlignment = Enum.TextXAlignment.Left
+        l.TextWrapped = true
+        return l
+    end
+    local function button(text, w, parent, ord)
+        local b = Instance.new("TextButton", parent)
+        if ord then b.LayoutOrder = ord end
+        b.Size = UDim2.new(0, w, 0, 30)
+        b.BackgroundColor3 = Color3.fromRGB(35, 35, 45)
+        b.Text = text
+        b.Font = Enum.Font.GothamBold
+        b.TextSize = 12
+        b.TextColor3 = Color3.new(1, 1, 1)
+        Instance.new("UICorner", b).CornerRadius = UDim.new(0, 6)
+        return b
+    end
+
+    label("EXECUTOR CHECK", 16, Color3.fromRGB(255, 200, 0), Enum.Font.GothamBold)
+    local infoL = label("", 13, Color3.fromRGB(200, 200, 200))
+    local sumL = label("", 13, Color3.new(1, 1, 1), Enum.Font.GothamBold)
+    local missL = label("", 12, RED)
+
+    order = order + 1
+    local bar = Instance.new("Frame", card)
+    bar.LayoutOrder = order
+    bar.Size = UDim2.new(1, 0, 0, 32)
+    bar.BackgroundTransparency = 1
+    local barL = Instance.new("UIListLayout", bar)
+    barL.FillDirection = Enum.FillDirection.Horizontal
+    barL.Padding = UDim.new(0, 6)
+    barL.SortOrder = Enum.SortOrder.LayoutOrder
+    local testB = button("Test", 70, bar, 1)
+    local copyB = button("Copy report", 100, bar, 2)
+    local moreB = button("Extra: show", 100, bar, 3)
+    local noteL = label("", 12, GRAY)
+
+    -- rows
+    local rowOf = {}
+    local listA = {}
+    local extraFrame
+    local function makeRows(group, parent, startOrder)
+        local o = startOrder
+        for _, it in ipairs(H.Items) do
+            if it.group == group then
+                o = o + 1
+                local l = Instance.new("TextLabel", parent)
+                l.LayoutOrder = o
+                l.Size = UDim2.new(1, 0, 0, 0)
+                l.AutomaticSize = Enum.AutomaticSize.Y
+                l.BackgroundTransparency = 1
+                l.Font = Enum.Font.Gotham
+                l.TextSize = 12
+                l.TextXAlignment = Enum.TextXAlignment.Left
+                l.TextWrapped = true
+                rowOf[it.name] = l
+            end
+        end
+    end
+    makeRows("A", card, order + 10)
+    order = order + 10 + #A + 1
+    extraFrame = Instance.new("Frame", card)
+    extraFrame.LayoutOrder = order
+    extraFrame.Size = UDim2.new(1, 0, 0, 0)
+    extraFrame.AutomaticSize = Enum.AutomaticSize.Y
+    extraFrame.BackgroundTransparency = 1
+    extraFrame.Visible = false
+    local exL = Instance.new("UIListLayout", extraFrame)
+    exL.Padding = UDim.new(0, 2)
+    exL.SortOrder = Enum.SortOrder.LayoutOrder
+    makeRows("B", extraFrame, 0)
+
+    local function status(it)
+        local t = H.Tested[it.name]
+        if not it.has then return "✗", RED, "missing" end
+        if t == false then return "⚠", ORANGE, "exists, but the test failed" end
+        if t == true then return "✓✓", GREEN, "works (tested)" end
+        return "✓", GREEN, "exists"
+    end
+
+    function H.Render()
+        local okA, totA, missing, feats, seen = 0, 0, {}, {}, {}
+        for _, it in ipairs(H.Items) do
+            local mark, col, word = status(it)
+            local l = rowOf[it.name]
+            if l then
+                local txt = mark .. "  " .. it.name
+                if it.feat ~= "" then txt = txt .. "  →  " .. it.feat end
+                if mark == "⚠" or mark == "✗" then txt = txt .. "  [" .. word .. "]" end
+                l.Text = txt
+                l.TextColor3 = col
+            end
+            if it.group == "A" then
+                totA = totA + 1
+                if mark == "✗" or mark == "⚠" then
+                    missing[#missing + 1] = it.name
+                    if not seen[it.feat] then seen[it.feat] = true; feats[#feats + 1] = it.feat end
+                else
+                    okA = okA + 1
+                end
+            end
+        end
+        local extraOk, extraTot = 0, 0
+        for _, it in ipairs(H.Items) do
+            if it.group == "B" then
+                extraTot = extraTot + 1
+                if it.has then extraOk = extraOk + 1 end
+            end
+        end
+        sumL.Text = "Used by DaffzHub: " .. okA .. " / " .. totA .. " available   |   Extra: " .. extraOk .. " / " .. extraTot
+        sumL.TextColor3 = (okA == totA) and GREEN or ORANGE
+        if #missing == 0 then
+            missL.Text = "Everything DaffzHub uses is available."
+            missL.TextColor3 = GREEN
+        else
+            missL.Text = "Missing: " .. table.concat(missing, ", ") .. "\nAffected: " .. table.concat(feats, "; ")
+            missL.TextColor3 = RED
+        end
+    end
+
+    local function execInfo()
+        local name, ver = "Unknown", ""
+        local f = first({"identifyexecutor", "getexecutorname"})
+        if f then
+            local ok, n, v = pcall(f)
+            if ok and n then name = tostring(n); ver = v and tostring(v) or "" end
+        end
+        local dev = "?"
+        pcall(function()
+            local U = game:GetService("UserInputService")
+            dev = U.TouchEnabled and not U.KeyboardEnabled and "Mobile" or (U.TouchEnabled and "Touch + keyboard" or "PC")
+        end)
+        H.ExecName, H.ExecVer, H.Device = name, ver, dev
+        infoL.Text = "Executor: " .. name .. (ver ~= "" and (" " .. ver) or "") .. "   |   Device: " .. dev .. "   |   DaffzHub " .. tostring(DHVersionNumber)
+    end
+
+    function H.Report()
+        local lines = {}
+        lines[#lines + 1] = "DaffzHub " .. tostring(DHVersionNumber) .. " - executor report"
+        lines[#lines + 1] = "Executor: " .. tostring(H.ExecName) .. " " .. tostring(H.ExecVer) .. " | Device: " .. tostring(H.Device)
+        lines[#lines + 1] = ""
+        for _, g in ipairs({"A", "B"}) do
+            lines[#lines + 1] = g == "A" and "[Used by DaffzHub]" or "[Extra]"
+            for _, it in ipairs(H.Items) do
+                if it.group == g then
+                    local mark, _, word = status(it)
+                    lines[#lines + 1] = (mark == "✗" and "MISSING " or (mark == "⚠" and "FAILED  " or "OK      ")) .. it.name
+                end
+            end
+            lines[#lines + 1] = ""
+        end
+        return table.concat(lines, "\n")
+    end
+
+    -- Test button: safe checks; the network one runs in the background
+    local busy = false
+    function H.Test()
+        if busy then return end
+        busy = true
+        noteL.Text = "Testing..."
+        noteL.TextColor3 = GRAY
+        for name, fn in pairs(TEST) do
+            local it = byName[name]
+            if it and it.has then runOne(name, fn) end
+        end
+        -- tests that file-test several names at once only apply when those exist
+        H.Render()
+        local it = byName.request
+        local reqFn = first(byName.request and byName.request.paths or {})
+        if it and it.has and reqFn then
+            task.spawn(function()
+                local ok, res = pcall(reqFn, {Url = "https://raw.githubusercontent.com/Daffa2014/Daffzhub-/main/version.txt", Method = "GET"})
+                local status_ = ok and type(res) == "table" and (res.StatusCode or res.Status_Code)
+                H.Tested.request = (ok and status_ == 200) or false
+                H.Render()
+                noteL.Text = "Test done. ✓✓ = tested and works, ⚠ = exists but failed."
+                busy = false
+            end)
+        else
+            noteL.Text = "Test done. ✓✓ = tested and works, ⚠ = exists but failed."
+            busy = false
+        end
+    end
+
+    testB.MouseButton1Click:Connect(function() pcall(H.Test) end)
+    copyB.MouseButton1Click:Connect(function()
+        local txt = H.Report()
+        local ok = false
+        if H.Has("setclipboard") then
+            local f = first({"setclipboard", "toclipboard", "syn.write_clipboard"})
+            if f then ok = pcall(f, txt) end
+        end
+        noteL.Text = ok and "Report copied." or "Could not copy. Take a screenshot of the list instead."
+        noteL.TextColor3 = ok and GREEN or ORANGE
+    end)
+    moreB.MouseButton1Click:Connect(function()
+        extraFrame.Visible = not extraFrame.Visible
+        moreB.Text = extraFrame.Visible and "Extra: hide" or "Extra: show"
+    end)
+
+    execInfo()
+    H.Render()
+    noteL.Text = "Press Test to try the safe functions for real. Clipboard and teleport queue are never triggered."
+end
+
+pcall(DHHomeBoot)
+
 -- FEATURES LIST (DENGAN INTERNAL SCROLL)
 FeaturesFrame = Instance.new("Frame", CreditScroll)
 FeaturesFrame.Size = UDim2.new(1, 0, 0, 300)
+FeaturesFrame.LayoutOrder = 100
 FeaturesFrame.BackgroundColor3 = Color3.fromRGB(25,25,25)
 Instance.new("UICorner", FeaturesFrame).CornerRadius = UDim.new(0, 8)
 
@@ -38036,6 +38507,11 @@ featureItems = {
     "   • Your camera moves to them, you get the joystick and a round Jump button (size adjustable in the list); they see \"Controlled by\" and can turn it off any time",
     "   • Works over WebSocket (the tab tells you if your executor has none). Only walking and jumping are sent",
     "",
+    "🏠 HOME TAB (top of the list, was Credit)",
+    "   • Executor check: which functions your executor has",
+    "   • Shows which DaffzHub features will not work",
+    "   • Test button (safe) and Copy report",
+    "",
     "🛡 STAFF PANEL (Setting tab, only Owner and Admin see it)",
     "   • Owner: add or remove admins (invitation with Accept), kick with a message, block with a date and time, warn, announce, switch Message / Online / Control Player off, staff log, answer block appeals",
     "   • Admin: block, warn, announce to their own server, kick up to 3 times per 24 hours (the panel shows how many are left)",
@@ -38075,6 +38551,7 @@ end
 -- THANK YOU MESSAGE
 ThankFrame = Instance.new("Frame", CreditScroll)
 ThankFrame.Size = UDim2.new(1, 0, 0, 80)
+ThankFrame.LayoutOrder = 110
 ThankFrame.BackgroundColor3 = Color3.fromRGB(25,25,25)
 Instance.new("UICorner", ThankFrame).CornerRadius = UDim.new(0, 8)
 
@@ -38092,6 +38569,7 @@ ThankText.TextXAlignment = Enum.TextXAlignment.Center
 -- WARNING MESSAGE
 WarningFrame = Instance.new("Frame", CreditScroll)
 WarningFrame.Size = UDim2.new(1, 0, 0, 140)
+WarningFrame.LayoutOrder = 120
 WarningFrame.BackgroundColor3 = Color3.fromRGB(40, 0, 0)
 Instance.new("UICorner", WarningFrame).CornerRadius = UDim.new(0, 8)
 
@@ -38220,6 +38698,7 @@ end
 function ShowCreditTab()
     DHShowTab(CreditContent, CreditTab)
 end
+ShowHomeTab = ShowCreditTab
 
 -- UNLOCK SCRIPT TAB
 function UnlockScriptTab()
@@ -38297,6 +38776,17 @@ if AvtTab then addTabButtonBorder(AvtTab) end
 if CtlTab then addTabButtonBorder(CtlTab) end
 addTabButtonBorder(SettingTab)
 addTabButtonBorder(CreditTab)
+
+-- HOME TAB FIRST: Home takes the top slot, every other tab moves one slot down (Setting stays last)
+pcall(function()
+    local top = CreditTab.Position.Y.Offset
+    for _, b in ipairs(TabFrame:GetChildren()) do
+        if b:IsA("TextButton") and b ~= CreditTab and b.Position.Y.Offset < CreditTab.Position.Y.Offset then
+            b.Position = UDim2.new(b.Position.X.Scale, b.Position.X.Offset, 0, b.Position.Y.Offset + 50)
+        end
+    end
+    CreditTab.Position = UDim2.new(CreditTab.Position.X.Scale, CreditTab.Position.X.Offset, 0, 20)
+end)
 
 -- ================================================
 -- THEME: change the look of the hub (border, background, accent, corners, size) in the Setting tab, and save it
@@ -38946,6 +39436,15 @@ DHChangelogTags = {
 }
 
 DHChangelog = {
+    {id = 24, date = "2026-11-14", title = "What's New", items = {
+        "DaffzHub 1.2 is here.",
+        {"Added", "Home tab (the old Credit tab, now at the top): checks which functions your executor has, shows which DaffzHub features will not work, a safe Test button and Copy report."},
+        {"Added", "Control Player: control another DaffzHub user in your server, with their permission. You see through their camera and steer them with a joystick and a Jump button. They can stop it at any time. Use Control in the Online list."},
+        {"Added", "Controls tab: buttons and a custom joystick for keyboard shortcuts, with your own position, size and look."},
+        {"Added", "Staff Panel (Setting tab, only for Owner and Admin): manage staff, warn, block, kick and announce to DaffzHub users."},
+        {"Changed", "The tabs are tidier, and Home is now the first tab."},
+        {"Fixed", "Online: puppets and avatars of other DaffzHub users show up more reliably."},
+    }},
     {id = 23, date = "2026-11-10", title = "What's New", items = {
         "DaffzHub 1.1 is here.",
         {"Added", "Avatar tab > Online: DaffzHub users in the same server see each other's avatar (only on their own screen). Show avatars is ON from the start, with a list of the people here, Copy, Block and a Limit (OFF at the start, slider 3 to 20) for weak phones."},
