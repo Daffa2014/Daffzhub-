@@ -35950,7 +35950,7 @@ DHStaffBoot = function()
     -- ---------- small helpers ----------
     local function N(class, parent, props)
         local o = Instance.new(class)
-        o.ZIndex = 31
+        if o:IsA("GuiObject") then o.ZIndex = 31 end
         for k, v in pairs(props or {}) do o[k] = v end
         o.Parent = parent
         return o
@@ -36116,7 +36116,7 @@ DHStaffBoot = function()
     end
 
     -- ---------- Setting tab: row + panel ----------
-    local panel = N("Frame", SettingContent, {Size = UDim2.new(1, -20, 1, -20), Position = UDim2.new(0, 10, 0, 10), BackgroundColor3 = C.bg, BorderSizePixel = 0, ZIndex = 30, Visible = false})
+    local panel = N("Frame", SettingContent, {Size = UDim2.new(1, -20, 1, -20), Position = UDim2.new(0, 10, 0, 10), BackgroundColor3 = C.bg, BorderSizePixel = 0, ZIndex = 30, Visible = false, Active = true})
     Round(panel, 10)
     local title = Lbl(panel, "Staff Panel", {Size = UDim2.new(1, -90, 0, 22), Position = UDim2.new(0, 12, 0, 6), Font = Enum.Font.GothamBold, TextSize = 16, TextColor3 = Color3.fromRGB(100, 200, 255)})
     local sub = Lbl(panel, "", {Size = UDim2.new(1, -90, 0, 14), Position = UDim2.new(0, 12, 0, 28), TextSize = 10, TextColor3 = C.dim})
@@ -36534,6 +36534,8 @@ DHStaffBoot = function()
             Round(b2, 6)
             local function pick(staff)
                 panel.Visible = staff
+                -- the Setting list is hidden while the panel is open, so touches never reach its sliders
+                if SettingScroll then SettingScroll.Visible = not staff end
                 b1.BackgroundColor3 = staff and OFF or ON
                 b2.BackgroundColor3 = staff and ON or OFF
                 if staff then
@@ -36557,6 +36559,7 @@ DHStaffBoot = function()
             S.Row = nil
             S.Pick = nil
             panel.Visible = false
+            if SettingScroll then SettingScroll.Visible = true end
             closeB.Visible = true
             panel.Position = UDim2.new(0, 10, 0, 10)
             panel.Size = UDim2.new(1, -20, 1, -20)
@@ -36588,8 +36591,10 @@ DHStaffBoot = function()
     function S.Poll()
         if S.Busy then return end
         S.Busy = true
-        local data, err = S.Call("poll", {room = DHDet.Room(), map = "m:" .. tostring(game.PlaceId), after = S.After})
+        local okc, data, err = pcall(function() return S.Call("poll", {room = DHDet.Room(), map = "m:" .. tostring(game.PlaceId), after = S.After}) end)
         S.Busy = false
+        S.Polls = (S.Polls or 0) + 1
+        if not okc then S.LastErr = "poll crashed: " .. tostring(data) return end
         if not data then S.LastErr = err return end
         S.LastErr = nil
         if data.role ~= S.Role then
@@ -36653,7 +36658,8 @@ DHStaffBoot = function()
     Do(function()
         task.wait(3)
         while S.Alive and (ScreenGui.Parent or S.Banned) do
-            pcall(S.Poll)
+            local okp, ep = pcall(S.Poll)
+            if not okp then S.Busy = false S.LastErr = "poll error: " .. tostring(ep) end
             task.wait(30)
         end
     end)
@@ -38132,6 +38138,7 @@ function DHHomeBoot()
 
     label("EXECUTOR CHECK", 16, Color3.fromRGB(255, 200, 0), Enum.Font.GothamBold)
     local infoL = label("", 13, Color3.fromRGB(200, 200, 200))
+    local roleL = label("Role: checking...", 14, GRAY, Enum.Font.GothamBold)
     local sumL = label("", 13, Color3.new(1, 1, 1), Enum.Font.GothamBold)
     local missL = label("", 12, RED)
 
@@ -38148,6 +38155,37 @@ function DHHomeBoot()
     local copyB = button("Copy report", 100, bar, 2)
     local moreB = button("Extra: show", 100, bar, 3)
     local noteL = label("", 12, GRAY)
+    -- live line: what the server said about you (role, last error), to find out why the Staff Panel is hidden
+    local stL = label("", 11, GRAY)
+    local function stRefresh()
+        local S = DHStaff
+        if DHStaffErr then
+            roleL.Text, roleL.TextColor3 = "Role: unknown (Staff Panel failed to start)", ORANGE
+            stL.Text = "Staff check: BOOT ERROR: " .. tostring(DHStaffErr)
+            return
+        end
+        if not S then roleL.Text = "Role: unknown" stL.Text = "Staff check: not loaded" return end
+        if (S.Polls or 0) == 0 then
+            roleL.Text, roleL.TextColor3 = "Role: checking...", GRAY
+        elseif S.Role == "owner" then
+            roleL.Text, roleL.TextColor3 = "Role: Owner", Color3.fromRGB(255, 200, 0)
+        elseif S.Role == "admin" then
+            roleL.Text, roleL.TextColor3 = "Role: Admin", Color3.fromRGB(90, 170, 255)
+        elseif S.LastErr then
+            roleL.Text, roleL.TextColor3 = "Role: unknown (server not reachable)", ORANGE
+        else
+            roleL.Text, roleL.TextColor3 = "Role: User", Color3.fromRGB(200, 200, 200)
+        end
+        local key = (DHDet and DHDet.Key and DHDet.Key ~= "") and "key set" or "no key"
+        stL.Text = "Staff check: role = " .. tostring(S.Role or "none") .. " | " .. key .. " | polls " .. tostring(S.Polls or 0) .. (S.Alive and "" or " | loop off") .. (S.Busy and " | waiting" or "") .. (S.LastErr and (" | error: " .. tostring(S.LastErr)) or " | no error")
+    end
+    stRefresh()
+    task.spawn(function()
+        while card.Parent do
+            task.wait(3)
+            pcall(stRefresh)
+        end
+    end)
 
     -- rows
     local rowOf = {}
