@@ -19,6 +19,104 @@ local ok, err = pcall(function()
 DHVersionNumber = "1.2"
 DHCredit = "DaffzHub by Daffz"
 DHMark1 = "daffz-21ec-967f"
+
+-- ================================================
+-- CONSOLE LOG: short status/error lines go to the owner's web console (daffz-monitor), to help fix bugs.
+-- No name, no user id: only a random id for this run, the DaffzHub version, the place id and the text.
+-- Setting > "Send Console Log" turns it off (saved in Daffzhub_file/Log.json).
+-- ================================================
+DHLog = DHLog or {On = true, Buf = {}, Seen = {}, Count = 0, Win = 0, Busy = false,
+    Url = "https://njgmdqqqvbgkghtibnlo.supabase.co/rest/v1/dh_logs",
+    Key = "sb_publishable_QyIcRsTdbsFi-ia3jSeTCA_Oxi7bKQZ", File = "Daffzhub_file/Log.json"}
+pcall(function()
+    DHLog.Sid = DHLog.Sid or string.sub(string.gsub(game:GetService("HttpService"):GenerateGUID(false), "-", ""), 1, 8)
+    local txt = readfile and isfile and isfile(DHLog.File) and readfile(DHLog.File)
+    if type(txt) == "string" and txt ~= "" then
+        local d = game:GetService("HttpService"):JSONDecode(txt)
+        if type(d) == "table" and d.on == false then DHLog.On = false end
+    end
+end)
+DHLog.Sid = DHLog.Sid or "unknown"
+
+function DHLog.Save()
+    pcall(function()
+        if not writefile then return end
+        if makefolder and isfolder and not isfolder("Daffzhub_file") then makefolder("Daffzhub_file") end
+        writefile(DHLog.File, game:GetService("HttpService"):JSONEncode({on = DHLog.On}))
+    end)
+end
+
+function DHLog.Add(lvl, text)
+    if not DHLog.On then return end
+    pcall(function()
+        text = tostring(text)
+        local me = game:GetService("Players").LocalPlayer
+        if me then
+            for _, n in ipairs({me.Name, me.DisplayName}) do
+                if n and #n > 2 then text = string.gsub(text, string.gsub(n, "%p", "%%%0"), "<me>") end
+            end
+        end
+        text = string.sub(text, 1, 380)
+        local now = os.clock()
+        if now - DHLog.Win > 60 then DHLog.Win = now DHLog.Count = 0 end
+        if DHLog.Count >= 30 then return end
+        local last = DHLog.Seen[text]
+        if last and now - last < 30 then return end
+        DHLog.Seen[text] = now
+        DHLog.Count = DHLog.Count + 1
+        if #DHLog.Buf < 40 then
+            DHLog.Buf[#DHLog.Buf + 1] = {sid = DHLog.Sid, ver = tostring(DHVersionNumber or ""), lvl = lvl, place = game.PlaceId, msg = text}
+        end
+    end)
+end
+
+function DHLog.Flush()
+    if DHLog.Busy or #DHLog.Buf == 0 then return end
+    local req = (syn and syn.request) or (http and http.request) or http_request or request
+    if not req then DHLog.Buf = {} return end
+    DHLog.Busy = true
+    local batch = DHLog.Buf
+    DHLog.Buf = {}
+    pcall(function()
+        req({Url = DHLog.Url, Method = "POST",
+            Headers = {["Content-Type"] = "application/json", ["apikey"] = DHLog.Key, ["Prefer"] = "return=minimal"},
+            Body = game:GetService("HttpService"):JSONEncode(batch)})
+    end)
+    DHLog.Busy = false
+end
+
+function DHLog.Set(on)
+    DHLog.On = on and true or false
+    DHLog.Save()
+    if DHLog.On then DHLog.Add("info", "console log turned on") end
+end
+
+if not DHLog.Started then
+    DHLog.Started = true
+    task.spawn(function()
+        while true do
+            task.wait(6)
+            pcall(DHLog.Flush)
+        end
+    end)
+end
+
+-- errors printed by the hub's own code (the hub runs inside pcall, so many errors are otherwise silent)
+pcall(function()
+    if DHLog.Conn then DHLog.Conn:Disconnect() end
+    DHLog.Conn = game:GetService("LogService").MessageOut:Connect(function(m, t)
+        if t ~= Enum.MessageType.MessageError then return end
+        if string.find(m, "Daffz", 1, true) or string.find(m, "DAFFZ", 1, true) or string.find(m, "[string", 1, true) then
+            DHLog.Add("error", m)
+        end
+    end)
+end)
+
+pcall(function()
+    local en = ""
+    if identifyexecutor then en = tostring((identifyexecutor())) end
+    DHLog.Add("info", "boot v" .. tostring(DHVersionNumber) .. " executor=" .. en)
+end)
 DHUpdate = {
     Manifest = "https://raw.githubusercontent.com/Daffa2014/Daffzhub-/refs/heads/main/version.txt",
     Allowed = {"https://raw.githubusercontent.com/Daffa2014/", "https://iridescent-kringle-f20c39.netlify.app/"},
@@ -35380,6 +35478,8 @@ function BuildOtherSettings()
     AddToggle("Exploiter Detector", "Flag players with suspicious speed, flying, teleport or noclip", function(on) if DHExp then DHExp.Set(on) end end)
     local mvToggle = AddToggle("Move Button", "Move, resize or hide game buttons", function(on) DHMove.Set(on) end)
     DHMoveToggle = mvToggle
+    DHLogToggle = AddToggle("Send Console Log", "Send short error/status lines (no name) to the owner's web console", function(on) if DHLog then DHLog.Set(on) end end)
+    if DHLog and DHLog.On then DHLogToggle.Set(true) end
     DHAutoToggle = AddToggle("Auto Execute", "Load DaffzHub again after you change server", function(on)
         if not DHAuto.Set(on) and DHAutoToggle then DHAutoToggle.Set(false) end
     end)
@@ -36066,9 +36166,17 @@ DHStaffBoot = function()
     -- ---------- the block screen ----------
     function S.ShowBan(ban)
         S.Banned = ban ~= nil
+        if not ban then S.BanClosed = false end
+        if ban and S.BanClosed then return end
         if not S.BanGui then
             local g = N("ScreenGui", ScreenGui.Parent, {Name = "DHStaffBan", ResetOnSpawn = false, IgnoreGuiInset = true, DisplayOrder = 100000})
             local dim = N("Frame", g, {Size = UDim2.new(1, 0, 1, 0), BackgroundColor3 = Color3.fromRGB(8, 8, 12), BackgroundTransparency = 0.15, BorderSizePixel = 0, Active = true})
+            local xb = Btn(dim, "X", C.grey, {Size = UDim2.new(0, 34, 0, 34), Position = UDim2.new(1, -46, 0, 12)})
+            xb.MouseButton1Click:Connect(function()
+                S.BanClosed = true
+                if S.BanGui then S.BanGui:Destroy() end
+                S.BanGui, S.BanUi = nil, nil
+            end)
             local card = N("Frame", dim, {AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.new(0.5, 0, 0.5, 0), Size = UDim2.new(0, 320, 0, 10), BackgroundColor3 = C.bg,
                 BorderSizePixel = 0, AutomaticSize = Enum.AutomaticSize.Y})
             Round(card, 10)
@@ -36114,6 +36222,45 @@ DHStaffBoot = function()
             u.info.Text = "Your block has ended. Run DaffzHub again to use it."
             u.ap.Text, u.abox.Visible, u.send.Visible, u.close.Visible = "", false, false, true
         end
+    end
+
+    -- ---------- the "DaffzHub is turned off" screen (owner switched the hub off for everybody) ----------
+    function S.ShowOff(info)
+        if not ScreenGui.Parent then return end
+        local why = (type(info) == "table" and type(info.reason) == "string" and info.reason ~= "") and info.reason or nil
+        if not S.OffGui then
+            local g = N("ScreenGui", ScreenGui.Parent, {Name = "DHStaffOff", ResetOnSpawn = false, IgnoreGuiInset = true, DisplayOrder = 99999})
+            local dim = N("Frame", g, {Size = UDim2.new(1, 0, 1, 0), BackgroundColor3 = Color3.fromRGB(8, 8, 12), BackgroundTransparency = 0.15, BorderSizePixel = 0, Active = true})
+            local function CloseHub()
+                pcall(function() g:Destroy() end)
+                S.OffGui, S.OffUi = nil, nil
+                pcall(function() ScreenGui:Destroy() end)
+            end
+            local xb = Btn(dim, "X", C.grey, {Size = UDim2.new(0, 34, 0, 34), Position = UDim2.new(1, -46, 0, 12)})
+            xb.MouseButton1Click:Connect(CloseHub)
+            local card = N("Frame", dim, {AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.new(0.5, 0, 0.5, 0), Size = UDim2.new(0, 320, 0, 10), BackgroundColor3 = C.bg,
+                BorderSizePixel = 0, AutomaticSize = Enum.AutomaticSize.Y})
+            Round(card, 10)
+            local st = Instance.new("UIStroke")
+            st.Thickness = 2
+            st.Color = C.gold
+            st.Parent = card
+            local lay = Instance.new("UIListLayout")
+            lay.Padding = UDim.new(0, 8)
+            lay.SortOrder = Enum.SortOrder.LayoutOrder
+            lay.Parent = card
+            local pad = Instance.new("UIPadding")
+            pad.PaddingTop, pad.PaddingBottom, pad.PaddingLeft, pad.PaddingRight = UDim.new(0, 12), UDim.new(0, 12), UDim.new(0, 14), UDim.new(0, 14)
+            pad.Parent = card
+            Lbl(card, "DaffzHub is turned off", {Size = UDim2.new(1, 0, 0, 20), Font = Enum.Font.GothamBold, TextSize = 15, TextColor3 = C.gold, LayoutOrder = 1})
+            local inf = Lbl(card, "", {Size = UDim2.new(1, 0, 0, 14), AutomaticSize = Enum.AutomaticSize.Y, TextSize = 12, LayoutOrder = 2})
+            Lbl(card, "Press X (or Close) to remove DaffzHub from your screen. Run it again when it is back.", {Size = UDim2.new(1, 0, 0, 14), AutomaticSize = Enum.AutomaticSize.Y, TextColor3 = C.dim, LayoutOrder = 3})
+            local cb = Btn(card, "Close", C.grey, {Size = UDim2.new(1, 0, 0, 28), LayoutOrder = 4})
+            cb.MouseButton1Click:Connect(CloseHub)
+            S.OffGui = g
+            S.OffUi = {info = inf}
+        end
+        if S.OffUi then S.OffUi.info.Text = why and ("Reason: " .. why) or "The owner turned DaffzHub off for a while." end
     end
 
     -- ---------- Setting tab: row + panel ----------
@@ -36628,6 +36775,13 @@ DHStaffBoot = function()
             if S.Role == "owner" then pcall(S.PaintSwitches) end
         end
         if S.Role then UpdateHeader() end
+        -- the owner switched DaffzHub off for everybody (the owner himself is not affected)
+        if type(data.hubOff) == "table" and S.Role ~= "owner" then
+            pcall(S.ShowOff, data.hubOff)
+        elseif S.OffGui then
+            pcall(function() S.OffGui:Destroy() end)
+            S.OffGui, S.OffUi = nil, nil
+        end
         -- the invitation
         if data.invite and not S.InvCard then
             local f
@@ -39669,4 +39823,6 @@ task.spawn(function()
 end)
 
 end)
-if not ok then warn("DAFFZHUB ERROR: " .. tostring(err)) print("DAFFZHUB ERROR: " .. tostring(err)) end
+if not ok then warn("DAFFZHUB ERROR: " .. tostring(err)) print("DAFFZHUB ERROR: " .. tostring(err))
+    pcall(function() if DHLog then DHLog.Add("error", "BOOT: " .. tostring(err)) DHLog.Flush() end end)
+end
