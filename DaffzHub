@@ -18001,7 +18001,7 @@ SetLoadProgress(66)
 ScriptSearchTab = LibraryTab
 
 -- ================================================
--- TAB SEARCH SCRIPTBLOX + RAWSCRIPTS
+-- TAB SEARCH SCRIPTBLOX + RSCRIPTS
 -- ================================================
 
 SearchContent = DHNewPage()
@@ -18210,7 +18210,7 @@ local function SBShowPreview(scriptData)
     SrcLabel.Size = UDim2.new(1, -20, 0, 16)
     SrcLabel.Position = UDim2.new(0, 10, 0, 36)
     SrcLabel.BackgroundTransparency = 1
-    SrcLabel.Text = isSB and "🟣 Scriptblox" or "🟢 RawScripts"
+    SrcLabel.Text = isSB and "🟣 Scriptblox" or "🟢 Rscripts"
     SrcLabel.Font = Enum.Font.GothamBold
     SrcLabel.TextSize = 11
     SrcLabel.TextColor3 = isSB and Color3.fromRGB(150,80,255) or Color3.fromRGB(40,200,100)
@@ -18545,7 +18545,7 @@ function SBRefreshList()
     end
 
     if #SBLastRSResults > 0 then
-        SBMakeSection("🟢 RAWSCRIPTS (" .. #SBLastRSResults .. ")", Color3.fromRGB(40,200,100))
+        SBMakeSection("🟢 RSCRIPTS (" .. #SBLastRSResults .. ")", Color3.fromRGB(40,200,100))
         for _, s in ipairs(SBLastRSResults) do
             SBBuildCard(s, false)
         end
@@ -18588,27 +18588,35 @@ local function SBFetchScriptblox(query)
 end
 
 local function SBFetchRawScripts(query)
-    local ok, result = pcall(function()
-        local url = "https://rawscripts.net/api/scripts?search=" .. HttpService:UrlEncode(query)
-        local response = game:HttpGet(url)
-        return HttpService:JSONDecode(response)
-    end)
-    if not ok or not result then return {} end
-    local scripts = type(result) == "table" and result or {}
+    -- Rscripts API v2 (rscripts.net). A second host is tried when the first one gives nothing.
+    local q = HttpService:UrlEncode(query)
+    local hosts = {"https://rscripts.net/api/v2/scripts?q=", "https://api.rscripts.net/api/v2/scripts?q="}
+    local scripts
+    for _, h in ipairs(hosts) do
+        local ok, result = pcall(function()
+            return HttpService:JSONDecode(game:HttpGet(h .. q .. "&page=1&orderBy=views&sort=desc"))
+        end)
+        if ok and type(result) == "table" and type(result.scripts) == "table" then scripts = result.scripts break end
+    end
+    if not scripts then return {} end
     local out = {}
     for _, s in ipairs(scripts) do
+        local raw = type(s.rawScript) == "string" and s.rawScript or ""
+        local isUrl = string.sub(raw, 1, 4) == "http"
+        local id = tostring(s._id or math.random(99999))
         table.insert(out, {
-            id = "rs_" .. (s.id or tostring(math.random(99999))),
+            id = "rs_" .. id,
             source = "rs",
             title = s.title or "Untitled",
-            game = s.game or "Universal",
+            game = type(s.game) == "table" and (s.game.title or "Universal") or "Universal",
+            gameId = type(s.game) == "table" and tostring(s.game.placeId or "") or "",
             views = s.views or 0,
             likes = s.likes or 0,
-            verified = false,
-            key = s.key or false,
+            verified = type(s.user) == "table" and s.user.verified or false,
+            key = s.keySystem or false,
             patched = false,
-            script = s.script or s.url or "",
-            rawUrl = s.url or ""
+            script = (raw ~= "" and not isUrl) and raw or "",
+            rawUrl = isUrl and raw or ("https://rscripts.net/raw/" .. id)
         })
     end
     return out
@@ -18629,7 +18637,7 @@ local function SBDoSearch(silent)
     SBLastQuery = query
 
     if not silent then
-        SBStatusLabel.Text = "⏳ search on Scriptblox & RawScripts.."
+        SBStatusLabel.Text = "⏳ search on Scriptblox & Rscripts.."
         SBStatusLabel.TextColor3 = Color3.fromRGB(255,200,100)
     end
 
@@ -18656,7 +18664,7 @@ local function SBDoSearch(silent)
             SBStatusLabel.Text = "❌ No Results For: " .. query
             SBStatusLabel.TextColor3 = Color3.fromRGB(255,80,80)
         else
-            SBStatusLabel.Text = "✅ " .. #sbRes .. " Scriptblox · " .. #rsRes .. " RawScripts"
+            SBStatusLabel.Text = "✅ " .. #sbRes .. " Scriptblox · " .. #rsRes .. " Rscripts"
             SBStatusLabel.TextColor3 = Color3.fromRGB(80,200,80)
         end
 
@@ -38539,7 +38547,7 @@ featureItems = {
     "     search, optional PIN lock",
     "   • DaffzHub Scripts: ready-made scripts behind a",
     "     show / hide switch",
-    "   • Online: search Scriptblox & RawScripts, view the",
+    "   • Online: search Scriptblox & Rscripts, view the",
     "     code, edit it, save it to Library or run it",
     "   • Editor: up to 5 tabs (Script 1, 2, 3...), line numbers,",
     "     name, open & save to Library",
@@ -38808,7 +38816,7 @@ WarningText.TextXAlignment = Enum.TextXAlignment.Center
 -- LIBRARY TAB: Library | Online | Editor in ONE tab
 -- Everything lives in the global DHLib table, so no new top-level locals are used
 --   Library : your saved scripts (favorites on top, optional PIN lock, DaffzHub scripts behind a switch)
---   Online  : the old Search page (ScriptBlox + RawScripts) with view / edit / save / run
+--   Online  : the old Search page (ScriptBlox + Rscripts) with view / edit / save / run
 --   Editor  : the old Editor page with name + save/open + line numbers
 --   Console : one console under all three sub-tabs, with an All | Editor | Other filter
 -- ================================================
@@ -38954,7 +38962,7 @@ function DHLib.Migrate()
                 for _, s in ipairs(d) do
                     local nm = tostring(s.title or "Script")
                     if s.script and not DHLib.FindName(nm) then
-                        DHLib.Add(nm, s.script, "online:" .. (s.source == "sb" and "ScriptBlox" or "RawScripts"), s.rawUrl, true)
+                        DHLib.Add(nm, s.script, "online:" .. (s.source == "sb" and "ScriptBlox" or "Rscripts"), s.rawUrl, true)
                     end
                 end
             end
@@ -39872,7 +39880,7 @@ end
 -- ONLINE SUB-TAB (buttons used by the Search code)
 -- ================================================
 function DHLib.OnlineName(sd)
-    return (sd.source == "sb") and "ScriptBlox" or "RawScripts"
+    return (sd.source == "sb") and "ScriptBlox" or "Rscripts"
 end
 
 function DHLib.OnlineEdit(sd)
@@ -43066,7 +43074,7 @@ DHChangelog = {
     {id = 25, date = "2026-11-21", title = "What's New", items = {
         "DaffzHub 1.3 is here.",
         {"Added", "Character tab: Avatar, Emote, Mood Face and Animation in one tab, with sub-tabs you can scroll sideways. Mood Face is now its own sub-tab."},
-        {"Added", "Library tab: your scripts, DaffzHub Scripts and Online search (Scriptblox and RawScripts) in one place, an Editor with up to 5 tabs, and one console for everything."},
+        {"Added", "Library tab: your scripts, DaffzHub Scripts and Online search (Scriptblox and Rscripts) in one place, an Editor with up to 5 tabs, and one console for everything."},
         {"Added", "Troll tab > Touch Spammer: pick touch parts (buttons, pads, coins...) and fire them again and again, with a speed slider."},
         {"Added", "Mods tab > Search: type a mod name (like Fly) and only the matching mods stay on screen."},
         {"Added", "Visual tab now has sub-tabs (ESP, Shaders, Weather, Adjust), so every page is short and sliders no longer slip when you scroll."},
