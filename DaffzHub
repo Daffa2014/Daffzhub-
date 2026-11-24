@@ -2646,10 +2646,18 @@ end)
 -- goes to the main server first; if it is down or out of credits it goes to the backup server.
 -- After a switch the backup is tried first for 10 minutes, then the main one is tried again.
 -- ================================================
+-- the Cloudflare server address goes here once it exists (empty = not used), e.g. "https://daffzhub-api.NAME.workers.dev/api/"
+DHCFHost = "https://misty-disk-baab.daffz2014.workers.dev/api/"
 DHFail = {
-    Hosts = {"https://iridescent-kringle-f20c39.netlify.app/.netlify/functions/", "https://daffzhub-api.vercel.app/api/"},
-    Use = 1, SwitchedAt = 0, Wait = 600,
+    Hosts = {"https://daffzhub-api.vercel.app/api/", "https://iridescent-kringle-f20c39.netlify.app/.netlify/functions/"},
+    Use = 0, SwitchedAt = 0, Wait = 600, Prims = 1,
 }
+do
+    if type(DHCFHost) == "string" and DHCFHost ~= "" then
+        table.insert(DHFail.Hosts, 2, DHCFHost)
+        DHFail.Prims = 2   -- Vercel and Cloudflare share the players; Netlify stays the last backup
+    end
+end
 -- true when the reply means "this server cannot help" (no reply, gateway errors, or an error page that is not from our function)
 function DHFail.Bad(r)
     if type(r) ~= "table" then return true end
@@ -2666,8 +2674,12 @@ end
 function DHFail.Req(req, tbl)
     local name = type(tbl.Url) == "string" and string.match(tbl.Url, "/%.netlify/functions/(%w+)$")
     if not name then return pcall(req, tbl) end
-    local order = {1, 2}
-    if DHFail.Use == 2 and os.time() - DHFail.SwitchedAt < DHFail.Wait then order = {2, 1} end
+    -- every player sticks to one of the main servers (picked at random once), the others are the backup
+    if not DHFail.Pref then DHFail.Pref = math.random(1, DHFail.Prims) end
+    local first = DHFail.Pref
+    if DHFail.Use ~= 0 and os.time() - DHFail.SwitchedAt < DHFail.Wait then first = DHFail.Use end
+    local order = {first}
+    for i = 1, #DHFail.Hosts do if i ~= first then order[#order + 1] = i end end
     local firstOk, firstR
     for n, i in ipairs(order) do
         local t = {}
@@ -2676,15 +2688,36 @@ function DHFail.Req(req, tbl)
         local ok, r = pcall(req, t)
         if n == 1 then firstOk, firstR = ok, r end
         if ok and not DHFail.Bad(r) then
-            if i == 2 then
-                if DHFail.Use ~= 2 or n == 2 and order[1] == 1 then DHFail.Use = 2; DHFail.SwitchedAt = os.time() end
-            else
-                DHFail.Use = 1
-            end
+            if i ~= DHFail.Pref then DHFail.Use = i; DHFail.SwitchedAt = os.time() else DHFail.Use = 0 end
             return ok, r
         end
     end
     return firstOk, firstR
+end
+
+-- DHSeat: the server has a limited number of seats. Without a seat Message, Online, ChatBot and Control Player wait,
+-- the rest of DaffzHub keeps working. While waiting the hub stops calling the server (no useless requests).
+DHSeat = {Until = 0, Text = "", State = nil, T0 = os.clock()}
+function DHSeat.Blocked(action)
+    if action == "staff" or action == "stats" or action == "translate" or action == "feedback" then return false end
+    return DHSeat.Until > os.clock()
+end
+function DHSeat.Note(r)
+    local okj, d = pcall(function() return game:GetService("HttpService"):JSONDecode(r.Body or "") end)
+    if okj and type(d) == "table" and d.seatFull then
+        DHSeat.Until = os.clock() + (tonumber(d.retryIn) or 60)
+        local e = d.error
+        DHSeat.Text = type(e) == "string" and e or (type(e) == "table" and e.message) or "The DaffzHub server is full right now."
+        DHSeat.State = {state = "full", mine = false, waiting = true}
+        if DHSeat.OnChange then pcall(DHSeat.OnChange) end
+        return d, DHSeat.Text
+    end
+end
+function DHSeat.Set(st)
+    if type(st) ~= "table" then return end
+    DHSeat.State = st
+    if not st.waiting then DHSeat.Until = 0 end
+    if DHSeat.OnChange then pcall(DHSeat.OnChange) end
 end
 
 -- ================================================
@@ -2729,9 +2762,11 @@ end
 function DHDet.Call(tbl)
     local req = (syn and syn.request) or (http and http.request) or http_request or request
     if not req then return nil, "No request function" end
+    if DHSeat.Blocked(tbl.action) then return nil, DHSeat.Text end
     local HS = game:GetService("HttpService")
     local ok, r = DHFail.Req(req, {Url = DHDet.Proxy, Method = "POST", Headers = {["Content-Type"] = "application/json"}, Body = HS:JSONEncode(tbl)})
     if not ok or type(r) ~= "table" then return nil, "Request failed" end
+    if r.StatusCode == 503 then local sd, st = DHSeat.Note(r) if sd then return nil, st end end
     if r.StatusCode ~= 200 then return nil, "Server error " .. tostring(r.StatusCode) end
     local okj, data = pcall(function() return HS:JSONDecode(r.Body or "") end)
     if not okj or type(data) ~= "table" then return nil, "Bad reply" end
@@ -2836,7 +2871,7 @@ function DHDet.Set(on)
     task.spawn(function()
         while DHDet.Tok == my and DHDet.On and ScreenGui and ScreenGui.Parent do
             pcall(DHDet.Ping)
-            task.wait(15)
+            task.wait(20)
         end
     end)
 end
@@ -4981,60 +5016,16 @@ function DHFx.Use(name, p)
 end
 
 function DHFx.Slider(sec, y, name, lo, hi, step, key, fmt)
-    local lbl = Instance.new("TextLabel", sec)
-    lbl.Position = UDim2.new(0, 10, 0, y)
-    lbl.Size = UDim2.new(1, -20, 0, 16)
-    lbl.BackgroundTransparency = 1
-    lbl.Font = Enum.Font.Gotham
-    lbl.TextSize = 12
-    lbl.TextColor3 = Color3.fromRGB(200, 200, 200)
-    lbl.TextXAlignment = Enum.TextXAlignment.Left
-
-    local bar = Instance.new("Frame", sec)
-    bar.Position = UDim2.new(0, 10, 0, y + 24)
-    bar.Size = UDim2.new(1, -20, 0, 8)
-    bar.BackgroundColor3 = Color3.fromRGB(55, 55, 55)
-    Instance.new("UICorner", bar).CornerRadius = UDim.new(1, 0)
-    local fill = Instance.new("Frame", bar)
-    fill.BackgroundColor3 = Color3.fromRGB(40, 140, 200)
-    Instance.new("UICorner", fill).CornerRadius = UDim.new(1, 0)
-    local knob = Instance.new("Frame", bar)
-    knob.Size = UDim2.new(0, 16, 0, 16)
-    knob.AnchorPoint = Vector2.new(0.5, 0.5)
-    knob.BackgroundColor3 = Color3.new(1, 1, 1)
-    Instance.new("UICorner", knob).CornerRadius = UDim.new(1, 0)
-
-    local function show()
-        local v = DHFx.S[key]
-        local r = math.clamp((v - lo) / (hi - lo), 0, 1)
-        fill.Size = UDim2.new(r, 0, 1, 0)
-        knob.Position = UDim2.new(r, 0, 0.5, 0)
-        lbl.Text = name .. ": " .. string.format(fmt, v)
-    end
-    DHFx.Show[key] = show
-    show()
-
-    local hit = Instance.new("TextButton", sec)
-    hit.Position = UDim2.new(0, 10, 0, y + 14)
-    hit.Size = UDim2.new(1, -20, 0, 28)
-    hit.BackgroundTransparency = 1
-    hit.Text = ""
-    local function setFrom(x)
-        local r = math.clamp((x - bar.AbsolutePosition.X) / math.max(1, bar.AbsoluteSize.X), 0, 1)
-        local v = lo + r * (hi - lo)
-        v = math.floor(v / step + 0.5) * step
-        DHFx.S[key] = tonumber(string.format("%.3f", math.clamp(v, lo, hi)))
-        show()
-        DHFx.Mark(nil)
-        DHFx.Apply()
-    end
-    hit.InputBegan:Connect(function(input)
-        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
-            DHFx.Active = setFrom
-            MusicScroll.ScrollingEnabled = false
-            setFrom(input.Position.X)
-        end
-    end)
+    local S
+    S = DHUI.Slider({parent = sec, pos = UDim2.new(0, 10, 0, y), size = UDim2.new(1, -20, 0, 40), min = lo, max = hi, step = step,
+        color = Color3.fromRGB(40, 140, 200), value = DHFx.S[key] or lo,
+        fmt = function(v) return name .. ": " .. string.format(fmt, v) end,
+        onChange = function(v)
+            DHFx.S[key] = tonumber(string.format("%.3f", v))
+            DHFx.Mark(nil)
+            DHFx.Apply()
+        end})
+    DHFx.Show[key] = function() S.Set(DHFx.S[key] or lo, true) end
 end
 
 function DHFx.Build()
@@ -22859,8 +22850,10 @@ function DHBot.Ask(text, useHistory)
             body = HS:JSONEncode({model = useModel, systemInstruction = {parts = {{text = sys}}}, contents = contents,
                 uid = game:GetService("Players").LocalPlayer.UserId, key = (DHDet and DHDet.Key ~= "") and DHDet.Key or nil})
         end
+        if url == DHBot.Proxy and DHSeat.Blocked("chat") then return nil, DHSeat.Text end
         local ok, r = DHFail.Req(req, {Url = url, Method = "POST", Headers = hdr, Body = body})
         if not ok or type(r) ~= "table" then return nil, "Request failed. Check your connection." end
+        if url == DHBot.Proxy and r.StatusCode == 503 then local sd, st = DHSeat.Note(r) if sd then return nil, st end end
         res = r
         okj, data = pcall(function() return HS:JSONDecode(res.Body or "") end)
         code = res.StatusCode
@@ -22931,6 +22924,27 @@ DHBot.Tex = {
     ["\\sum"] = "Σ", ["\\int"] = "∫", ["\\rightarrow"] = "→", ["\\to"] = "→", ["\\circ"] = "°", ["\\degree"] = "°",
     ["\\left"] = "", ["\\right"] = "", ["\\quad"] = " ", ["\\,"] = " ",
 }
+
+-- how many ChatBot messages are left today (24h limit); stays hidden for staff and when the server cannot say
+function DHBot.RefreshLeft()
+    task.spawn(function()
+        local d = DHMsg.Call({action = "usage", uid = Player.UserId, key = (DHDet and DHDet.Key ~= "") and DHDet.Key or nil})
+        if type(d) == "table" and type(d.usage) == "table" and type(d.usage.chat) == "table" and not d.staff then
+            DHBot.Left = d.usage.chat.left
+        else
+            DHBot.Left = nil
+        end
+        if DHBot.PaintSrc then pcall(DHBot.PaintSrc) end
+    end)
+end
+do
+    local oldAsk = DHBot.Ask
+    DHBot.Ask = function(...)
+        local a, b = oldAsk(...)
+        if a and not DHBot.UseOwn then pcall(DHBot.RefreshLeft) end
+        return a, b
+    end
+end
 
 function DHBot.Esc(s)
     s = string.gsub(s, "&", "&amp;")
@@ -23249,10 +23263,11 @@ function DHBot.Build()
     local srcBtn = Btn(Row(30), "", 200, 30, 0, 0)
     function DHBot.PaintSrc()
         local own = DHBot.UseOwn and DHBot.Key ~= ""
-        srcBtn.Text = "AI source | " .. (own and "My own key" or "DaffzHub AI")
+        srcBtn.Text = "AI source | " .. (own and "My own key" or ("DaffzHub AI" .. (DHBot.Left and (" - " .. DHBot.Left .. " left") or "")))
         srcBtn.BackgroundColor3 = own and Color3.fromRGB(35, 120, 200) or Color3.fromRGB(35, 160, 90)
     end
     DHBot.PaintSrc()
+    pcall(DHBot.RefreshLeft)
     srcBtn.MouseButton1Click:Connect(function()
         if DHBot.UseOwn then
             DHBot.UseOwn = false
@@ -23507,9 +23522,11 @@ end
 function DHMsg.Call(tbl)
     local req = (syn and syn.request) or (http and http.request) or http_request or request
     if not req then return nil, "Your executor has no request function." end
+    if DHSeat.Blocked(tbl.action) then return nil, DHSeat.Text end
     local HS = game:GetService("HttpService")
     local ok, r = DHFail.Req(req, {Url = DHMsg.Proxy, Method = "POST", Headers = {["Content-Type"] = "application/json"}, Body = HS:JSONEncode(tbl)})
     if not ok or type(r) ~= "table" then return nil, "Request failed. Check your connection." end
+    if r.StatusCode == 503 then local sd, st = DHSeat.Note(r) if sd then return nil, st end end
     local okj, data = pcall(function() return HS:JSONDecode(r.Body or "") end)
     -- limit / filter answers carry their own text (for example how long until the limit resets)
     if okj and type(data) == "table" and type(data.error) == "string" and (data.limit or data.filtered or data.banned) then
@@ -23587,10 +23604,45 @@ function DHMsg.Take(key, list)
     end
     DHMsg.Loaded[key] = true
     if DHMsg.ToBottom and DHMsg.Cur == key then DHMsg.ToBottom() end
+    if n > 0 then DHMsg.Active = os.clock() end
     if n > 0 and not firstLoad then DHMsg.Notify(key, n, lastMsg) end
 end
 
--- ONE request checks every mode that is On
+-- Reading the public rooms (global, server, map) goes straight to the database, so it does not use the Vercel / Cloudflare quota.
+-- Private and group rooms still go through the server (it checks who may read them). If the database does not answer 3 times in a
+-- row, everything goes through the server for 10 minutes, then it tries again.
+DHMsg.DirectFail = 0
+DHMsg.DirectSkip = 0
+DHMsg.SbUrl = "https://njgmdqqqvbgkghtibnlo.supabase.co/rest/v1/dh_messages"
+
+function DHMsg.IsPublic(room)
+    return room == "g" or string.sub(room, 1, 2) == "s:" or string.sub(room, 1, 2) == "m:"
+end
+
+-- returns the list of messages, or nil when the database could not be read
+function DHMsg.Direct(room, after)
+    local req = (syn and syn.request) or (http and http.request) or http_request or request
+    if not req or not DHLog or not DHLog.Key then return nil end
+    local HS = game:GetService("HttpService")
+    local q = "?select=id,name,body,uid,role,created_at&room=eq." .. HS:UrlEncode(room)
+    if after == nil then
+        q = q .. "&order=id.desc&limit=30"
+    else
+        q = q .. "&id=gt." .. string.format("%d", after) .. "&order=id.asc&limit=50"
+    end
+    local ok, r = pcall(req, {Url = DHMsg.SbUrl .. q, Method = "GET", Headers = {["apikey"] = DHLog.Key}})
+    if not ok or type(r) ~= "table" or r.StatusCode ~= 200 then return nil end
+    local okj, rows = pcall(function() return HS:JSONDecode(r.Body or "") end)
+    if not okj or type(rows) ~= "table" then return nil end
+    if after == nil then
+        local rev = {}
+        for i = #rows, 1, -1 do rev[#rev + 1] = rows[i] end
+        rows = rev
+    end
+    return rows
+end
+
+-- ONE request checks every mode that is On (public rooms: one database read each, the rest: one server request)
 function DHMsg.Pull()
     if DHMsg.Busy or not DHMsg.Agreed then return end
     local rooms, after, any = {}, {}, false
@@ -23610,9 +23662,42 @@ function DHMsg.Pull()
     end
     if not any then return end
     DHMsg.Busy = true
-    local data, err = DHMsg.Call({action = "pull", rooms = rooms, after = after})
+    local rest, restAfter, direct = {}, {}, {}
+    local tryDirect = os.clock() >= DHMsg.DirectSkip
+    for key, room in pairs(rooms) do
+        local rows = nil
+        if tryDirect and DHMsg.IsPublic(room) then
+            rows = DHMsg.Direct(room, after[key])
+            if rows then
+                DHMsg.DirectFail = 0
+            else
+                DHMsg.DirectFail = DHMsg.DirectFail + 1
+                if DHMsg.DirectFail >= 3 then
+                    DHMsg.DirectFail = 0
+                    DHMsg.DirectSkip = os.clock() + 600
+                    tryDirect = false
+                end
+            end
+        end
+        if rows then
+            direct[key] = rows
+        else
+            rest[key] = room
+            restAfter[key] = after[key]
+        end
+    end
+    local data, err
+    if next(rest) then
+        data, err = DHMsg.Call({action = "pull", rooms = rest, after = restAfter})
+    else
+        data = {rooms = {}}
+    end
     DHMsg.Busy = false
+    for key, list in pairs(direct) do
+        if DHMsg.M[key] and DHMsg.On[key] then DHMsg.Take(key, list) end
+    end
     if not data then
+        if next(direct) then return end
         DHMsg.SetStatus(err, Color3.fromRGB(255, 120, 120))
         return
     end
@@ -23623,14 +23708,20 @@ function DHMsg.Pull()
     end
 end
 
--- background loop: every 3 seconds, only does something while a mode is On
+-- background loop, only does something while a mode is On. It saves server requests: 3 seconds while the Message tab is open,
+-- 8 seconds when it is closed, and slower again after 2 minutes without any new message or any message sent by you.
 function DHMsg.Start()
     if DHMsg.Looping then return end
     DHMsg.Looping = true
+    DHMsg.Active = os.clock()
     task.spawn(function()
         while MsgContent and MsgContent.Parent do
             pcall(DHMsg.Pull)
-            task.wait(3)
+            local okv, vis = pcall(function() return MsgContent.Visible end)
+            local gap = (okv and vis) and 3 or 8
+            if vis then DHMsg.Active = math.max(DHMsg.Active or 0, os.clock() - 100) end
+            if os.clock() - (DHMsg.Active or 0) > 120 then gap = gap * 2 end
+            task.wait(gap)
         end
         DHMsg.Looping = false
     end)
@@ -24342,6 +24433,7 @@ end
 do
     local oldCall = DHMsg.Call
     DHMsg.Call = function(tbl)
+        if type(tbl) == "table" and tbl.action == "send" then DHMsg.Active = os.clock() end
         if type(tbl) == "table" then
             if tbl.action == "pull" and type(tbl.rooms) == "table" then
                 local tk
@@ -32249,7 +32341,7 @@ DHAvtBoot = function()
                         local sig = NET.WantSig()
                         if (sig ~= NET.PushSig and not AV.Busy) or (sig ~= "" and os.clock() - NET.PushAt > 1500) then NET.PushNow() end
                     end
-                    if n % 7 == 0 and (NET.On or pages.online.Visible) then task.spawn(NET.Poll) end
+                    if n % (pages.online.Visible and 7 or 14) == 0 and (NET.On or pages.online.Visible) then task.spawn(NET.Poll) end
                     NET.Manage()
                     if n % 7 == 1 and pages.online.Visible and NET.Paint then NET.Paint() end
                 end)
@@ -33561,16 +33653,19 @@ DHCtlBoot = function()
             end
             if CP.Last[uid] and os.clock() - CP.Last[uid] < 8 then return "Wait a few seconds before asking again.", P.warn end
             -- server limit: 2 different players per 24 hours (asking the same player again is free). A server that cannot be reached does not block you.
+            local leftTxt = ""
             do
                 local d, e = DHMsg.Call({action = "usage", op = "use", feature = "control", uid = me.UserId, target = uid,
                     key = (DHDet and DHDet.Key ~= "") and DHDet.Key or nil})
+                if not d and DHSeat.Until > os.clock() then return DHSeat.Text, P.warn end
                 if not d and type(e) == "string" and string.find(e, "limit", 1, true) then return e, P.warn end
+                if d and type(d.left) == "number" then leftTxt = " (" .. d.left .. " new player" .. (d.left == 1 and "" or "s") .. " left today)" end
             end
             CP.Last[uid] = os.clock()
             CP.Out = {uid = uid, name = tostring(name), at = os.clock()}
             sendC({t = "req", f = me.UserId, to = uid})
             rerender()
-            return "Asked " .. tostring(name) .. ". Waiting for Allow...", P.ok
+            return "Asked " .. tostring(name) .. ". Waiting for Allow..." .. leftTxt, P.ok
         end
 
         function CP.SetLocked(v)
@@ -36077,6 +36172,7 @@ DHStaffBoot = function()
             t.name = nm
         end
         if key ~= "" then t.key = key end
+        if op == "poll" then t.v, t.official, t.up = DHVersionNumber, DHOfficialOk == true, math.floor(os.clock() - DHSeat.T0) end   -- the server only marks copies that are not the official file
         for k, v in pairs(extra or {}) do t[k] = v end
         return S.Req(t)
     end
@@ -36728,6 +36824,7 @@ DHStaffBoot = function()
         if not okc then S.LastErr = "poll crashed: " .. tostring(data) return end
         if not data then S.LastErr = err return end
         S.LastErr = nil
+        if data.server then DHSeat.Set(data.server) end
         if data.role ~= S.Role then
             S.Role = (data.role == "owner" or data.role == "admin") and data.role or nil
             S.UpdateRow()
@@ -37964,12 +38061,37 @@ end)
 -- HEADER
 Header = Instance.new("TextLabel", CreditScroll)
 Header.Size = UDim2.new(1, 0, 0, 50)
-Header.LayoutOrder = 1
+Header.LayoutOrder = 0
 Header.BackgroundTransparency = 1
 Header.Text = "DAFFZHUB"
 Header.Font = Enum.Font.GothamBold
 Header.TextSize = 28
 Header.TextColor3 = Color3.fromRGB(255, 200, 0)
+
+-- SERVER STATUS (seat system)
+do
+    local sl = Instance.new("TextLabel", CreditScroll)
+    sl.Size = UDim2.new(1, 0, 0, 20)
+    sl.LayoutOrder = 1
+    sl.BackgroundTransparency = 1
+    sl.Font = Enum.Font.GothamBold
+    sl.TextSize = 12
+    sl.TextWrapped = true
+    sl.Text = "Server: checking..."
+    sl.TextColor3 = Color3.fromRGB(150, 150, 160)
+    DHSeat.Label = sl
+    DHSeat.OnChange = function()
+        local st = DHSeat.State
+        if type(st) ~= "table" then return end
+        local t, c
+        if st.state == "normal" then t, c = "Server: Normal", Color3.fromRGB(90, 210, 130)
+        elseif st.state == "busy" then t, c = "Server: Busy", Color3.fromRGB(255, 200, 90)
+        elseif st.waiting then t, c = "Server: Full - waiting for a seat (Message, Online and ChatBot wait, the rest works)", Color3.fromRGB(255, 110, 110)
+        else t, c = "Server: Full - you have a seat", Color3.fromRGB(255, 160, 80) end
+        sl.Text, sl.TextColor3 = t, c
+        sl.Size = UDim2.new(1, 0, 0, st.waiting and 34 or 20)
+    end
+end
 
 -- OWNER INFO
 OwnerFrame = Instance.new("Frame", CreditScroll)
@@ -38753,6 +38875,8 @@ featureItems = {
     "   • Move Button (move, resize or hide game buttons)",
     "   • Auto Execute (DaffzHub loads again after you change server)",
     "   • Reload GUI (close DaffzHub and load it again)",
+    "   • Server status on Home (seats when many people are online)",
+    "   • Two servers with automatic backup (Message, Online, ChatBot)",
     "",
     "💳 CREDIT TAB",
     "   • This page: version, What's New and this list",
@@ -43057,6 +43181,8 @@ DHChangelog = {
         {"Added", "New notifications and confirmations: one shared look with a line that shrinks, an X outside the box, and a Yes button that takes the color of what it does."},
         {"Added", "Mods > God Mode rewritten: health lock, no death, touch and laser immunity, and kill-part switch-off, each with its own option."},
         {"Added", "Setting > Camera Mode: Third Person (Unlock) for maps that only allow first person, with camera height presets (Feet, Body, Normal, High, Sky) and a Lower / Higher step."},
+        {"Added", "Server seats: when many people are online, the server serves a limited number of players at a time. Everybody else still uses the whole hub, only Message, Online and ChatBot wait for a free seat. The Home tab shows the server status."},
+        {"Added", "ChatBot shows how many messages you have left today, and Control Player shows how many new players you can still ask."},
         {"Added", "Setting > Reload GUI: closes DaffzHub and loads it again, with a confirmation."},
         {"Fixed", "Third Person (Unlock) now stays on when you walk into a room or map that locks the camera again."},
         {"Fixed", "Pages no longer get stuck without scrolling after you move a slider (Visual, Theme and all other sliders)."},
@@ -43064,7 +43190,7 @@ DHChangelog = {
         {"Added", "Player: the number of people shows as Online n/Max and is colored by how full the server is."},
         {"Added", "Limits, kept on the server per account: Message 80 per 24 hours, Control Player 2 different players per 24 hours, ChatBot 20 per 24 hours (tighter when the server is busy). Your own API key is not limited."},
         {"Added", "Message filter: rude words and selling or buying accounts are blocked. 4 blocked messages in 24 hours give a 2 hour block."},
-        {"Added", "Auto-off: if too many people or requests hit the server at once, DaffzHub switches off by itself and comes back when it is calm."},
+        {"Added", "Two servers at the same time: each player gets one of them and the other is the backup, so Message, Online and ChatBot keep working when one server is busy or down."},
         {"Changed", "Loading is smoother: DaffzHub loads in small steps, so the phone no longer freezes near the end, and changing a theme no longer stutters."},
         {"Changed", "Buttons no longer say | ON / | OFF. The name stays and the color shows the state. Sliders now look and work the same everywhere, and the page no longer scrolls while you drag one."},
         {"Changed", "Anti Sit, Instant Prompt, Jump Button Setting, Camera Sensitivity, Report System and Unfreeze / Un-Ice are no longer marked Testing."},
@@ -43186,6 +43312,7 @@ pcall(function()
         and DHMark1 == "daffz-21ec-967f" and DHMark2 == "daffz-dcfc-2489" and DHMark3 == "daffz-3637-908e"
         and DHMark4 == "daffz-e88b-0ff4" and DHMark5 == "daffz-0a7b-762c"
         and Title and Title.Text == "DaffzHub"
+    DHOfficialOk = official == true
     if official then return end
     warn("This is an unofficial copy of DaffzHub. The official one: github.com/Daffa2014/Daffzhub-")
     local lb = Instance.new("TextLabel", ScreenGui)
