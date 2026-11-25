@@ -30989,12 +30989,27 @@ DHAvtBoot = function()
     local Root = AvtContent
     local pages, subs, says = {}, {}, {}
     local ORDER = {{"copy", "Copy"}, {"shop", "Shop"}, {"worn", "Wearing"}, {"skin", "Skin"}, {"saved", "Saved"}, {"prev", "Preview"}, {"online", "Online"}}
+    -- the pages were made for a window about 380 wide and 240 high; on a smaller window they slide (up/down and sideways) instead of being cut
+    function AV.Fit(f, minW, minH)
+        local function fit()
+            local a = f.AbsoluteSize
+            f.CanvasSize = UDim2.new(0, math.max(a.X - 3, minW), 0, math.max(a.Y - 3, minH))
+        end
+        f:GetPropertyChangedSignal("AbsoluteSize"):Connect(fit)
+        fit()
+    end
+    -- the sub-tab row slides sideways
+    local subStrip = mk("ScrollingFrame", {Position = UDim2.new(0, 8, 0, 0), Size = UDim2.new(1, -16, 0, 34), BackgroundTransparency = 1,
+        BorderSizePixel = 0, ScrollBarThickness = 0, ScrollingDirection = Enum.ScrollingDirection.X,
+        CanvasSize = UDim2.new(0, #ORDER * 60 + 12, 0, 0)}, Root)
     for i, d in ipairs(ORDER) do
-        local f = mk("Frame", {Position = UDim2.new(0, 10, 0, 36), Size = UDim2.new(1, -20, 1, -40), BackgroundTransparency = 1,
-            Visible = (i == 1)}, Root)
+        local f = mk("ScrollingFrame", {Position = UDim2.new(0, 10, 0, 36), Size = UDim2.new(1, -20, 1, -40), BackgroundTransparency = 1,
+            BorderSizePixel = 0, ScrollBarThickness = 2, ScrollBarImageColor3 = Color3.fromRGB(110, 110, 120),
+            ScrollingDirection = Enum.ScrollingDirection.XY, CanvasSize = UDim2.new(0, 0, 0, 0), Visible = (i == 1)}, Root)
+        AV.Fit(f, 380, 250)
         pages[d[1]] = f
-        local b = btn(Root, d[2], 10 + (i - 1) * 53, 4, 50, 26, (i == 1) and P.sel or P.btn)
-        b.TextSize = 9
+        local b = btn(subStrip, d[2], 3 + (i - 1) * 60, 4, 56, 26, (i == 1) and P.sel or P.btn)
+        b.TextSize = 10
         subs[d[1]] = b
         local st = label(f, "", {Position = UDim2.new(0, 0, 1, -26), Size = UDim2.new(1, 0, 0, 26), TextColor3 = P.dim, TextWrapped = true,
             TextYAlignment = Enum.TextYAlignment.Center, TextSize = 10, TextTruncate = Enum.TextTruncate.None})
