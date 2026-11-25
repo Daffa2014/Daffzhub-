@@ -24555,6 +24555,24 @@ function DHGrp.Build()
     tab.TextSize = 10
     DHGrp.TabBtn = tab
 
+    -- the five mode tabs are wider than the window: one row that slides sideways, same look as the other tabs
+    local mStrip = Instance.new("ScrollingFrame", Content)
+    mStrip.Name = "ModeStrip"
+    mStrip.BackgroundTransparency = 1
+    mStrip.BorderSizePixel = 0
+    mStrip.Size = UDim2.new(1, -16, 0, 34)
+    mStrip.Position = UDim2.new(0, 8, 0, 0)
+    mStrip.ScrollBarThickness = 0
+    mStrip.ScrollingDirection = Enum.ScrollingDirection.X
+    mStrip.CanvasSize = UDim2.new(0, 5 * 74 + 8, 0, 0)
+    local mList = {DHMsg.TabBtns.server, DHMsg.TabBtns.map, DHMsg.TabBtns.global, DHMsg.TabBtns.private, tab}
+    for i, b in ipairs(mList) do
+        b.Parent = mStrip
+        b.Size = UDim2.new(0, 70, 0, 28)
+        b.Position = UDim2.new(0, 3 + (i - 1) * 74, 0, 3)
+    end
+    DHSub.Bar(Content, mStrip)
+
     -- group bar (under the control row): one chip per group + Manage
     local bar = Instance.new("Frame", Content)
     bar.Size = UDim2.new(1, -20, 0, 26)
@@ -40471,7 +40489,31 @@ function DHChar.Build()
     for _, key in ipairs({"avatar", "emote", "anim"}) do
         local p = DHChar.PageOf(key)
         if p then
-            p.Parent = body
+            if key == "avatar" then
+                p.Parent = body
+            else
+                -- Emote and Animation were made for a taller window: they sit in a sliding frame (at least 380 x 300), so their lists are never squeezed
+                local wrap = Instance.new("ScrollingFrame", body)
+                wrap.Name = "Wrap_" .. key
+                wrap.BackgroundTransparency = 1
+                wrap.BorderSizePixel = 0
+                wrap.Position = UDim2.new(0, 0, 0, 0)
+                wrap.Size = UDim2.new(1, 0, 1, 0)
+                wrap.ScrollBarThickness = 2
+                wrap.ScrollBarImageColor3 = Color3.fromRGB(110, 110, 120)
+                wrap.ScrollingDirection = Enum.ScrollingDirection.XY
+                wrap.CanvasSize = UDim2.new(0, 0, 0, 0)
+                wrap.Visible = false
+                local function fit()
+                    local a = wrap.AbsoluteSize
+                    wrap.CanvasSize = UDim2.new(0, math.max(a.X - 3, 380), 0, math.max(a.Y - 3, 300))
+                end
+                wrap:GetPropertyChangedSignal("AbsoluteSize"):Connect(fit)
+                fit()
+                p.Parent = wrap
+                -- the page keeps deciding what is shown; its frame follows
+                p:GetPropertyChangedSignal("Visible"):Connect(function() wrap.Visible = p.Visible end)
+            end
             p.Position = UDim2.new(0, 0, 0, 0)
             p.Size = UDim2.new(1, 0, 1, 0)
             p.Visible = false
