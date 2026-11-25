@@ -20557,46 +20557,46 @@ pcall(BuildEffect)
 -- ================================================
 -- CAMERA: custom FOV
 -- ================================================
-DHCam = {Fov = 70}
+DHFov = {Fov = 70}
 
-function DHCam.SetFov(on)
+function DHFov.SetFov(on)
     local RS = game:GetService("RunService")
     pcall(function() RS:UnbindFromRenderStep("DH_FOV") end)
     if on then
         local c = workspace.CurrentCamera
-        if DHCam.orig == nil and c then
-            DHCam.orig = c.FieldOfView
+        if DHFov.orig == nil and c then
+            DHFov.orig = c.FieldOfView
         end
         -- runs right after the game's own camera update, so the game cannot overwrite it
         RS:BindToRenderStep("DH_FOV", Enum.RenderPriority.Camera.Value + 1, function()
             local cam = workspace.CurrentCamera
-            if cam and cam.FieldOfView ~= DHCam.Fov then
-                cam.FieldOfView = DHCam.Fov
+            if cam and cam.FieldOfView ~= DHFov.Fov then
+                cam.FieldOfView = DHFov.Fov
             end
         end)
-    elseif DHCam.orig ~= nil then
+    elseif DHFov.orig ~= nil then
         local c = workspace.CurrentCamera
-        if c then c.FieldOfView = DHCam.orig end
-        DHCam.orig = nil
+        if c then c.FieldOfView = DHFov.orig end
+        DHFov.orig = nil
     end
 end
 
 function BuildCamera()
     local c = workspace.CurrentCamera
     local start = c and math.clamp(math.floor(c.FieldOfView + 0.5), 30, 120) or 70
-    DHCam.Fov = start
+    DHFov.Fov = start
 
     local box = DHVisual.AddContainer("Camera", 95)
     DHVisual.AddNote(box, "Field of View. Turn Custom FOV ON, then move the slider. OFF returns your original FOV.")
-    DHVisual.AddToggle(box, "Custom FOV", "Keeps your FOV even if the game changes it", DHCam.SetFov, false)
+    DHVisual.AddToggle(box, "Custom FOV", "Keeps your FOV even if the game changes it", DHFov.SetFov, false)
     local fovSlider = DHVisual.AddSlider(box, "FOV", 30, 120, start, 0, function(v)
-        DHCam.Fov = v
+        DHFov.Fov = v
     end)
     DHVisual.AddButton(box, "Set FOV to 70 (Roblox default)", function()
         fovSlider.Set(70)
     end)
     DHVisual.OnCleanup(function()
-        DHCam.SetFov(false)
+        DHFov.SetFov(false)
     end)
 end
 
@@ -22928,6 +22928,13 @@ DHBot.Tex = {
 -- how many ChatBot messages are left today (24h limit); stays hidden for staff and when the server cannot say
 function DHBot.RefreshLeft()
     task.spawn(function()
+        -- DHMsg is built later in the file, so on a fresh load wait for it instead of failing
+        local tries = 0
+        while not (DHMsg and DHMsg.Call) and tries < 60 do
+            task.wait(0.25)
+            tries = tries + 1
+        end
+        if not (DHMsg and DHMsg.Call) then return end
         local d = DHMsg.Call({action = "usage", uid = Player.UserId, key = (DHDet and DHDet.Key ~= "") and DHDet.Key or nil})
         if type(d) == "table" and type(d.usage) == "table" and type(d.usage.chat) == "table" and not d.staff then
             DHBot.Left = d.usage.chat.left
@@ -38013,7 +38020,7 @@ end
 
 -- clean up when the hub is closed
 function DHMove.Destroy()
-    for _, c in ipairs(DHMove.Conns) do pcall(function() c:Disconnect() end) end
+    for _, c in ipairs(DHMove.Conns or {}) do pcall(function() c:Disconnect() end) end
     DHMove.Conns = {}
     pcall(function() RunService:UnbindFromRenderStep("DH_MoveEnforce") end)
     if DHMove.ShieldGui then pcall(function() DHMove.ShieldGui:Destroy() end) end
@@ -40476,17 +40483,17 @@ if not DHChar.BuildOk then pcall(function() DHLog.Add("error", "CHARACTER: " .. 
 --   Un-Freeze / Un-Ice / Un-Jail (Troll) -> Player
 --   Flick and Shift Lock (Player) -> Controls, sub-tab "Flick & Lock"
 --   Black Screen stays in Player for now.
--- Every move runs alone: if one fails, that feature simply stays where it was. (all global: DHMove, 200 locals limit)
+-- Every move runs alone: if one fails, that feature simply stays where it was. (all global: DHMoved, 200 locals limit)
 -- ================================================
-DHMove = {Log = {}}
+DHMoved = {Log = {}}
 
-function DHMove.Try(name, fn)
+function DHMoved.Try(name, fn)
     local ok, err = pcall(fn)
-    DHMove.Log[#DHMove.Log + 1] = name .. (ok and ": ok" or (": FAIL " .. tostring(err)))
+    DHMoved.Log[#DHMoved.Log + 1] = name .. (ok and ": ok" or (": FAIL " .. tostring(err)))
     if not ok then pcall(function() DHLog.Add("error", "MOVE " .. name .. ": " .. tostring(err)) end) end
 end
 
-function DHMove.ToMods()
+function DHMoved.ToMods()
     local sc = DHMods and DHMods.Scroll
     if not sc then error("no Mods list") end
     local fc = PlayerScroll:FindFirstChild("ZFreecamSection")
@@ -40506,7 +40513,7 @@ function DHMove.ToMods()
     end
 end
 
-function DHMove.FovToSetting()
+function DHMoved.FovToSetting()
     local box = VisualScroll and VisualScroll:FindFirstChild("C_Camera")
     if not (box and SettingScroll) then error("FOV box or Setting list not found") end
     local y = 0
@@ -40523,7 +40530,7 @@ function DHMove.FovToSetting()
     box.Parent = SettingScroll
 end
 
-function DHMove.UnToPlayer()
+function DHMoved.UnToPlayer()
     local aa = nil
     for _, o in ipairs(TrollScroll:GetChildren()) do
         if o:IsA("Frame") then
@@ -40546,7 +40553,7 @@ function DHMove.UnToPlayer()
     end
 end
 
-function DHMove.ToControls()
+function DHMoved.ToControls()
     local page = CtlContent
     local fl = PlayerScroll:FindFirstChild("ZFlickSection")
     local sh = PlayerScroll:FindFirstChild("ZZShiftSection")
@@ -40612,10 +40619,10 @@ function DHMove.ToControls()
     pick(1)
 end
 
-DHMove.Try("Freecam+Crosshair -> Mods", DHMove.ToMods)
-DHMove.Try("FOV -> Setting", DHMove.FovToSetting)
-DHMove.Try("Un-Freeze -> Player", DHMove.UnToPlayer)
-DHMove.Try("Flick+Shiftlock -> Controls", DHMove.ToControls)
+DHMoved.Try("Freecam+Crosshair -> Mods", DHMoved.ToMods)
+DHMoved.Try("FOV -> Setting", DHMoved.FovToSetting)
+DHMoved.Try("Un-Freeze -> Player", DHMoved.UnToPlayer)
+DHMoved.Try("Flick+Shiftlock -> Controls", DHMoved.ToControls)
 
 
 -- ================================================
@@ -41561,12 +41568,12 @@ function DHPerf.Cleanup()
 end
 
 DHPerf.Alive = true
-DHMove.Try("Low Graphics -> Visual/Perf", DHPerf.BuildLow)
-DHMove.Try("Hide Player -> Visual/Perf", DHPerf.BuildHide)
-DHMove.Try("FPS Unlocker -> Visual/Perf", DHPerf.BuildFps)
-DHMove.Try("Auto Low Graphics -> Visual/Perf", DHPerf.BuildAuto)
-DHMove.Try("Full Bright -> Visual/Adjust", DHPerf.BuildFB)
-DHMove.Try("Black Screen -> Visual/Perf", DHPerf.MoveBlack)
+DHMoved.Try("Low Graphics -> Visual/Perf", DHPerf.BuildLow)
+DHMoved.Try("Hide Player -> Visual/Perf", DHPerf.BuildHide)
+DHMoved.Try("FPS Unlocker -> Visual/Perf", DHPerf.BuildFps)
+DHMoved.Try("Auto Low Graphics -> Visual/Perf", DHPerf.BuildAuto)
+DHMoved.Try("Full Bright -> Visual/Adjust", DHPerf.BuildFB)
+DHMoved.Try("Black Screen -> Visual/Perf", DHPerf.MoveBlack)
 pcall(function() ScreenGui.Destroying:Connect(DHPerf.Cleanup) end)
 
 
@@ -42607,13 +42614,13 @@ function DHFloat.Late()
 end
 
 DHFloat.SLoad()
-DHMove.Try("Button Style sub-tab -> Controls", DHFloat.AddSubtab)
-DHMove.Try("Shortcut buttons", function()
+DHMoved.Try("Button Style sub-tab -> Controls", DHFloat.AddSubtab)
+DHMoved.Try("Shortcut buttons", function()
     DHFloat.SBuild()
     DHFloat.SyncLoop()
 end)
-DHMove.Try("Floating buttons that already exist", DHFloat.Late)
-DHMove.Try("Detect floating buttons", DHFloat.Detect)
+DHMoved.Try("Floating buttons that already exist", DHFloat.Late)
+DHMoved.Try("Detect floating buttons", DHFloat.Detect)
 pcall(function()
     ScreenGui.Destroying:Connect(function()
         DHFloat.Alive = false
