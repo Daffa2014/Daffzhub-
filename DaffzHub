@@ -550,7 +550,7 @@ function ShowConfirmPopup(msg, strokeColor, onConfirm, onCancel, opts)
 
     local PopupStroke = Instance.new("UIStroke", Pop)
     PopupStroke.Color = Color3.new(1, 1, 1)
-    PopupStroke.Thickness = 2
+    PopupStroke.Thickness = 1
     PopupStroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
 
     local Head = Instance.new("TextLabel", Pop)
@@ -571,7 +571,7 @@ function ShowConfirmPopup(msg, strokeColor, onConfirm, onCancel, opts)
     Instance.new("UICorner", Box).CornerRadius = UDim.new(0, 12)
     local BoxStroke = Instance.new("UIStroke", Box)
     BoxStroke.Color = Color3.new(1, 1, 1)
-    BoxStroke.Thickness = 2
+    BoxStroke.Thickness = 1
     BoxStroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
 
     local Txt = Instance.new("TextLabel", Box)
@@ -597,7 +597,7 @@ function ShowConfirmPopup(msg, strokeColor, onConfirm, onCancel, opts)
     Instance.new("UICorner", No).CornerRadius = UDim.new(0, 12)
     local NoStroke = Instance.new("UIStroke", No)
     NoStroke.Color = Color3.new(1, 1, 1)
-    NoStroke.Thickness = 2
+    NoStroke.Thickness = 1
     NoStroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
 
     local Yes = Instance.new("TextButton", Pop)
@@ -613,7 +613,7 @@ function ShowConfirmPopup(msg, strokeColor, onConfirm, onCancel, opts)
     Instance.new("UICorner", Yes).CornerRadius = UDim.new(0, 12)
     local YesStroke = Instance.new("UIStroke", Yes)
     YesStroke.Color = Color3.new(1, 1, 1)
-    YesStroke.Thickness = 2
+    YesStroke.Thickness = 1
     YesStroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
 
     -- the white line at the bottom: the time left to answer, it shrinks to the left (nothing answered = Cancel)
@@ -693,7 +693,7 @@ DHFrame = {Strokes = {}}
 function DHFrame.Stroke(o, th)
     local st = Instance.new("UIStroke", o)
     st.Color = Color3.new(1, 1, 1)
-    st.Thickness = th or 2
+    st.Thickness = th or 1
     st.Transparency = 0
     st.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
     DHFrame.Strokes[#DHFrame.Strokes + 1] = st
@@ -706,7 +706,7 @@ function DHFrame.Box(name, pos, size, color, radius)
     f.Size = size
     f.BackgroundColor3 = color
     Instance.new("UICorner", f).CornerRadius = radius
-    DHFrame.Stroke(f, 2)
+    DHFrame.Stroke(f, 1)
     return f
 end
 -- SUB-TAB ROW (global DHSub): every tab puts its sub-tabs at the same place: x 8, y 5, height 28, on a black strip
@@ -735,7 +735,7 @@ function DHSub.Skin(b, z)
     cr.CornerRadius = UDim.new(0, 8)
     b.Font = Enum.Font.GothamBold
     b.TextSize = 12
-    DHFrame.Stroke(b, 1.5)
+    DHFrame.Stroke(b, 1)
     b:GetPropertyChangedSignal("BackgroundColor3"):Connect(function() DHSub.Paint(b) end)
     DHSub.Paint(b)
 end
@@ -3390,7 +3390,7 @@ function DHDet.Notice(onOk)
     Instance.new("UICorner", Pop).CornerRadius = UDim.new(0, 10)
     local st = Instance.new("UIStroke", Pop)
     st.Color = DHDet.Color
-    st.Thickness = 1.5
+    st.Thickness = 1
     local title = Instance.new("TextLabel", Pop)
     title.Size = UDim2.new(1, -20, 0, 22)
     title.Position = UDim2.new(0, 10, 0, 8)
@@ -26848,6 +26848,24 @@ function DHTr.AddGuide()
     local gb = Btn(Content, "Guide", 72, 26)
     gb.Position = UDim2.new(0, 10 + 4 * 76, 0, 4)
 
+    -- sub-tabs in the new look: one row you can slide sideways (same as the other tabs)
+    local subBar = Instance.new("ScrollingFrame", Content)
+    subBar.Name = "SubBar"
+    subBar.BackgroundTransparency = 1
+    subBar.BorderSizePixel = 0
+    subBar.Size = UDim2.new(1, -16, 0, 34)
+    subBar.Position = UDim2.new(0, 8, 0, 0)
+    subBar.ScrollBarThickness = 0
+    subBar.ScrollingDirection = Enum.ScrollingDirection.X
+    subBar.CanvasSize = UDim2.new(0, 5 * 84 + 8, 0, 0)
+    local subList = {tabs.Settings, tabs.Translate, tabs.Chat, tabs.Screen, gb}
+    for i, b in ipairs(subList) do
+        b.Parent = subBar
+        b.Size = UDim2.new(0, 80, 0, 28)
+        b.Position = UDim2.new(0, 3 + (i - 1) * 84, 0, 3)
+    end
+    DHSub.Bar(Content, subBar)
+
     local panel = Instance.new("Frame", Content)
     panel.Size = UDim2.new(1, -20, 1, -40)
     panel.Position = UDim2.new(0, 10, 0, 36)
@@ -34449,10 +34467,16 @@ task.spawn(function()
         local ci = cm and cm:WaitForChild("CameraInput", 15)
         if not ci then return end
         local CameraInputModule = require(ci)
-        if CameraInputModule and not CameraInput_orig then
-            CameraInput_orig = CameraInputModule.getRotation
+        if CameraInputModule then
+            -- keep the real function on the module itself, so a second load (Reload GUI) never wraps its own wrapper (that was the stack overflow)
+            local realGet = rawget(CameraInputModule, "__DHRealGetRotation")
+            if not realGet then
+                realGet = CameraInputModule.getRotation
+                CameraInputModule.__DHRealGetRotation = realGet
+            end
+            CameraInput_orig = realGet
             CameraInputModule.getRotation = function(...)
-                local rot = CameraInput_orig(...)
+                local rot = realGet(...)
                 return rot * (CurrentSens or 1)
             end
         end
@@ -35410,7 +35434,7 @@ function BuildOtherSettings()
         Instance.new("UICorner", card).CornerRadius = UDim.new(0, 12)
         local st = Instance.new("UIStroke", card)
         st.Color = Color3.new(1, 1, 1)
-        st.Thickness = 2
+        st.Thickness = 1
         st.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
 
         local head = Instance.new("TextLabel", card)
@@ -35431,7 +35455,7 @@ function BuildOtherSettings()
         Instance.new("UICorner", box).CornerRadius = UDim.new(0, 10)
         local bst = Instance.new("UIStroke", box)
         bst.Color = Color3.new(1, 1, 1)
-        bst.Thickness = 1.5
+        bst.Thickness = 1
         bst.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
 
         local msgLb = Instance.new("TextLabel", box)
