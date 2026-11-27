@@ -201,14 +201,15 @@ local Character = Player.Character or Player.CharacterAdded:Wait()
 local Humanoid = Character:WaitForChild("Humanoid")
 local lastPosition = Character.PrimaryPart and Character.PrimaryPart.Position or Vector3.new()
 
--- WHERE THE HUB LIVES: gethui (hidden from the game's own scripts) > PlayerGui > CoreGui. Falls back to the next one if a place is blocked.
+-- WHERE THE HUB LIVES: gethui (hidden from the game's own scripts) > CoreGui > PlayerGui. Falls back to the next one if a place is blocked.
+-- CoreGui comes before PlayerGui: map scripts that loop over PlayerGui (button click sounds, font changes) then cannot touch the hub.
 function DHContainers()
     local list = {}
     if gethui then
         list[#list + 1] = function() return gethui() end
     end
-    list[#list + 1] = function() return Player:FindFirstChildOfClass("PlayerGui") or Player:WaitForChild("PlayerGui", 10) end
     list[#list + 1] = function() return game:GetService("CoreGui") end
+    list[#list + 1] = function() return Player:FindFirstChildOfClass("PlayerGui") or Player:WaitForChild("PlayerGui", 10) end
     return list
 end
 
@@ -264,6 +265,8 @@ for _, resolve in ipairs(DHContainers()) do
 end
 ScreenGui.Name = "DaffzHub"
 ScreenGui.ResetOnSpawn = false
+-- the hub may use the whole screen, also the strip beside the Roblox buttons (logo, menu, chat, mic) at the top
+ScreenGui.IgnoreGuiInset = true
 ScreenGui.ZIndexBehavior = Enum.ZIndexBehavior.Global
 ScreenGui.DisplayOrder = 99990 -- DaffzHub is above every other GUI (only the Move editor, 99998 and up, is higher)
 if not DHMount(ScreenGui) then ScreenGui.Parent = Player:WaitForChild("PlayerGui") end
@@ -274,6 +277,23 @@ local containerExpandedHeit66 = 430
 
 -- DRAG SYSTEM
 local DragLocked = true
+
+-- keeps a window or the floating button inside the screen (also when the screen gets smaller)
+function DHBoot.Clamp(f)
+    if not (f and f.Parent and ScreenGui.Parent) then return end
+    for _ = 1, 3 do
+        local sp, ss = ScreenGui.AbsolutePosition, ScreenGui.AbsoluteSize
+        if ss.X < 50 or ss.Y < 50 then return end
+        local fp, fs = f.AbsolutePosition, f.AbsoluteSize
+        local minX, minY = sp.X, sp.Y
+        local maxX, maxY = math.max(minX, sp.X + ss.X - fs.X), math.max(minY, sp.Y + ss.Y - fs.Y)
+        local dx = fp.X < minX and (minX - fp.X) or (fp.X > maxX and (maxX - fp.X) or 0)
+        local dy = fp.Y < minY and (minY - fp.Y) or (fp.Y > maxY and (maxY - fp.Y) or 0)
+        if math.abs(dx) < 0.5 and math.abs(dy) < 0.5 then return end
+        local pos = f.Position
+        f.Position = UDim2.new(pos.X.Scale, pos.X.Offset + dx, pos.Y.Scale, pos.Y.Offset + dy)
+    end
+end
 
 local function Dragify(frame)
     local dragging, dragInput, startPos, startInput
@@ -299,13 +319,14 @@ local function Dragify(frame)
         if dragging and input == dragInput then
             local delta = input.Position - startInput
             frame.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
+            DHBoot.Clamp(frame)
         end
     end)
 end
 
 FBFrame = Instance.new("Frame", ScreenGui)
 FBFrame.Size = UDim2.new(0, 140, 0, 40)
-FBFrame.Position = UDim2.new(0, 10, 0, 5)
+FBFrame.Position = UDim2.new(0, 10, 0, 5 + (tonumber(select(2, pcall(function() return game:GetService("GuiService"):GetGuiInset().Y end))) or 36))
 FBFrame.BackgroundColor3 = Color3.fromRGB(10,10,10)
 FBFrame.Active = true
 FBFrame.ClipsDescendants = true
@@ -362,61 +383,90 @@ LoadLabel.ClipsDescendants = true
 -- ================================================
 -- ERROR INDICATOR (di bawah Floating Button)
 -- ================================================
-ErrorIndicator = Instance.new("TextLabel", ScreenGui)
-ErrorIndicator.Size = UDim2.new(0, 140, 0, 24)
+ErrorIndicator = Instance.new("TextButton", ScreenGui)
+ErrorIndicator.Size = UDim2.new(0, 178, 0, 22)
 ErrorIndicator.Position = UDim2.new(0, 10, 0, 48)
-ErrorIndicator.BackgroundColor3 = Color3.fromRGB(20,8,8)
-ErrorIndicator.BackgroundTransparency = 1
-ErrorIndicator.Text = "ERROR"
-ErrorIndicator.Font = Enum.Font.GothamBlack
-ErrorIndicator.TextSize = 18
-ErrorIndicator.TextColor3 = Color3.fromRGB(255, 60, 60)
-ErrorIndicator.TextTransparency = 1
+ErrorIndicator.BackgroundColor3 = Color3.fromRGB(20, 20, 24)
+ErrorIndicator.BackgroundTransparency = 0.25
+ErrorIndicator.AutoButtonColor = false
+ErrorIndicator.Text = "Starting..."
+ErrorIndicator.Font = Enum.Font.GothamBold
+ErrorIndicator.TextSize = 12
+ErrorIndicator.TextColor3 = Color3.fromRGB(230, 230, 235)
+ErrorIndicator.TextTruncate = Enum.TextTruncate.AtEnd
 ErrorIndicator.ZIndex = 20
 Instance.new("UICorner", ErrorIndicator).CornerRadius = UDim.new(0, 6)
+-- the box sits right under the floating button and follows it when the button is moved
+function DHBoot.ChipPlace()
+    if FBFrame and FBFrame.Parent then
+        local p = FBFrame.Position
+        ErrorIndicator.Position = UDim2.new(p.X.Scale, p.X.Offset, p.Y.Scale, p.Y.Offset + FBFrame.Size.Y.Offset + 3)
+    end
+end
+DHBoot.ChipPlace()
+FBFrame:GetPropertyChangedSignal("Position"):Connect(DHBoot.ChipPlace)
 
 loadingHalted = false
-
 errorPopupThread = nil
+DHBoot = DHBoot or {}
+DHBoot.Stage = "Starting"
+DHBoot.LastMove = os.clock()
+CurrentLoadPct = 0
 
-function ShowErrorIndicator()
-    ErrorIndicator.BackgroundTransparency = 0.1
-    ErrorIndicator.TextTransparency = 0
-
-    -- Kalau reminder loop udah jalan, jangan bikin dobel
-    if errorPopupThread then return end
-
-    errorPopupThread = task.spawn(function()
-        while loadingHalted do
-            ShowConfirmPopup(
-                "DaffzHub encountered an error!\nDelete GUI now?",
-                Color3.fromRGB(200, 40, 40),
-                function()
-                    ScreenGui:Destroy()
-                end
-            )
-            task.wait(3)
-        end
-        errorPopupThread = nil
-    end)
+-- the status box under the floating button: loading stage / slow warning / error (tap it to delete the GUI)
+function DHBoot.Chip(text, bg, fg)
+    ErrorIndicator.Visible = true
+    ErrorIndicator.Text = text
+    ErrorIndicator.BackgroundColor3 = bg
+    ErrorIndicator.TextColor3 = fg
 end
+
+function DHBoot.AskDelete()
+    ShowConfirmPopup(
+        "DaffzHub hit an error while loading (" .. tostring(DHBoot.Stage) .. ").\nDelete GUI now?",
+        Color3.fromRGB(200, 40, 40),
+        function() ScreenGui:Destroy() end
+    )
+end
+
+ErrorIndicator.MouseButton1Click:Connect(function()
+    if loadingHalted then pcall(DHBoot.AskDelete) end
+end)
+
+-- the delete question is asked ONE time; after Cancel the red box stays, tap it to ask again
+function ShowErrorIndicator()
+    DHBoot.Chip("ERROR in " .. tostring(DHBoot.Stage) .. " - tap", Color3.fromRGB(70, 12, 12), Color3.fromRGB(255, 90, 90))
+    if errorPopupThread then return end
+    errorPopupThread = true
+    task.spawn(function() pcall(DHBoot.AskDelete) end)
+end
+
+-- a step that does not move for 20 seconds: warn, do not treat it as an error
+task.spawn(function()
+    while ScreenGui.Parent and CurrentLoadPct < 100 do
+        task.wait(2)
+        if not loadingHalted and os.clock() - DHBoot.LastMove > 20 then
+            DHBoot.Chip("Slow: " .. tostring(DHBoot.Stage) .. "...", Color3.fromRGB(70, 52, 8), Color3.fromRGB(255, 205, 80))
+        end
+    end
+end)
 
 -- Deteksi error FATAL dari DaffzHub sendiri (bukan warning, bukan dari script lain)
 local LogService = game:GetService("LogService")
 LogService.MessageOut:Connect(function(message, messageType)
     if messageType == Enum.MessageType.MessageError then
-        -- Cek apakah error ini dari DaffzHub (nama variabel/fungsi khas kita)
+        -- the hub's own names (DHxxx helpers, section names) show up in its error text
         local isDaffzHubError = string.find(message, "DaffzHub", 1, true)
-    or string.find(message, "DesyncSection", 1, true)
-    or string.find(message, "SetLoadProgress", 1, true)
-    or string.find(message, "ShowScriptTab", 1, true)
-    or string.find(message, "HideAllContent", 1, true)
-
+            or string.find(message, "DesyncSection", 1, true)
+            or string.find(message, "SetLoadProgress", 1, true)
+            or string.find(message, "ShowScriptTab", 1, true)
+            or string.find(message, "HideAllContent", 1, true)
+            or string.find(message, "DH%u%l", 1)
         -- Roblox prints WrapDeformer errors for layered clothing (also inside our preview): not a hub error
         if string.find(message, "WrapDefomer", 1, true) or string.find(message, "SkinningTransfer", 1, true) then
             isDaffzHubError = nil
         end
-        if isDaffzHubError and not loadingHalted then
+        if isDaffzHubError and not loadingHalted and CurrentLoadPct < 100 then
             loadingHalted = true
             ShowErrorIndicator()
         end
@@ -458,8 +508,18 @@ function DHBoot.Paint(i)
 end
 
 -- the bar follows the target by itself, one small step per frame; the builder only sets the target
-function SetLoadProgress(pct)
+function SetLoadProgress(pct, stage)
     pct = math.clamp(pct, 0, 100)
+    DHBoot.LastMove = os.clock()
+    if stage and not loadingHalted then
+        DHBoot.Stage = stage
+        if pct >= 100 then
+            DHBoot.Chip("Loaded", Color3.fromRGB(10, 50, 28), Color3.fromRGB(120, 235, 160))
+            task.delay(1.5, function() if not loadingHalted then ErrorIndicator.Visible = false end end)
+        else
+            DHBoot.Chip("Loading: " .. stage .. " " .. pct .. "%", Color3.fromRGB(20, 20, 24), Color3.fromRGB(230, 230, 235))
+        end
+    end
     LoadFill.Visible = true
     LoadFill.BackgroundTransparency = 0
     if pct > DHBoot.Target then DHBoot.Target = pct end
@@ -674,13 +734,38 @@ end
 -- MAIN FRAME
 Main = Instance.new("Frame", ScreenGui)
 Main.Size = UDim2.new(0, 500, 0, 330)
-Main.Position = UDim2.new(0.5, -250, 0.4, -165)
+Main.Position = UDim2.new(0.5, -250, 0.5, -165)
 local MainSpawnPosition = Main.Position
 Main.BackgroundColor3 = Color3.fromRGB(15,15,15)
 Main.Active = true
 Main.ClipsDescendants = true
 Main.Visible = false
 Dragify(Main)
+
+-- small screen or high DPI: the window shrinks to fit (never below 45%), and the window and the floating button never leave the screen
+function DHBoot.Fit()
+    local ss = ScreenGui.AbsoluteSize
+    if ss.X < 50 or ss.Y < 50 then return end
+    if not DHBoot.Scale then
+        DHBoot.Scale = Instance.new("UIScale")
+        DHBoot.Scale.Name = "DHFit"
+        DHBoot.Scale.Parent = Main
+    end
+    local w, h = math.max(1, Main.Size.X.Offset), math.max(1, Main.Size.Y.Offset)
+    local sc = math.clamp(math.min((ss.X - 12) / w, (ss.Y - 12) / h, 1), 0.45, 1)
+    if DHBoot.LastScale ~= sc then
+        -- first time or the size changed: put the window back in the middle of the screen
+        DHBoot.LastScale = sc
+        DHBoot.Scale.Scale = sc
+        Main.Position = UDim2.new(0.5, -w * sc / 2, 0.5, -h * sc / 2)
+    end
+    DHBoot.Clamp(Main)
+    DHBoot.Clamp(FBFrame)
+end
+ScreenGui:GetPropertyChangedSignal("AbsoluteSize"):Connect(function() pcall(DHBoot.Fit) end)
+Main:GetPropertyChangedSignal("Size"):Connect(function() pcall(DHBoot.Fit) end)
+Main:GetPropertyChangedSignal("Visible"):Connect(function() if Main.Visible then pcall(DHBoot.Fit) end end)
+task.defer(function() pcall(DHBoot.Fit) end)
 Instance.new("UICorner", Main).CornerRadius = UDim.new(0, 16)
 
 local MainStroke = Instance.new("UIStroke", Main)
@@ -790,7 +875,7 @@ DHFrame.Name.TextSize = 15
 DHFrame.Name.TextColor3 = Color3.new(1, 1, 1)
 
 CheckLoadingHalt()
-SetLoadProgress(20)
+SetLoadProgress(20, "Window")
 
 local Title = Instance.new("TextLabel", DHFrame.TitlePill)
 Title.Size = UDim2.new(1, 0, 1, 0)
@@ -1328,7 +1413,7 @@ function DHShowTab(page, button)
 end
 
 CheckLoadingHalt()
-SetLoadProgress(40)
+SetLoadProgress(40, "Tabs and Player")
 
 -- TABS
 LibraryTab = DHNewTab("Library")
@@ -8797,7 +8882,7 @@ function applyJumpSettings()
 end
 
 CheckLoadingHalt()
-SetLoadProgress(50)
+SetLoadProgress(50, "Camera")
 do
 -- ================================================
 -- FREECAM SECTION
@@ -15042,7 +15127,7 @@ TouchReset.MouseButton1Click:Connect(function()
 end)
 
 CheckLoadingHalt()
-SetLoadProgress(60)
+SetLoadProgress(60, "Troll")
 do
 -- ================================================
 -- FLING PLAYER SECTION (ADAPTASI DARI KILASIK)
@@ -17255,7 +17340,7 @@ end -- (scope wrapper: frees local registers)
 local EmoteTabBtn = DHNewTab("Emote")
 
 CheckLoadingHalt()
-SetLoadProgress(63)
+SetLoadProgress(63, "Emotes")
 
 -- ================================================
 -- EMOTE TAB CONTENT
@@ -18651,7 +18736,7 @@ pcall(DHMood.Build)
 end
 
 CheckLoadingHalt()
-SetLoadProgress(66)
+SetLoadProgress(66, "Search")
 
 -- ================================================
 -- TAB SEARCH
@@ -19430,7 +19515,7 @@ local function SBGetMapName()
     return cleaned
 end
 
-task.delay(12, function() pcall(SBGetMapName) end)
+-- no name lookup at startup: the two web requests can freeze the frame on some executors; it is read when "This Map" is pressed
 
 SBMapBtn.MouseButton1Click:Connect(function()
     if SBIsSearching then return end
@@ -19502,7 +19587,7 @@ SBRefreshList()
 DHVisual = {cleanups = {}}
 
 CheckLoadingHalt()
-SetLoadProgress(69)
+SetLoadProgress(69, "Visual")
 
 -- features register a function here that undoes their changes (called when the hub is closed)
 function DHVisual.OnCleanup(fn)
@@ -20418,7 +20503,7 @@ end
 pcall(BuildESP)
 
 CheckLoadingHalt()
-SetLoadProgress(72)
+SetLoadProgress(72, "Visual lists")
 
 DHVisual.Lists = DHVisual.Lists or {}
 
@@ -20906,7 +20991,7 @@ end
 pcall(BuildWeatherSeason)
 
 CheckLoadingHalt()
-SetLoadProgress(75)
+SetLoadProgress(75, "Visual settings")
 
 -- ================================================
 -- ADJUSTMENT (part 1): slider + button helpers, Time / Water / Clouds
@@ -35114,7 +35199,7 @@ if not DHCtlOk then
 end
 
 CheckLoadingHalt()
-SetLoadProgress(78)
+SetLoadProgress(78, "Settings")
 
 -- ================================================
 -- TAB SETTING
@@ -37371,10 +37456,15 @@ DHStaffBoot = function()
             local g = N("ScreenGui", ScreenGui.Parent, {Name = "DHStaffBan", ResetOnSpawn = false, IgnoreGuiInset = true, DisplayOrder = 100000})
             local dim = N("Frame", g, {Size = UDim2.new(1, 0, 1, 0), BackgroundColor3 = Color3.fromRGB(8, 8, 12), BackgroundTransparency = 0.15, BorderSizePixel = 0, Active = true})
             local xb = Btn(dim, "X", C.grey, {Size = UDim2.new(0, 34, 0, 34), Position = UDim2.new(1, -46, 0, 12)})
+            -- X hides the screen but keeps a small red box; tap it to see the block again (the screen never pops up by itself twice)
+            local chip = Btn(g, "BLOCKED - tap for details", C.red, {Size = UDim2.new(0, 178, 0, 22), Position = UDim2.new(0, 10, 0, 48 + (tonumber(select(2, pcall(function() return game:GetService("GuiService"):GetGuiInset().Y end))) or 0)), Visible = false, TextSize = 12})
             xb.MouseButton1Click:Connect(function()
                 S.BanClosed = true
-                if S.BanGui then S.BanGui:Destroy() end
-                S.BanGui, S.BanUi = nil, nil
+                dim.Visible, chip.Visible = false, true
+            end)
+            chip.MouseButton1Click:Connect(function()
+                S.BanClosed = false
+                dim.Visible, chip.Visible = true, false
             end)
             local card = N("Frame", dim, {AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.new(0.5, 0, 0.5, 0), Size = UDim2.new(0, 320, 0, 10), BackgroundColor3 = C.bg,
                 BorderSizePixel = 0, AutomaticSize = Enum.AutomaticSize.Y})
@@ -37406,7 +37496,7 @@ DHStaffBoot = function()
                 end)
             end)
             S.BanGui = g
-            S.BanUi = {info = info, ap = ap, abox = abox, send = send, close = close}
+            S.BanUi = {info = info, ap = ap, abox = abox, send = send, close = close, dim = dim, chip = chip}
         end
         local u = S.BanUi
         if not u then return end
@@ -37418,6 +37508,7 @@ DHStaffBoot = function()
             else u.ap.Text, u.abox.Visible, u.send.Visible = "If you think this is a mistake, you can send one appeal to the owner.", true, true end
             u.close.Visible = false
         else
+            u.dim.Visible, u.chip.Visible = true, false
             u.info.Text = "Your block has ended. Run DaffzHub again to use it."
             u.ap.Text, u.abox.Visible, u.send.Visible, u.close.Visible = "", false, false, true
         end
@@ -39167,7 +39258,7 @@ pcall(DHMove.Build)
 ScreenGui.Destroying:Connect(DHMove.Destroy)
 
 CheckLoadingHalt()
-SetLoadProgress(84)
+SetLoadProgress(84, "Home")
 
 -- ================================================
 -- TAB HOME (was Credit; at the top of the tab list, see "HOME TAB FIRST" below)
@@ -41362,7 +41453,7 @@ ShowHomeTab = ShowCreditTab
 function UnlockScriptTab() end
 
 CheckLoadingHalt()
-SetLoadProgress(92)
+SetLoadProgress(92, "Tab buttons")
 
 -- ================================================
 -- CONNECT ALL TAB BUTTONS
@@ -44306,7 +44397,7 @@ pcall(DHTheme.Build)
 
 
 CheckLoadingHalt()
-SetLoadProgress(96)
+SetLoadProgress(96, "Finishing")
 
 -- ================================================
 -- INITIALIZE (the hub opens on the Home tab)
@@ -44314,7 +44405,7 @@ SetLoadProgress(96)
 if not pcall(ShowCreditTab) then ShowScriptTab() end
 
 CheckLoadingHalt()
-SetLoadProgress(100)
+SetLoadProgress(100, "Done")
 task.wait(0.35)
 FinishLoading()
 
