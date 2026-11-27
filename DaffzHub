@@ -1212,14 +1212,40 @@ end
 -- DHAC: map scan (read only). It only LISTS scripts and remotes whose names look like a protection or
 -- admin system, so you can see what a map has. It does not change, switch off or hide anything.
 -- ================================================
-DHAC = {Busy = false, Found = {}, Words = {"anticheat", "anti-cheat", "anti_cheat", "anti cheat", "antiexploit", "exploit", "detect", "security", "guard", "cheat", "ban", "kick", "admin", "moderat"}}
+DHAC = {Busy = false, Found = {}}
+-- names are cut into whole words (AntiCheat, anti_cheat, KickPlayer -> anti cheat / kick player), so "banner" or
+-- "urban" no longer count as "ban". Strong words alone make a HIGH match, weak words only a "maybe".
+DHAC.Strong = {anticheat = 3, antiexploit = 3, exploit = 3, exploiter = 3, exploits = 3, cheat = 3, cheater = 3, cheats = 3,
+    antifly = 3, antispeed = 3, antitp = 3, antinoclip = 3, antiteleport = 3, noclip = 2, sanity = 2, violation = 3, flagged = 2,
+    banhammer = 3, banned = 2, ban = 2, kick = 2, detect = 2, detection = 2, detector = 2, security = 2, integrity = 2,
+    validate = 2, validator = 2, watchdog = 2, ac = 2, speedcheck = 3, velocitycheck = 3}
+DHAC.Weak = {admin = 1, admins = 1, moderat = 1, moderation = 1, moderator = 1, mod = 1, guard = 1, report = 1, punish = 1, warn = 1}
+-- parts of the game that are never the map's own protection
+DHAC.Skip = {CoreGui = true, CorePackages = true, RobloxGui = true}
 
-function DHAC.Match(name)
-    local n = string.lower(name)
-    for _, w in ipairs(DHAC.Words) do
-        if string.find(n, w, 1, true) then return true end
+function DHAC.Words(name)
+    local t, cur = {}, ""
+    local s = tostring(name):gsub("(%l)(%u)", "%1 %2"):gsub("(%u)(%u%l)", "%1 %2")
+    for ch in (s .. " "):gmatch(".") do
+        if ch:match("%a") then cur = cur .. ch:lower()
+        else
+            if cur ~= "" then t[#t + 1] = cur cur = "" end
+        end
     end
-    return false
+    return t
+end
+
+-- returns score (0 = no match); two words in a row like "anti" + "cheat" or "anti" + "exploit" count as one strong word
+function DHAC.Match(name)
+    local w = DHAC.Words(name)
+    local score = 0
+    for i, x in ipairs(w) do
+        local y = w[i + 1] and (x .. w[i + 1])
+        if y and DHAC.Strong[y] then score = math.max(score, DHAC.Strong[y])
+        elseif DHAC.Strong[x] then score = math.max(score, DHAC.Strong[x])
+        elseif DHAC.Weak[x] then score = math.max(score, DHAC.Weak[x]) end
+    end
+    return score
 end
 
 function DHAC.Scan(onProgress, onDone)
@@ -1230,17 +1256,37 @@ function DHAC.Scan(onProgress, onDone)
         local classes = {LocalScript = true, Script = true, ModuleScript = true, RemoteEvent = true, RemoteFunction = true}
         local list = {}
         pcall(function() list = game:GetDescendants() end)
+        local mine = nil
+        pcall(function() mine = ScreenGui end)
+        local all = {}
         for i, d in ipairs(list) do
-            if classes[d.ClassName] and DHAC.Match(d.Name) and #DHAC.Found < 200 then
-                local path = ""
-                pcall(function() path = d:GetFullName() end)
-                DHAC.Found[#DHAC.Found + 1] = {class = d.ClassName, name = d.Name, path = path}
+            if classes[d.ClassName] then
+                local sc = DHAC.Match(d.Name)
+                if sc > 0 then
+                    local skip = false
+                    pcall(function()
+                        if mine and d:IsDescendantOf(mine) then skip = true end
+                        for _, n in ipairs({"CoreGui", "CorePackages"}) do
+                            if d:IsDescendantOf(game:GetService(n)) then skip = true end
+                        end
+                    end)
+                    if not skip then
+                        local path = ""
+                        pcall(function() path = d:GetFullName() end)
+                        -- a protection script usually lives in a script container; a remote with such a name is a stronger hint than a plain script
+                        if d.ClassName == "RemoteEvent" or d.ClassName == "RemoteFunction" then sc = sc + 1 end
+                        if path:find("ServerScriptService", 1, true) or path:find("ServerStorage", 1, true) then sc = sc + 1 end
+                        all[#all + 1] = {class = d.ClassName, name = d.Name, path = path, score = sc, level = sc >= 3 and "HIGH" or "maybe"}
+                    end
+                end
             end
             if i % 500 == 0 then
                 if onProgress then pcall(onProgress, i, #list) end
                 task.wait()
             end
         end
+        table.sort(all, function(x, y) if x.score ~= y.score then return x.score > y.score end return x.path < y.path end)
+        for i = 1, math.min(#all, 200) do DHAC.Found[i] = all[i] end
         DHAC.Busy = false
         if onDone then pcall(onDone, DHAC.Found, #list) end
     end)
@@ -2566,6 +2612,53 @@ DHExp.Empty.Font = Enum.Font.Gotham
 DHExp.Empty.TextSize = 11
 DHExp.Empty.TextColor3 = Color3.fromRGB(110,110,110)
 
+do -- (scope wrapper: frees local registers)
+-- MAP SCAN (read only): lists scripts/remotes with protection-like names; changes nothing
+CreateSectionLabel("MAP SCAN (read only)")
+local AcSection = Instance.new("Frame", InfoScroll)
+AcSection.Size = UDim2.new(1, 0, 0, 292)
+AcSection.BackgroundColor3 = Color3.fromRGB(25,25,25)
+Instance.new("UICorner", AcSection).CornerRadius = UDim.new(0, 10)
+local AcInfo = Instance.new("TextLabel", AcSection)
+AcInfo.Size = UDim2.new(1, -20, 0, 28)
+AcInfo.Position = UDim2.new(0, 10, 0, 6)
+AcInfo.BackgroundTransparency = 1
+AcInfo.Text = "Lists scripts and remotes whose names look like anti-cheat (HIGH) or admin / moderation (maybe), best first. Names only: it does not read code and does not change or switch off anything."
+AcInfo.Font = Enum.Font.Gotham
+AcInfo.TextSize = 10
+AcInfo.TextWrapped = true
+AcInfo.TextColor3 = Color3.fromRGB(140, 140, 140)
+AcInfo.TextXAlignment = Enum.TextXAlignment.Left
+AcInfo.TextYAlignment = Enum.TextYAlignment.Top
+local AcList = DHUI.List({parent = AcSection, pos = UDim2.new(0, 10, 0, 38), size = UDim2.new(1, -20, 0, 190)})
+local AcStatus = Instance.new("TextLabel", AcSection)
+AcStatus.Size = UDim2.new(1, -20, 0, 16)
+AcStatus.Position = UDim2.new(0, 10, 0, 232)
+AcStatus.BackgroundTransparency = 1
+AcStatus.Text = "Not scanned yet"
+AcStatus.Font = Enum.Font.Gotham
+AcStatus.TextSize = 11
+AcStatus.TextColor3 = Color3.fromRGB(180, 180, 180)
+AcStatus.TextXAlignment = Enum.TextXAlignment.Left
+local AcScanBtn = DHUI.Button(AcSection, "Scan", Color3.fromRGB(30, 80, 180), UDim2.new(0.5, -14, 0, 28), UDim2.new(0, 10, 0, 254))
+local AcCopyBtn = DHUI.Button(AcSection, "Copy list", Color3.fromRGB(60, 60, 60), UDim2.new(0.5, -14, 0, 28), UDim2.new(0.5, 4, 0, 254))
+AcScanBtn.MouseButton1Click:Connect(function()
+    if DHAC.Busy then return end
+    AcList.Clear()
+    AcStatus.Text = "Scanning..."
+    DHAC.Scan(function(i, n) AcStatus.Text = "Scanning " .. i .. "/" .. n end, function(found, total)
+        local hi = 0
+        for _, f in ipairs(found) do AcList.Add(f.path, f.level .. "  " .. f.class) if f.level == "HIGH" then hi = hi + 1 end end
+        AcStatus.Text = hi .. " high, " .. (#found - hi) .. " maybe, of " .. total .. " objects"
+    end)
+end)
+AcCopyBtn.MouseButton1Click:Connect(function()
+    local t = {}
+    for _, f in ipairs(DHAC.Found) do t[#t + 1] = f.level .. "  " .. f.class .. "  " .. f.path end
+    if setclipboard and #t > 0 then pcall(setclipboard, table.concat(t, "\n")) AcStatus.Text = "Copied " .. #t end
+end)
+end
+
 function DHExp.Refresh()
     if not DHExp.Box then return end
     for _, c in ipairs(DHExp.Box:GetChildren()) do
@@ -2634,6 +2727,580 @@ function DHExp.Set(on)
             task.wait(DHExp.Cfg.Interval)
         end
     end)
+end
+
+
+-- ================================================
+-- EXPLOITER WATCH 2.1 - part 1
+--  * GAME SCAN: before judging anybody the game is read once (script / button / tool names, gravity, jump):
+--    sprint, morph, jetpack / fly and teleport features raise the matching limits from the start
+--    (the old "learn it when several players trip" rule still runs on top of that)
+--  * RE-CHECK: a suspect is not forgotten after the hold time: it waits, is watched again for a short window,
+--    and is either confirmed again ("again xN") or cleared
+-- ================================================
+DHExp.Game = {text = "scanning", done = false}
+DHExp.Cfg.RecheckDelay = 60    -- seconds between the end of the hold time and the re-check
+DHExp.Cfg.RecheckWindow = 20   -- seconds the player is watched again
+DHExp.Cfg.ScanLimit = 9000     -- instances read by the game scan
+-- a trailing * = no check after the word (stems); everything else must be a whole word (camelCase counts)
+DHExp.Words = {
+    sprint = {"sprint*", "dash", "stamina", "speedboost", "speed boost", "run speed", "runspeed", "haste", "coil", "boost"},
+    fly    = {"fly", "jetpack", "glide", "hover", "wings", "levitat*", "rocket", "doublejump", "double jump", "parachute", "airwalk", "jumpboost", "jump boost"},
+    tp     = {"teleport*", "warp", "portal", "blink"},
+    morph  = {"morph*", "transform*", "shapeshift*", "character select", "charselect", "class select", "choose class"},
+}
+
+function DHExp.WordHit(name, list)
+    local low = name:lower()
+    for _, w in ipairs(list) do
+        local stem = w:sub(-1) == "*"
+        local kw = stem and w:sub(1, -2) or w
+        local i = 1
+        while true do
+            local a = low:find(kw, i, true)
+            if not a then break end
+            local before = a > 1 and name:sub(a - 1, a - 1) or ""
+            local first = name:sub(a, a)
+            local okB = before == "" or not before:match("%a") or first:match("%u") ~= nil
+            local after = name:sub(a + #kw, a + #kw)
+            local okA = stem or after == "" or not after:match("%a") or after:match("%u") ~= nil
+            if okB and okA then return kw end
+            i = a + 1
+        end
+    end
+    return nil
+end
+
+function DHExp.Scan()
+    local C, B = DHExp.Cfg, DHExp.Base
+    DHExp.Game = {text = "scanning", done = false}
+    local found = {sprint = {}, fly = {}, tp = {}, morph = {}}
+    local count = 0
+    local roots = {}
+    local function add(x) if x then roots[#roots + 1] = x end end
+    add(Player:FindFirstChildOfClass("PlayerGui"))
+    add(Player:FindFirstChild("Backpack"))
+    add(Player:FindFirstChild("PlayerScripts"))
+    add(game:GetService("StarterPack"))
+    add(game:GetService("ReplicatedStorage"))
+    add(game:GetService("StarterPlayer"))
+    add(Player.Character)
+    local function look(inst)
+        if inst == ScreenGui then return end
+        local texts = {inst.Name}
+        if inst:IsA("TextButton") or inst:IsA("TextLabel") then texts[2] = inst.Text end
+        for _, t in ipairs(texts) do
+            if type(t) == "string" and #t > 1 and #t < 40 then
+                for kind, list in pairs(DHExp.Words) do
+                    if #found[kind] < 3 then
+                        local w = DHExp.WordHit(t, list)
+                        if w then found[kind][#found[kind] + 1] = w end
+                    end
+                end
+            end
+        end
+    end
+    for _, r in ipairs(roots) do
+        local ok, list = pcall(function() return r:GetDescendants() end)
+        if ok then
+            for _, d in ipairs(list) do
+                if count >= C.ScanLimit then break end
+                if not (ScreenGui and d:IsDescendantOf(ScreenGui)) then pcall(look, d) end
+                count = count + 1
+                if count % 600 == 0 then task.wait() end
+            end
+        end
+    end
+    -- attributes on my character / humanoid ("Sprinting", "SpeedBoost", ...)
+    pcall(function()
+        local ch = Player.Character
+        local hum = ch and ch:FindFirstChildOfClass("Humanoid")
+        for _, o in ipairs({ch, hum}) do
+            if o then
+                for k in pairs(o:GetAttributes()) do
+                    for kind, list in pairs(DHExp.Words) do
+                        if DHExp.WordHit(k, list) then found[kind][#found[kind] + 1] = "attr" end
+                    end
+                end
+            end
+        end
+    end)
+    local g = {sprint = #found.sprint > 0, fly = #found.fly > 0, tp = #found.tp > 0, morph = #found.morph > 0, done = true}
+    -- numbers of the map itself: low gravity and strong jumps stay in the air longer
+    local lowG = workspace.Gravity < 150
+    local strongJump = false
+    pcall(function()
+        local hum = Player.Character and Player.Character:FindFirstChildOfClass("Humanoid")
+        if hum then
+            if hum.UseJumpPower then strongJump = hum.JumpPower >= 80 else strongJump = hum.JumpHeight >= 12 end
+        end
+    end)
+    if g.sprint then B.ratio = math.max(B.ratio, 1.9) end
+    if g.morph then B.ratio = math.max(B.ratio, 1.6) end
+    if g.fly then B.fly = math.max(B.fly, 2) end
+    if lowG then B.fly = math.max(B.fly, 1.5) g.low = true end
+    if strongJump then B.fly = math.max(B.fly, 1.3) g.jump = true end
+    if g.tp then
+        C.TeleportDist = math.max(C.TeleportDist, 130)
+        C.TeleportCount = math.max(C.TeleportCount, 3)
+    end
+    B.ratio = math.min(B.ratio, C.SpeedCap)
+    B.fly = math.min(B.fly, C.FlyCap)
+    local t = {}
+    if g.sprint then t[#t + 1] = "sprint" end
+    if g.morph then t[#t + 1] = "morph" end
+    if g.fly then t[#t + 1] = "fly" end
+    if g.tp then t[#t + 1] = "teleport" end
+    if g.low then t[#t + 1] = "low gravity" end
+    if g.jump then t[#t + 1] = "high jump" end
+    g.text = #t > 0 and ("game: " .. table.concat(t, ", ")) or "game: plain"
+    DHExp.Game = g
+end
+
+-- the scan runs every time the detector is switched on, and again every 10 minutes while it is on
+DHExp.SetBase = DHExp.Set
+function DHExp.Set(on)
+    DHExp.SetBase(on)
+    if on then
+        local my = DHExp.Tok
+        task.spawn(function()
+            while DHExp.Tok == my and DHExp.On and ScreenGui and ScreenGui.Parent do
+                pcall(DHExp.Scan)
+                for _ = 1, 600 do
+                    if DHExp.Tok ~= my or not DHExp.On then return end
+                    task.wait(1)
+                end
+            end
+        end)
+    end
+end
+
+-- the latest time anything was confirmed for this player
+function DHExp.LastHit(S)
+    local m = 0
+    for _, t in pairs(S.hits) do if t > m then m = t end end
+    return m
+end
+
+-- hold -> wait -> watch again -> confirmed again (back to hold, "again xN") or cleared
+function DHExp.Recheck(now)
+    local C = DHExp.Cfg
+    for plr, S in pairs(DHExp.S) do
+        local lh = DHExp.LastHit(S)
+        local rc = S.rc
+        if not rc and lh > 0 and S.flagged then
+            rc = {state = "live", last = lh, rounds = 0}
+            S.rc = rc
+        end
+        if rc then
+            if lh > rc.last then
+                if rc.state == "window" then rc.rounds = rc.rounds + 1 end
+                rc.state, rc.last = "live", lh
+            end
+            if rc.state == "live" and now - rc.last > C.Hold then
+                rc.state = "wait"
+                rc.due = rc.last + C.Hold + C.RecheckDelay
+            end
+            if rc.state == "wait" and now >= rc.due then
+                rc.state = "window"
+                rc.winEnd = now + C.RecheckWindow
+            end
+            if rc.state == "window" and now >= rc.winEnd then
+                S.rc, S.flagged = nil, false
+                S.hits, S.info, S.first = {}, {}, {}
+                DHExp.Flagged[plr] = nil
+                DHExp.Toast(DHExp.Name(plr) .. ": clear after re-check")
+            elseif rc.state ~= "live" then
+                S.flagged = true
+                DHExp.Flagged[plr] = true
+            end
+        end
+    end
+end
+
+DHExp.TickBase = DHExp.Tick
+function DHExp.Tick()
+    DHExp.TickBase()
+    pcall(DHExp.Recheck, tick())
+end
+
+DHExp.ReasonsBase = DHExp.Reasons
+function DHExp.Reasons(S, now)
+    local t = DHExp.ReasonsBase(S, now)
+    local rc = S.rc
+    if rc then
+        if rc.state == "wait" then
+            t = "re-check in " .. math.max(0, math.ceil(rc.due - now)) .. "s"
+        elseif rc.state == "window" then
+            t = "re-checking " .. math.max(0, math.ceil(rc.winEnd - now)) .. "s"
+        elseif rc.rounds > 0 then
+            t = "again x" .. (rc.rounds + 1) .. ": " .. t
+        end
+    end
+    return t
+end
+
+DHExp.RefreshBase = DHExp.Refresh
+function DHExp.Refresh()
+    DHExp.RefreshBase()
+    if DHExp.On and DHExp.Status and DHExp.Game and DHExp.Game.text then
+        DHExp.Status.Text = DHExp.Status.Text .. "  |  " .. DHExp.Game.text
+    end
+end
+
+-- ================================================
+-- EXPLOITER WATCH 2.1 - part 2: RECORDING + Emote / Animation / Teleport checks
+--  * every watched player has a 10 second recording (position, speed, state, playing animations)
+--  * when somebody is flagged the recording is frozen as evidence and summed up in one notice
+--  * EMOTE MOVING: an animation that is not the character's own set keeps playing at high priority while the player runs
+--    (real emotes stop when you move)      * ANIM SPAM: many different animations started within 10 seconds
+--  * TP LOOP: three or more jumps inside the recording, with the name of the player they land next to
+--  Tools in hand and combat games are skipped for the animation checks (swings and skills look like this).
+-- ================================================
+DHExp.Cfg.RecSeconds = 10
+DHExp.Cfg.EmoteMoveSpeed = 8     -- studs/s that count as "running"
+DHExp.Cfg.EmoteMoveTime = 2.5    -- seconds of running with the animation still going (5 in combat games)
+DHExp.Cfg.AnimSpam = 6           -- different custom animations started inside the recording
+DHExp.Cfg.TpLoop = 3             -- jumps inside the recording
+DHExp.Label.emote, DHExp.Label.anim, DHExp.Label.tploop = "Emote", "Anim", "TP loop"
+DHExp.CombatWords = {"combat", "sword", "attack*", "skill*", "ability", "abilities", "weapon*", "melee", "punch", "fight*"}
+
+-- scan: remember if the game has combat (animation checks are then slower to judge)
+DHExp.ScanBase = DHExp.Scan
+function DHExp.Scan()
+    DHExp.ScanBase()
+    pcall(function()
+        local found = false
+        local n = 0
+        local roots = {Player:FindFirstChildOfClass("PlayerGui"), Player:FindFirstChild("Backpack"),
+                       game:GetService("StarterPack"), game:GetService("ReplicatedStorage")}
+        for _, r in ipairs(roots) do
+            if r and not found then
+                for _, d in ipairs(r:GetDescendants()) do
+                    n = n + 1
+                    if n > 4000 then break end
+                    if not (ScreenGui and d:IsDescendantOf(ScreenGui)) and DHExp.WordHit(d.Name, DHExp.CombatWords) then found = true break end
+                    if n % 600 == 0 then task.wait() end
+                end
+            end
+        end
+        DHExp.Game.combat = found
+        if found and DHExp.Game.text then DHExp.Game.text = DHExp.Game.text:gsub("game: plain", "game: combat") end
+        if found and DHExp.Game.text and not DHExp.Game.text:find("combat") then DHExp.Game.text = DHExp.Game.text .. ", combat" end
+    end)
+end
+
+-- the character's own animations (its Animate script): these are never "custom"
+function DHExp.OwnIds(char)
+    local ids = {}
+    local an = char:FindFirstChild("Animate")
+    if an then
+        for _, d in ipairs(an:GetDescendants()) do
+            if d:IsA("Animation") then ids[d.AnimationId] = true end
+        end
+    end
+    return ids
+end
+
+-- one sample of one player into its 10 second recording
+function DHExp.Sample(plr, S, now, camPos)
+    local C = DHExp.Cfg
+    local char = plr.Character
+    local root = char and char:FindFirstChild("HumanoidRootPart")
+    local hum = char and char:FindFirstChildOfClass("Humanoid")
+    if not (root and hum) or hum.Health <= 0 then S.buf, S.bufChar = nil, nil return end
+    if camPos and (root.Position - camPos).Magnitude > C.Range then S.buf = nil return end
+    if S.bufChar ~= char then
+        S.bufChar, S.buf, S.own, S.animPrev, S.starts = char, {}, DHExp.OwnIds(char), {}, {}
+    end
+    local buf = S.buf
+    local prev = buf[#buf]
+    local pos = root.Position
+    local dt = prev and (now - prev.t) or 0
+    local flat = 0
+    if prev and dt > 0 then flat = Vector3.new(pos.X - prev.pos.X, 0, pos.Z - prev.pos.Z).Magnitude / dt end
+    local state = nil
+    pcall(function() state = hum:GetState() end)
+    local excused = hum.Sit or hum.SeatPart ~= nil or hum.PlatformStand
+        or state == Enum.HumanoidStateType.Ragdoll or state == Enum.HumanoidStateType.FallingDown
+        or state == Enum.HumanoidStateType.Physics or state == Enum.HumanoidStateType.PlatformStanding
+    local tool = char:FindFirstChildOfClass("Tool") ~= nil
+    -- playing animations (every other sample is enough)
+    S.animTick = (S.animTick or 0) + 1
+    local cur = S.animCur or {}
+    if S.animTick % 2 == 1 then
+        cur = {}
+        local animator = hum:FindFirstChildOfClass("Animator")
+        local ok, tracks = pcall(function() return animator and animator:GetPlayingAnimationTracks() or {} end)
+        if ok then
+            for _, tr in ipairs(tracks) do
+                local id = tr.Animation and tr.Animation.AnimationId or ""
+                if id ~= "" and not S.own[id] then
+                    local pv = 0
+                    pcall(function() pv = tr.Priority.Value end)
+                    cur[id] = pv
+                    if not S.animPrev[id] then S.starts[#S.starts + 1] = {t = now, id = id} end
+                end
+            end
+        end
+        S.animPrev, S.animCur = cur, cur
+    end
+    local hiIds = nil
+    for id, pv in pairs(cur) do
+        if pv >= 2 then hiIds = hiIds or {} hiIds[id] = true end
+    end
+    buf[#buf + 1] = {t = now, pos = pos, flat = flat, vy = prev and dt > 0 and (pos.Y - prev.pos.Y) / dt or 0,
+                     ex = excused and true or false, tl = tool, ids = hiIds}
+    -- keep 10 seconds
+    while #buf > 1 and now - buf[1].t > C.RecSeconds do table.remove(buf, 1) end
+    local keep = {}
+    for _, e in ipairs(S.starts) do if now - e.t <= C.RecSeconds then keep[#keep + 1] = e end end
+    S.starts = keep
+    S.tool = tool
+end
+
+function DHExp.Mark(plr, S, kind, text, now)
+    local C = DHExp.Cfg
+    if now - (S.hits[kind] or -1000) > 3 then S.first[kind] = now end
+    S.hits[kind] = now
+    S.info[kind] = text
+    S.score = S.score + 1
+    S.hold = now + C.Hold
+    S.flagged = true
+    DHExp.Flagged[plr] = true
+    if now - (S.notified[kind] or -1000) > 60 then
+        S.notified[kind] = now
+        DHExp.Toast("! " .. DHExp.Name(plr) .. ": " .. text)
+    end
+end
+
+-- what the recording shows (also used by the evidence notice)
+function DHExp.Summary(S)
+    local buf = S.buf or {}
+    local top, sum, n, minY, maxY, jumps = 0, 0, 0, math.huge, -math.huge, 0
+    for i, e in ipairs(buf) do
+        if e.flat < 400 then top = math.max(top, e.flat) sum = sum + e.flat n = n + 1 end
+        minY, maxY = math.min(minY, e.pos.Y), math.max(maxY, e.pos.Y)
+        if buf[i - 1] and (e.pos - buf[i - 1].pos).Magnitude > DHExp.Cfg.TeleportDist then jumps = jumps + 1 end
+    end
+    local anims = 0
+    for _ in pairs(S.animCur or {}) do anims = anims + 1 end
+    return {secs = #buf > 1 and (buf[#buf].t - buf[1].t) or 0, top = top, avg = n > 0 and sum / n or 0,
+            height = maxY > minY and (maxY - minY) or 0, jumps = jumps, anims = anims, starts = #(S.starts or {})}
+end
+
+-- the judging, about once a second per player, on the recording
+function DHExp.Judge(plr, S, now)
+    local C = DHExp.Cfg
+    local buf = S.buf
+    if not buf or #buf < 8 then return end
+    local last = buf[#buf]
+    if now < (S.grace or 0) then return end
+    -- 1) TP LOOP: jumps inside the recording (excused samples do not count)
+    local jumps, targets = 0, {}
+    for i = 2, #buf do
+        local a, b = buf[i - 1], buf[i]
+        if not (a.ex or b.ex) and b.t - a.t < 0.8 and (b.pos - a.pos).Magnitude > C.TeleportDist then
+            jumps = jumps + 1
+            for _, o in ipairs(Players:GetPlayers()) do
+                if o ~= plr and o.Character then
+                    local r = o.Character:FindFirstChild("HumanoidRootPart")
+                    if r and (r.Position - b.pos).Magnitude < 15 then targets[o.Name] = true end
+                end
+            end
+        end
+    end
+    if jumps >= C.TpLoop then
+        local who = next(targets)
+        DHExp.Mark(plr, S, "tploop", "TP loop x" .. jumps .. (who and (" > " .. who) or ""), now)
+    end
+    -- animation checks are skipped with a tool in hand
+    if S.tool then S.runT = 0 return end
+    -- 2) EMOTE MOVING: running with a custom high-priority animation still going
+    local need = DHExp.Game and DHExp.Game.combat and 2 * C.EmoteMoveTime or C.EmoteMoveTime
+    -- animations that most players have at once belong to the game (custom run or idle sets): never judged
+    local common, watched, seen = {}, 0, {}
+    for _, o in pairs(DHExp.S) do
+        if o.animCur then
+            watched = watched + 1
+            for id, pv in pairs(o.animCur) do
+                if pv >= 2 then seen[id] = (seen[id] or 0) + 1 end
+            end
+        end
+    end
+    for id, c in pairs(seen) do
+        if c >= 2 and c >= watched * 0.35 then common[id] = true end
+    end
+    local run = 0
+    for i = #buf, 2, -1 do
+        local e = buf[i]
+        local mine = false
+        if e.ids then
+            for id in pairs(e.ids) do if not common[id] then mine = true break end end
+        end
+        if e.ex or e.tl or not mine or e.flat < C.EmoteMoveSpeed then break end
+        run = run + (e.t - buf[i - 1].t)
+    end
+    if run >= need then
+        DHExp.Mark(plr, S, "emote", string.format("Emote moving %ds", math.floor(run)), now)
+    end
+    -- 3) ANIM SPAM: many different custom animations started inside the recording
+    local ids, cnt = {}, 0
+    for _, e in ipairs(S.starts or {}) do
+        if not ids[e.id] then ids[e.id] = true cnt = cnt + 1 end
+    end
+    if cnt >= C.AnimSpam then
+        DHExp.Mark(plr, S, "anim", "Anim spam x" .. cnt, now)
+    end
+end
+
+DHExp.TickBase2 = DHExp.Tick
+function DHExp.Tick()
+    DHExp.TickBase2()
+    local ok = pcall(function()
+        local now = tick()
+        local cam = workspace.CurrentCamera
+        local camPos = cam and cam.CFrame.Position
+        DHExp.JT = (DHExp.JT or 0) + 1
+        for _, plr in ipairs(Players:GetPlayers()) do
+            local S = DHExp.S[plr]
+            if plr ~= Player and S then
+                pcall(DHExp.Sample, plr, S, now, camPos)
+                if DHExp.JT % 4 == 0 then pcall(DHExp.Judge, plr, S, now) end
+                -- evidence: freeze the recording the moment somebody is flagged, one notice with what it shows
+                if S.flagged and not S.rec and S.buf and #S.buf >= 8 then
+                    S.rec = DHExp.Summary(S)
+                    local r = S.rec
+                    DHExp.Toast(string.format("REC %s: top %d st/s, %d jump, %d anim", DHExp.Name(plr), r.top, r.jumps, r.anims))
+                elseif not S.flagged then
+                    S.rec = nil
+                end
+            end
+        end
+    end)
+end
+
+-- the list shows the new kinds too
+DHExp.ReasonsBase2 = DHExp.Reasons
+function DHExp.Reasons(S, now)
+    local t = DHExp.ReasonsBase2(S, now)
+    if t:sub(-10) == "suspicious" then
+        local list = {}
+        for _, k in ipairs({"tploop", "emote", "anim"}) do
+            if S.hits[k] and now - S.hits[k] <= DHExp.Cfg.Hold and S.info[k] then list[#list + 1] = S.info[k] end
+        end
+        if #list > 0 then t = t:sub(1, -11) .. table.concat(list, ", ") end
+    end
+    return t
+end
+
+-- ================================================
+-- EXPLOITER WATCH 2.1 - part 3: AI JUDGE (marks only, never kicks or reports anyone)
+--  * a flagged player with a frozen recording is judged by the AI on the DaffzHub server
+--  * only numbers and short labels are sent (no names, no ids of the player), never anything the player typed
+--  * the answer (likely / unsure / unlikely) shows next to the player in the list
+--  * limit: 40 judgments per account per 24 hours, 1 at a time, 10 seconds apart
+-- ================================================
+DHExp.AI = {
+    On = true,
+    Url = "https://iridescent-kringle-f20c39.netlify.app/.netlify/functions/ed",
+    Busy = false, Last = 0, Count = 0, Cap = 25, Gap = 10, Pause = 0, Redo = 60,
+}
+
+function DHExp.AIPayload(plr, S)
+    local r = S.rec or DHExp.Summary(S)
+    local kinds = {}
+    for _, k in ipairs({"speed", "fly", "tp", "noclip", "fling", "emote", "anim", "tploop"}) do
+        if S.hits[k] then kinds[#kinds + 1] = k end
+    end
+    local sum, n = 0, 0
+    for o, os_ in pairs(DHExp.S) do
+        if o ~= plr and not os_.flagged and os_.buf and #os_.buf >= 8 then
+            sum = sum + DHExp.Summary(os_).top
+            n = n + 1
+        end
+    end
+    local g = DHExp.Game or {}
+    return {
+        uid = Player.UserId,
+        p = {kinds = kinds, secs = r.secs, top = r.top, avg = r.avg, height = r.height, jumps = r.jumps,
+             anims = r.anims, starts = r.starts, rounds = S.rc and S.rc.rounds or 0,
+             otherTop = n > 0 and sum / n or 0, others = n},
+        g = {sprint = g.sprint and true or false, fly = g.fly and true or false, tp = g.tp and true or false,
+             morph = g.morph and true or false, combat = g.combat and true or false,
+             lowg = g.low and true or false, jump = g.jump and true or false},
+    }
+end
+
+-- one request; returns verdict, reason  |  nil, errorText, limitReached
+function DHExp.AICall(body)
+    local req = (syn and syn.request) or (http and http.request) or http_request or request
+    if not req then return nil, "No request function" end
+    local HS = game:GetService("HttpService")
+    local ok, r = DHFail.Req(req, {Url = DHExp.AI.Url, Method = "POST", Headers = {["Content-Type"] = "application/json"}, Body = HS:JSONEncode(body)})
+    if not ok or type(r) ~= "table" then return nil, "Request failed" end
+    local okj, data = pcall(function() return HS:JSONDecode(r.Body or "") end)
+    if r.StatusCode == 429 then
+        return nil, type(data) == "table" and data.error or "AI limit reached", true
+    end
+    if r.StatusCode ~= 200 or not okj or type(data) ~= "table" then return nil, "Server error " .. tostring(r.StatusCode) end
+    if data.verdict ~= "likely" and data.verdict ~= "unsure" and data.verdict ~= "unlikely" then return nil, "Bad reply" end
+    return data.verdict, tostring(data.reason or "")
+end
+
+function DHExp.AIAsk(plr, S)
+    local A = DHExp.AI
+    A.Busy = true
+    A.Last = tick()
+    A.Count = A.Count + 1
+    local body = DHExp.AIPayload(plr, S)
+    local rounds = body.p.rounds
+    task.spawn(function()
+        local ok, v, why, limit = pcall(DHExp.AICall, body)
+        A.Busy = false
+        if not ok then return end
+        S.aiTry = tick()
+        if v then
+            S.ai = {verdict = v, reason = why, rounds = rounds}
+            if v == "likely" then
+                DHExp.Toast("AI: " .. DHExp.Name(plr) .. " likely exploiting" .. (why ~= "" and (" (" .. why .. ")") or ""))
+            end
+        elseif limit then
+            A.Pause = tick() + 1800
+            DHExp.Toast("ED AI: " .. tostring(why))
+        end
+    end)
+end
+
+DHExp.TickBase3 = DHExp.Tick
+function DHExp.Tick()
+    DHExp.TickBase3()
+    local A = DHExp.AI
+    if not (A.On and DHExp.On) or A.Busy then return end
+    local now = tick()
+    if A.Count >= A.Cap or now < A.Pause or now - A.Last < A.Gap then return end
+    pcall(function()
+        for plr, S in pairs(DHExp.S) do
+            if plr.Parent and S.flagged and S.rec then
+                local rounds = S.rc and S.rc.rounds or 0
+                local again = S.ai and rounds > S.ai.rounds and now - (S.aiTry or 0) > A.Redo
+                local fresh = not S.ai and now - (S.aiTry or -1000) > A.Redo
+                local start = 1e9
+                for _, t in pairs(S.first) do start = math.min(start, t) end
+                if (fresh or again) and now - start >= 6 then
+                    DHExp.AIAsk(plr, S)
+                    return
+                end
+            end
+        end
+    end)
+end
+
+DHExp.ReasonsBase3 = DHExp.Reasons
+function DHExp.Reasons(S, now)
+    local t = DHExp.ReasonsBase3(S, now)
+    if S.ai and S.flagged then t = t .. " | AI: " .. S.ai.verdict end
+    return t
 end
 
 Players.PlayerRemoving:Connect(function(plr)
@@ -18047,7 +18714,8 @@ SBStatusLabel.Size = UDim2.new(0.7, 0, 1, 0)
 SBStatusLabel.BackgroundTransparency = 1
 SBStatusLabel.Text = "Type the keyword then press Search"
 SBStatusLabel.Font = Enum.Font.Gotham
-SBStatusLabel.TextSize = 11
+SBStatusLabel.TextSize = 10
+SBStatusLabel.TextTruncate = Enum.TextTruncate.AtEnd
 SBStatusLabel.TextColor3 = Color3.fromRGB(120,120,120)
 SBStatusLabel.TextXAlignment = Enum.TextXAlignment.Left
 
@@ -18514,7 +19182,21 @@ end
 SBLastSBResults = {}
 SBLastRSResults = {}
 
+SBRefreshToken = 0
 function SBRefreshList()
+    SBRefreshToken = SBRefreshToken + 1
+    local token = SBRefreshToken
+    local built, mark = 0, os.clock()
+    SBBatchMs = 0
+    local function pace()
+        built = built + 1
+        if built % 2 == 0 then
+            SBBatchMs = math.max(SBBatchMs, (os.clock() - mark) * 1000)
+            task.wait()   -- two cards per frame, so the game does not freeze
+            mark = os.clock()
+        end
+        return token == SBRefreshToken
+    end
     for _, child in ipairs(SBScroll:GetChildren()) do
         if not child:IsA("UIListLayout") then
             child:Destroy()
@@ -18532,6 +19214,7 @@ function SBRefreshList()
         SBMakeSection("🟣 SCRIPTBLOX (" .. #SBLastSBResults .. ")", Color3.fromRGB(150,80,255))
         for _, s in ipairs(SBLastSBResults) do
             SBBuildCard(s, false)
+            if not pace() then return end
         end
     end
 
@@ -18539,10 +19222,12 @@ function SBRefreshList()
         SBMakeSection("🟢 RSCRIPTS (" .. #SBLastRSResults .. ")", Color3.fromRGB(40,200,100))
         for _, s in ipairs(SBLastRSResults) do
             SBBuildCard(s, false)
+            if not pace() then return end
         end
     end
 
     task.wait(0.1)
+    if token ~= SBRefreshToken then return end
     SBScroll.CanvasSize = UDim2.new(0, 0, 0, SBUIList.AbsoluteContentSize.Y + 10)
 end
 
@@ -18550,11 +19235,24 @@ end
 -- FETCH API
 -- ================================================
 
+-- request() waits without freezing the game; game:HttpGet can freeze every frame until the answer arrives
+local function SBGet(url)
+    local req = (syn and syn.request) or (http and http.request) or http_request or request
+    if req then
+        local ok, r = pcall(req, {Url = url, Method = "GET"})
+        if ok and type(r) == "table" and r.StatusCode == 200 and type(r.Body) == "string" then return r.Body end
+    end
+    return game:HttpGet(url)
+end
+
 local function SBFetchScriptblox(query)
-    ok, result = pcall(function()
-        url = "https://scriptblox.com/api/script/search?q=" .. HttpService:UrlEncode(query) .. "&page=1"
-        local response = game:HttpGet(url)
-        return HttpService:JSONDecode(response)
+    local ok, result = pcall(function()
+        local url = "https://scriptblox.com/api/script/search?q=" .. HttpService:UrlEncode(query) .. "&page=1&max=12"
+        local response = SBGet(url)
+        local t0 = os.clock()
+        local d = HttpService:JSONDecode(response)
+        SBDecodeMs = math.max(SBDecodeMs or 0, (os.clock() - t0) * 1000)
+        return d
     end)
     if not ok or not result or not result.result then return {} end
     local scripts = result.result.scripts or {}
@@ -18585,13 +19283,18 @@ local function SBFetchRawScripts(query)
     local scripts
     for _, h in ipairs(hosts) do
         local ok, result = pcall(function()
-            return HttpService:JSONDecode(game:HttpGet(h .. q .. "&page=1&orderBy=views&sort=desc"))
+            local body = SBGet(h .. q .. "&page=1&orderBy=views&sort=desc")
+            local t0 = os.clock()
+            local d = HttpService:JSONDecode(body)
+            SBDecodeMs = math.max(SBDecodeMs or 0, (os.clock() - t0) * 1000)
+            return d
         end)
         if ok and type(result) == "table" and type(result.scripts) == "table" then scripts = result.scripts break end
     end
     if not scripts then return {} end
     local out = {}
-    for _, s in ipairs(scripts) do
+    for n, s in ipairs(scripts) do
+        if n > 12 then break end
         local raw = type(s.rawScript) == "string" and s.rawScript or ""
         local isUrl = string.sub(raw, 1, 4) == "http"
         local id = tostring(s._id or math.random(99999))
@@ -18620,6 +19323,7 @@ end
 SBLastQuery = ""
 SBIsSearching = false
 
+
 local function SBDoSearch(silent)
     local query = SBSearchInput.Text
     if query == "" then return end
@@ -18633,8 +19337,14 @@ local function SBDoSearch(silent)
     end
 
     task.spawn(function()
-        local sbRes = SBFetchScriptblox(query)
-        local rsRes = SBFetchRawScripts(query)
+        local t0 = os.clock()
+        SBDecodeMs = 0
+        local sbRes, rsRes
+        task.spawn(function() sbRes = SBFetchScriptblox(query) end)
+        task.spawn(function() rsRes = SBFetchRawScripts(query) end)
+        local waited = 0
+        while (not sbRes or not rsRes) and waited < 30 do task.wait(0.1) waited = waited + 0.1 end
+        sbRes, rsRes = sbRes or {}, rsRes or {}
         
         -- scripts made for this exact map go first
         do
@@ -18659,6 +19369,8 @@ local function SBDoSearch(silent)
             SBStatusLabel.TextColor3 = Color3.fromRGB(80,200,80)
         end
 
+        local t1 = os.clock()
+        task.wait()   -- the answer is read in one frame, the cards are built in the next ones
         SBRefreshList()
         SBIsSearching = false
     end)
@@ -18718,11 +19430,14 @@ local function SBGetMapName()
     return cleaned
 end
 
+task.delay(12, function() pcall(SBGetMapName) end)
+
 SBMapBtn.MouseButton1Click:Connect(function()
     if SBIsSearching then return end
     SBStatusLabel.Text = "⏳ reading the map name.."
     SBStatusLabel.TextColor3 = Color3.fromRGB(255,200,100)
     task.spawn(function()
+        task.wait()
         local name = SBGetMapName()
         if not name then
             SBStatusLabel.Text = "❌ Could not read the map name"
@@ -18760,7 +19475,7 @@ end)
 task.spawn(function()
     while ScreenGui.Parent do
         task.wait(1)
-        if SBIsScrolling or SBIsTyping or SBLastQuery == "" then
+        if SBIsScrolling or SBIsTyping or SBLastQuery == "" or not (SearchContent and SearchContent.Visible) then
             SBRefreshCountdown = 30
         else
             SBRefreshCountdown = SBRefreshCountdown - 1
@@ -20559,19 +21274,43 @@ pcall(BuildEffect)
 -- ================================================
 DHFov = {Fov = 70}
 
-function DHFov.SetFov(on)
+-- the FOV is forced three ways, because games reset it differently after you die:
+--   1) a render step that runs LAST (after the game's own camera code), 2) the camera's own FieldOfView change signal,
+--   3) a watchdog that binds everything again if the game removed the render step, swapped the camera or respawned you
+function DHFov.Bind()
     local RS = game:GetService("RunService")
     pcall(function() RS:UnbindFromRenderStep("DH_FOV") end)
+    RS:BindToRenderStep("DH_FOV", Enum.RenderPriority.Last.Value, function()
+        DHFov.Tick = os.clock()
+        local cam = workspace.CurrentCamera
+        if cam and cam.FieldOfView ~= DHFov.Fov then cam.FieldOfView = DHFov.Fov end
+    end)
+    DHFov.Tick = os.clock()
+    if DHFov.SigConn then pcall(function() DHFov.SigConn:Disconnect() end) DHFov.SigConn = nil end
+    local cam = workspace.CurrentCamera
+    if cam then
+        DHFov.SigConn = cam:GetPropertyChangedSignal("FieldOfView"):Connect(function()
+            if DHFov.On and cam.FieldOfView ~= DHFov.Fov then cam.FieldOfView = DHFov.Fov end
+        end)
+    end
+    DHFov.BoundCam = cam
+end
+
+function DHFov.SetFov(on)
+    DHFov.On = on and true or false
+    if DHFov.Watch then pcall(function() DHFov.Watch:Disconnect() end) DHFov.Watch = nil end
+    if DHFov.SigConn then pcall(function() DHFov.SigConn:Disconnect() end) DHFov.SigConn = nil end
+    pcall(function() game:GetService("RunService"):UnbindFromRenderStep("DH_FOV") end)
     if on then
         local c = workspace.CurrentCamera
         if DHFov.orig == nil and c then
             DHFov.orig = c.FieldOfView
         end
-        -- runs right after the game's own camera update, so the game cannot overwrite it
-        RS:BindToRenderStep("DH_FOV", Enum.RenderPriority.Camera.Value + 1, function()
-            local cam = workspace.CurrentCamera
-            if cam and cam.FieldOfView ~= DHFov.Fov then
-                cam.FieldOfView = DHFov.Fov
+        DHFov.Bind()
+        DHFov.Watch = game:GetService("RunService").Heartbeat:Connect(function()
+            if not DHFov.On then return end
+            if workspace.CurrentCamera ~= DHFov.BoundCam or os.clock() - (DHFov.Tick or 0) > 0.5 then
+                DHFov.Bind()
             end
         end)
     elseif DHFov.orig ~= nil then
@@ -29335,6 +30074,197 @@ function DHDum.Track(e, key, id, looped, prio)
     return t
 end
 
+function DHDum.GrayDesc()
+    local d = Instance.new("HumanoidDescription")
+    local gray = Color3.fromRGB(163, 162, 165)
+    d.HeadColor = gray
+    d.TorsoColor = gray
+    d.LeftArmColor = gray
+    d.RightArmColor = gray
+    d.LeftLegColor = gray
+    d.RightLegColor = gray
+    d.Face = 144075659
+    d.BodyTypeScale = 0
+    d.ProportionScale = 0
+    return d
+end
+
+
+-- ANIMATION PACKS: the walk / idle / jump ... set of the dummies. A pack that does not load keeps the default animation.
+DHDum.DefaultAnims = {}
+for k, v in pairs(DHDum.Anims) do DHDum.DefaultAnims[k] = v end
+local function pk(i, w, j, f, c, sw, si)
+    return {idle = "rbxassetid://" .. i, walk = "rbxassetid://" .. w, jump = "rbxassetid://" .. j, fall = "rbxassetid://" .. f,
+            climb = "rbxassetid://" .. c, swim = "rbxassetid://" .. sw, swimidle = "rbxassetid://" .. si}
+end
+DHDum.PackList = {"Default", "Ninja", "Toy", "Superhero", "Levitation", "Astronaut"}
+DHDum.Packs = {
+    Default = DHDum.DefaultAnims,
+    Ninja = pk(656117400, 656121766, 656117878, 656115606, 656114359, 656119721, 656121397),
+    Toy = pk(782841498, 782843345, 782847020, 782846423, 782843869, 782844582, 782845736),
+    Superhero = pk(616111295, 616122287, 616115533, 616108001, 616104706, 616119360, 616120861),
+    Levitation = pk(616006778, 616013216, 616008936, 616005863, 616003713, 616012453, 616011509),
+    Astronaut = pk(891621366, 891667138, 891627522, 891617961, 891609353, 891639666, 891663592),
+}
+DHDum.PackSel = "Default"
+
+-- waits a moment, and a track that did not load (length 0) goes back to the default animation
+function DHDum.LoadChecked(e, key, id)
+    local old = e.Tracks[key]
+    if old then pcall(function() old:Stop(0) old:Destroy() end) e.Tracks[key] = nil end
+    local tr = DHDum.Track(e, key, id, key ~= "jump")
+    if tr then
+        local w = 0
+        while w < 1.5 and tr.Length == 0 do task.wait(0.1) w = w + 0.1 end
+        if tr.Length == 0 and id ~= DHDum.DefaultAnims[key] then
+            pcall(function() tr:Destroy() end)
+            e.Tracks[key] = nil
+            DHDum.Track(e, key, DHDum.DefaultAnims[key], key ~= "jump")
+        end
+    end
+end
+
+function DHDum.SetPack(name)
+    local pack = DHDum.Packs[name]
+    if not pack then return end
+    DHDum.PackSel = name
+    DHDum.Anims = pack
+    DHDum.Say("Animation pack: " .. name)
+    for _, e in ipairs(DHDum.List) do
+        task.spawn(function()
+            for key, id in pairs(pack) do pcall(DHDum.LoadChecked, e, key, id) end
+            e.Cur = nil
+        end)
+    end
+end
+
+-- FACE: a face asset id on the head (from the catalog). Used for new dummies too.
+DHDum.FaceId = nil
+function DHDum.ApplyFace(e)
+    local id = DHDum.FaceId
+    if not (id and e.Hum and e.Hum.Parent) then return end
+    local ok = pcall(function()
+        local d = e.Hum:GetAppliedDescription()
+        d.Face = id
+        e.Hum:ApplyDescription(d)
+    end)
+    if not ok then
+        pcall(function()
+            local head = e.Model:FindFirstChild("Head")
+            local decal = head and head:FindFirstChildOfClass("Decal")
+            if decal then decal.Texture = "rbxassetid://" .. id end
+        end)
+    end
+end
+
+function DHDum.SetFace(text)
+    local n = tonumber(tostring(text or ""):match("%d+"))
+    if text == "" or text == nil then n = nil end
+    if text ~= "" and text ~= nil and not n then DHDum.Say("Face ID must be a number") return end
+    DHDum.FaceId = n and math.floor(n) or 144075659
+    local targets = DHDum.Ctl and {DHDum.Ctl} or DHDum.List
+    for _, e in ipairs(targets) do task.spawn(DHDum.ApplyFace, e) end
+    DHDum.Say(n and ("Face " .. DHDum.FaceId .. " set") or "Face reset")
+    if not n then DHDum.FaceId = nil end
+end
+
+-- any animation id as an emote (loops until Stop Emote)
+function DHDum.PlayId(text)
+    local n = tonumber(tostring(text or ""):match("%d+"))
+    if not n then DHDum.Say("Animation ID must be a number") return end
+    local targets = DHDum.Ctl and {DHDum.Ctl} or DHDum.List
+    if #targets == 0 then DHDum.Say("Spawn a dummy first") return end
+    for _, e in ipairs(targets) do
+        task.spawn(function()
+            local tr = DHDum.Track(e, "emote_id" .. n, "rbxassetid://" .. n, true, Enum.AnimationPriority.Action)
+            if tr then
+                if e.Emote and e.Emote ~= tr then pcall(function() e.Emote:Stop(0.15) end) end
+                local cur = e.Tracks[e.Cur]
+                if cur then cur:Stop(0.15) end
+                e.Cur = nil
+                e.Emote = tr
+                e.EmoteT = os.clock()
+                tr:Play(0.15)
+            end
+        end)
+    end
+    DHDum.Say("Animation " .. n .. " playing")
+end
+
+-- skin: nil = gray, or the user id whose look the dummy wears (new dummies, and Set dresses the existing ones)
+DHDum.Skin = nil
+DHDum.SkinName = nil
+DHDum.DescCache = {}
+function DHDum.GetDesc(uid)
+    if DHDum.DescCache[uid] then return DHDum.DescCache[uid] end
+    local ok, d = pcall(function() return Players:GetHumanoidDescriptionFromUserId(uid) end)
+    if ok and d then
+        local n = 0
+        for _ in pairs(DHDum.DescCache) do n = n + 1 end
+        if n >= 12 then DHDum.DescCache = {} end
+        DHDum.DescCache[uid] = d
+        return d
+    end
+    return nil
+end
+
+-- "12345" or "Username" -> user id, name
+function DHDum.Resolve(text)
+    text = tostring(text or ""):gsub("^%s+", ""):gsub("%s+$", "")
+    if text == "" then return nil end
+    local id = tonumber(text)
+    if id and id > 0 then
+        local name = text
+        pcall(function() name = Players:GetNameFromUserIdAsync(id) end)
+        return id, name
+    end
+    local ok, uid = pcall(function() return Players:GetUserIdFromNameAsync(text) end)
+    if ok and uid then return uid, text end
+    return nil
+end
+
+-- dresses the controlled dummy, or all of them when none is controlled
+function DHDum.Dress(uid, look)
+    local desc
+    if look then desc = DHAvatarLookDesc and DHAvatarLookDesc(look)
+    else desc = uid and DHDum.GetDesc(uid) or DHDum.GrayDesc() end
+    if not desc then DHDum.Say("Could not load that avatar") return end
+    local targets = {}
+    if DHDum.Ctl then targets[1] = DHDum.Ctl else for _, e in ipairs(DHDum.List) do targets[#targets + 1] = e end end
+    for _, e in ipairs(targets) do
+        if e.Hum and e.Hum.Parent then
+            pcall(function() e.Hum:ApplyDescription(desc) end)
+            if DHDum.FaceId then DHDum.ApplyFace(e) end
+        end
+    end
+    if not uid and not look then pcall(function() desc:Destroy() end) end
+end
+
+function DHDum.SetLook(name)
+    DHDum.Say("Loading look..")
+    task.spawn(function()
+        DHDum.Skin, DHDum.SkinName, DHDum.SkinLook = nil, name, name
+        DHDum.Dress(nil, name)
+        DHDum.Say("Skin: saved look " .. tostring(name) .. " (new dummies too)")
+    end)
+end
+
+function DHDum.SetSkin(text, mine)
+    DHDum.Say("Loading avatar..")
+    task.spawn(function()
+        local uid, name
+        if mine == "me" then uid, name = Player.UserId, Player.Name
+        elseif mine == "gray" then uid, name = nil, nil
+        else
+            uid, name = DHDum.Resolve(text)
+            if not uid then DHDum.Say("User not found") return end
+        end
+        DHDum.Skin, DHDum.SkinName, DHDum.SkinLook = uid, name, nil
+        DHDum.Dress(uid)
+        DHDum.Say(uid and ("Skin: " .. tostring(name) .. " (new dummies too)") or "Skin: gray")
+    end)
+end
+
 function DHDum.Spawn()
     local char = Player.Character
     local hum = char and char:FindFirstChildOfClass("Humanoid")
@@ -29349,18 +30279,9 @@ function DHDum.Spawn()
     end
     local cf = root.CFrame
     task.spawn(function()
-        local d = Instance.new("HumanoidDescription")
-        local gray = Color3.fromRGB(163, 162, 165)
-        d.HeadColor = gray
-        d.TorsoColor = gray
-        d.LeftArmColor = gray
-        d.RightArmColor = gray
-        d.LeftLegColor = gray
-        d.RightLegColor = gray
-        d.Face = 144075659
-        d.BodyTypeScale = 0
-        d.ProportionScale = 0
-        local ok, m = pcall(function() return Players:CreateHumanoidModelFromDescription(d, Enum.HumanoidRigType.R15) end)
+        local d = DHDum.GrayDesc()
+        local skinned = DHDum.SkinLook and DHAvatarLookDesc and DHAvatarLookDesc(DHDum.SkinLook) or (DHDum.Skin and DHDum.GetDesc(DHDum.Skin)) or nil
+        local ok, m = pcall(function() return Players:CreateHumanoidModelFromDescription(skinned or d, Enum.HumanoidRigType.R15) end)
         d:Destroy()
         if not ok or not m then
             DHDum.Say("Could not make a dummy")
@@ -29406,6 +30327,7 @@ function DHDum.Spawn()
         DHDum.Start()
         DHDum.Fill()
         DHDum.Say(entry.Name .. " spawned (only you can see it)")
+        if DHDum.FaceId then task.spawn(DHDum.ApplyFace, entry) end
     end)
 end
 
@@ -30020,6 +30942,131 @@ function DHDum.Build()
     Instance.new("UICorner", se).CornerRadius = UDim.new(0, 8)
     se.MouseButton1Click:Connect(DHDum.StopEmote)
 
+    DHMods.Header("DUMMY SKIN")
+    DHMods.N = DHMods.N + 1
+    local sbar = Instance.new("Frame", DHMods.Scroll)
+    sbar.Size = UDim2.new(1, 0, 0, 36)
+    sbar.LayoutOrder = DHMods.N
+    sbar.BackgroundTransparency = 1
+    local sbox = Instance.new("TextBox", sbar)
+    sbox.Size = UDim2.new(0.62, -4, 1, 0)
+    sbox.BackgroundColor3 = Color3.fromRGB(35, 35, 35)
+    sbox.PlaceholderText = "Username or ID"
+    sbox.PlaceholderColor3 = Color3.fromRGB(120, 120, 120)
+    sbox.Text = ""
+    sbox.ClearTextOnFocus = false
+    sbox.Font = Enum.Font.Gotham
+    sbox.TextSize = 13
+    sbox.TextColor3 = Color3.new(1, 1, 1)
+    Instance.new("UICorner", sbox).CornerRadius = UDim.new(0, 8)
+    local sset = Instance.new("TextButton", sbar)
+    sset.Position = UDim2.new(0.62, 4, 0, 0)
+    sset.Size = UDim2.new(0.38, -4, 1, 0)
+    sset.Text = "Set skin"
+    sset.Font = Enum.Font.GothamBold
+    sset.TextSize = 13
+    sset.TextColor3 = Color3.new(1, 1, 1)
+    sset.BackgroundColor3 = Color3.fromRGB(40, 140, 200)
+    Instance.new("UICorner", sset).CornerRadius = UDim.new(0, 8)
+    sset.MouseButton1Click:Connect(function() DHDum.SetSkin(sbox.Text) end)
+    DHMods.N = DHMods.N + 1
+    local sbar2 = Instance.new("Frame", DHMods.Scroll)
+    sbar2.Size = UDim2.new(1, 0, 0, 36)
+    sbar2.LayoutOrder = DHMods.N
+    sbar2.BackgroundTransparency = 1
+    local smine = Instance.new("TextButton", sbar2)
+    smine.Size = UDim2.new(0.5, -4, 1, 0)
+    smine.Text = "My avatar"
+    smine.Font = Enum.Font.GothamBold
+    smine.TextSize = 13
+    smine.TextColor3 = Color3.new(1, 1, 1)
+    smine.BackgroundColor3 = Color3.fromRGB(35, 160, 90)
+    Instance.new("UICorner", smine).CornerRadius = UDim.new(0, 8)
+    smine.MouseButton1Click:Connect(function() DHDum.SetSkin(nil, "me") end)
+    DHMods.N = DHMods.N + 1
+    local sbar3 = Instance.new("Frame", DHMods.Scroll)
+    sbar3.Size = UDim2.new(1, 0, 0, 36)
+    sbar3.LayoutOrder = DHMods.N
+    sbar3.BackgroundTransparency = 1
+    local snext = Instance.new("TextButton", sbar3)
+    snext.Size = UDim2.new(0.5, -4, 1, 0)
+    snext.Text = "Next player >"
+    snext.Font = Enum.Font.GothamBold
+    snext.TextSize = 13
+    snext.TextColor3 = Color3.new(1, 1, 1)
+    snext.BackgroundColor3 = Color3.fromRGB(40, 140, 200)
+    Instance.new("UICorner", snext).CornerRadius = UDim.new(0, 8)
+    local pIdx = 0
+    snext.MouseButton1Click:Connect(function()
+        local list = {}
+        for _, p in ipairs(Players:GetPlayers()) do if p ~= Player then list[#list + 1] = p end end
+        if #list == 0 then DHDum.Say("No other player here") return end
+        pIdx = pIdx % #list + 1
+        local p = list[pIdx]
+        snext.Text = "Next player > (" .. p.Name .. ")"
+        DHDum.SetSkin(tostring(p.UserId))
+    end)
+    local slook = Instance.new("TextButton", sbar3)
+    slook.Position = UDim2.new(0.5, 4, 0, 0)
+    slook.Size = UDim2.new(0.5, -4, 1, 0)
+    slook.Text = "Next saved look >"
+    slook.Font = Enum.Font.GothamBold
+    slook.TextSize = 13
+    slook.TextColor3 = Color3.new(1, 1, 1)
+    slook.BackgroundColor3 = Color3.fromRGB(150, 80, 200)
+    Instance.new("UICorner", slook).CornerRadius = UDim.new(0, 8)
+    local lIdx = 0
+    slook.MouseButton1Click:Connect(function()
+        local names = DHAvatarLooks and DHAvatarLooks() or {}
+        if #names == 0 then DHDum.Say("No saved looks (Avatar tab > Saved)") return end
+        lIdx = lIdx % #names + 1
+        slook.Text = "Next saved look > (" .. names[lIdx] .. ")"
+        DHDum.SetLook(names[lIdx])
+    end)
+    local sgray = Instance.new("TextButton", sbar2)
+    sgray.Position = UDim2.new(0.5, 4, 0, 0)
+    sgray.Size = UDim2.new(0.5, -4, 1, 0)
+    sgray.Text = "Gray (default)"
+    sgray.Font = Enum.Font.GothamBold
+    sgray.TextSize = 13
+    sgray.TextColor3 = Color3.new(1, 1, 1)
+    sgray.BackgroundColor3 = Color3.fromRGB(100, 100, 100)
+    Instance.new("UICorner", sgray).CornerRadius = UDim.new(0, 8)
+    sgray.MouseButton1Click:Connect(function() DHDum.SetSkin(nil, "gray") end)
+
+    DHMods.Header("DUMMY MOVES & FACE")
+    DHMods.AddCycle("Dummy Animation Pack", "Tap to pick the walk / idle / jump style: Default, Ninja, Toy, Superhero, Levitation, Astronaut", DHDum.PackList, 1, function(v) DHDum.SetPack(v) end)
+    local function idRow(placeholder, label, color, fn)
+        DHMods.N = DHMods.N + 1
+        local bar = Instance.new("Frame", DHMods.Scroll)
+        bar.Size = UDim2.new(1, 0, 0, 36)
+        bar.LayoutOrder = DHMods.N
+        bar.BackgroundTransparency = 1
+        local box = Instance.new("TextBox", bar)
+        box.Size = UDim2.new(0.62, -4, 1, 0)
+        box.BackgroundColor3 = Color3.fromRGB(35, 35, 35)
+        box.PlaceholderText = placeholder
+        box.PlaceholderColor3 = Color3.fromRGB(120, 120, 120)
+        box.Text = ""
+        box.ClearTextOnFocus = false
+        box.Font = Enum.Font.Gotham
+        box.TextSize = 13
+        box.TextColor3 = Color3.new(1, 1, 1)
+        Instance.new("UICorner", box).CornerRadius = UDim.new(0, 8)
+        local b = Instance.new("TextButton", bar)
+        b.Position = UDim2.new(0.62, 4, 0, 0)
+        b.Size = UDim2.new(0.38, -4, 1, 0)
+        b.Text = label
+        b.Font = Enum.Font.GothamBold
+        b.TextSize = 13
+        b.TextColor3 = Color3.new(1, 1, 1)
+        b.BackgroundColor3 = color
+        Instance.new("UICorner", b).CornerRadius = UDim.new(0, 8)
+        b.MouseButton1Click:Connect(function() fn(box.Text) end)
+    end
+    idRow("Face ID (empty = default)", "Set face", Color3.fromRGB(40, 140, 200), function(t) DHDum.SetFace(t) end)
+    idRow("Animation ID", "Play ID", Color3.fromRGB(150, 80, 200), function(t) DHDum.PlayId(t) end)
+
     DHMods.Header("DUMMY ESP")
     DHMods.AddToggle("Dummy ESP", "Highlight every dummy through walls", function(v) DHDum.Esp.On = v end)
     DHMods.AddCycle("Dummy ESP Style", "Tap to change: Filled or Outline", {"Filled", "Outline"}, 1, function(v) DHDum.Esp.Style = v end)
@@ -30398,6 +31445,26 @@ DHAvtBoot = function()
         for _, k in ipairs(o.removed or {}) do AV.Removed[tostring(k)] = true end
         for k, v in pairs(o.assign or {}) do AV.Assign[k] = {uid = tonumber(v.uid), name = tostring(v.name)} end
         for _, it in ipairs(o.items or {}) do AV.Items[#AV.Items + 1] = {id = tonumber(it.id), name = tostring(it.name), tid = tonumber(it.tid)} end
+    end
+
+    -- for the Dummy skin: names of the saved looks, and a description built from one (your current mix is put back afterwards)
+    function DHAvatarLooks()
+        if #AV.Saved == 0 then AV.LoadSaved() end
+        local t = {}
+        for _, o in ipairs(AV.Saved) do t[#t + 1] = o.name end
+        return t
+    end
+    function DHAvatarLookDesc(name)
+        local look
+        for _, o in ipairs(AV.Saved) do if o.name == name then look = o end end
+        if not look or AV.Busy then return nil end
+        local a, i, r, sc, sd = AV.Assign, AV.Items, AV.Removed, AV.SkinColor, AV.SkinDark
+        local ok, desc = pcall(function()
+            AV.UseLook(look)
+            return (AV.Compose(Players.LocalPlayer.UserId, AV.Assign))
+        end)
+        AV.Assign, AV.Items, AV.Removed, AV.SkinColor, AV.SkinDark = a, i, r, sc, sd
+        return ok and desc or nil
     end
 
     -- SHARE CODE: a look as plain text ("DHA1:..."). Anyone can paste it in Saved > Import. No server needed.
@@ -34080,7 +35147,7 @@ SettingScroll.AutomaticCanvasSize = Enum.AutomaticSize.Y
 -- 4. SETTINGS CONTAINER (1 KONTAINER)
 -- ================================================
 SettingsContainer = Instance.new("Frame", SettingScroll)
-SettingsContainer.Size = UDim2.new(1, 0, 0, 1290)
+SettingsContainer.Size = UDim2.new(1, 0, 0, 1086)
 SettingsContainer.BackgroundColor3 = Color3.fromRGB(25,25,25)
 SettingsContainer.ClipsDescendants = true
 Instance.new("UICorner", SettingsContainer).CornerRadius = UDim.new(0, 8)
@@ -34644,6 +35711,53 @@ function DHCam.SetHeight(y)
     DHCam.Sync()
 end
 
+
+-- ZOOM UNLOCK: zoom out as far as you like. The "Max Limit" button adds a slider that caps how far you can zoom out.
+-- OFF puts back the limit the map had. A map that locks the zoom again is unlocked again.
+DHCam.Zoom = {On = false, Cap = false, Max = 300, Saved = nil}
+
+function DHCam.ZoomLimit()
+    return DHCam.Zoom.Cap and DHCam.Zoom.Max or 100000
+end
+
+function DHCam.ZoomApply()
+    pcall(function()
+        local want = DHCam.ZoomLimit()
+        if Player.CameraMaxZoomDistance ~= want then Player.CameraMaxZoomDistance = want end
+    end)
+end
+
+function DHCam.ZoomSync()
+    local u = DHCam.Ui
+    local z = DHCam.Zoom
+    if u.ZoomBtn then u.ZoomBtn.BackgroundColor3 = z.On and Color3.fromRGB(30, 180, 30) or Color3.fromRGB(180, 30, 30) end
+    if u.CapBtn then u.CapBtn.BackgroundColor3 = z.Cap and Color3.fromRGB(30, 180, 30) or Color3.fromRGB(60, 60, 60) end
+    if u.CapSlider then u.CapSlider.Frame.Visible = z.Cap end
+end
+
+function DHCam.ZoomSet(on)
+    local z = DHCam.Zoom
+    if on == z.On then return end
+    z.On = on
+    if on then
+        z.Saved = Player.CameraMaxZoomDistance
+        local token = (z.Token or 0) + 1
+        z.Token = token
+        DHCam.ZoomApply()
+        task.spawn(function()
+            while z.On and z.Token == token and ScreenGui.Parent do
+                task.wait(0.25)
+                if z.On and z.Token == token then DHCam.ZoomApply() end
+            end
+        end)
+    else
+        z.Token = (z.Token or 0) + 1
+        if z.Saved then pcall(function() Player.CameraMaxZoomDistance = z.Saved end) end
+        z.Saved = nil
+    end
+    DHCam.ZoomSync()
+end
+
 -- Freecam calls this when it starts
 function stopCamMode()
     DHCam.Stop()
@@ -34651,7 +35765,7 @@ end
 
 do -- (scope wrapper: frees local registers)
 local CamModeSection = Instance.new("Frame", SettingsContainer)
-CamModeSection.Size = UDim2.new(1, -20, 0, 200)
+CamModeSection.Size = UDim2.new(1, -20, 0, 326)
 CamModeSection.Position = UDim2.new(0, 10, 0, 750)
 CamModeSection.BackgroundColor3 = Color3.fromRGB(35,35,35)
 Instance.new("UICorner", CamModeSection).CornerRadius = UDim.new(0, 8)
@@ -34718,62 +35832,25 @@ camNote.TextWrapped = true
 camNote.TextColor3 = Color3.fromRGB(140, 140, 140)
 camNote.TextXAlignment = Enum.TextXAlignment.Left
 camNote.TextYAlignment = Enum.TextYAlignment.Top
+
+DHCam.Ui.ZoomBtn = camBtn(CamModeSection, "Zoom Unlock (no limit)", UDim2.new(0, 10, 0, 204), UDim2.new(1, -20, 0, 30), Color3.fromRGB(180, 30, 30))
+DHCam.Ui.ZoomBtn.MouseButton1Click:Connect(function() DHCam.ZoomSet(not DHCam.Zoom.On) end)
+DHCam.Ui.CapBtn = camBtn(CamModeSection, "Max Limit", UDim2.new(0, 10, 0, 240), UDim2.new(1, -20, 0, 28), Color3.fromRGB(60, 60, 60))
+DHCam.Ui.CapBtn.MouseButton1Click:Connect(function()
+    DHCam.Zoom.Cap = not DHCam.Zoom.Cap
+    if DHCam.Zoom.On then DHCam.ZoomApply() end
+    DHCam.ZoomSync()
+end)
+DHCam.Ui.CapSlider = DHUI.Slider({parent = CamModeSection, pos = UDim2.new(0, 10, 0, 274), size = UDim2.new(1, -20, 0, 40), min = 20, max = 2000, step = 10,
+    color = Color3.fromRGB(40, 140, 200), value = DHCam.Zoom.Max,
+    fmt = function(v) return "Max zoom: " .. v .. " studs" end,
+    onChange = function(v)
+        DHCam.Zoom.Max = v
+        if DHCam.Zoom.On and DHCam.Zoom.Cap then DHCam.ZoomApply() end
+    end})
+DHCam.ZoomSync()
 end
 
-do -- (scope wrapper: frees local registers)
--- MAP SCAN (read only): lists scripts/remotes with protection-like names; changes nothing
-local AcSection = Instance.new("Frame", SettingsContainer)
-AcSection.Size = UDim2.new(1, -20, 0, 320)
-AcSection.Position = UDim2.new(0, 10, 0, 960)
-AcSection.BackgroundColor3 = Color3.fromRGB(35,35,35)
-Instance.new("UICorner", AcSection).CornerRadius = UDim.new(0, 8)
-local AcHeader = Instance.new("TextLabel", AcSection)
-AcHeader.Size = UDim2.new(1, -20, 0, 30)
-AcHeader.Position = UDim2.new(0, 10, 0, 5)
-AcHeader.BackgroundTransparency = 1
-AcHeader.Text = "MAP SCAN (read only)"
-AcHeader.Font = Enum.Font.GothamBold
-AcHeader.TextSize = 14
-AcHeader.TextColor3 = Color3.fromRGB(100, 200, 255)
-AcHeader.TextXAlignment = Enum.TextXAlignment.Left
-local AcInfo = Instance.new("TextLabel", AcSection)
-AcInfo.Size = UDim2.new(1, -20, 0, 28)
-AcInfo.Position = UDim2.new(0, 10, 0, 36)
-AcInfo.BackgroundTransparency = 1
-AcInfo.Text = "Only lists scripts and remotes with names like anticheat, detect, ban, kick, admin. It does not change or switch off anything."
-AcInfo.Font = Enum.Font.Gotham
-AcInfo.TextSize = 10
-AcInfo.TextWrapped = true
-AcInfo.TextColor3 = Color3.fromRGB(140, 140, 140)
-AcInfo.TextXAlignment = Enum.TextXAlignment.Left
-AcInfo.TextYAlignment = Enum.TextYAlignment.Top
-local AcList = DHUI.List({parent = AcSection, pos = UDim2.new(0, 10, 0, 68), size = UDim2.new(1, -20, 0, 190)})
-local AcStatus = Instance.new("TextLabel", AcSection)
-AcStatus.Size = UDim2.new(1, -20, 0, 16)
-AcStatus.Position = UDim2.new(0, 10, 0, 262)
-AcStatus.BackgroundTransparency = 1
-AcStatus.Text = "Not scanned yet"
-AcStatus.Font = Enum.Font.Gotham
-AcStatus.TextSize = 11
-AcStatus.TextColor3 = Color3.fromRGB(180, 180, 180)
-AcStatus.TextXAlignment = Enum.TextXAlignment.Left
-local AcScanBtn = DHUI.Button(AcSection, "Scan", Color3.fromRGB(30, 80, 180), UDim2.new(0.5, -14, 0, 28), UDim2.new(0, 10, 0, 284))
-local AcCopyBtn = DHUI.Button(AcSection, "Copy list", Color3.fromRGB(60, 60, 60), UDim2.new(0.5, -14, 0, 28), UDim2.new(0.5, 4, 0, 284))
-AcScanBtn.MouseButton1Click:Connect(function()
-    if DHAC.Busy then return end
-    AcList.Clear()
-    AcStatus.Text = "Scanning..."
-    DHAC.Scan(function(i, n) AcStatus.Text = "Scanning " .. i .. "/" .. n end, function(found, total)
-        for _, f in ipairs(found) do AcList.Add(f.path, f.class) end
-        AcStatus.Text = #found .. " found of " .. total .. " objects"
-    end)
-end)
-AcCopyBtn.MouseButton1Click:Connect(function()
-    local t = {}
-    for _, f in ipairs(DHAC.Found) do t[#t + 1] = f.class .. "  " .. f.path end
-    if setclipboard and #t > 0 then pcall(setclipboard, table.concat(t, "\n")) AcStatus.Text = "Copied " .. #t end
-end)
-end
 
 end -- (scope wrapper: frees local registers)
 -- ================================================
@@ -34844,7 +35921,7 @@ function BuildOtherSettings()
 
     -- Container (same look as SettingsContainer, placed right under it)
     OtherContainer = Instance.new("Frame", SettingScroll)
-    OtherContainer.Position = UDim2.new(0, 0, 0, 1300) -- SettingsContainer is 1290 tall
+    OtherContainer.Position = UDim2.new(0, 0, 0, 1096) -- SettingsContainer is 1086 tall
     OtherContainer.Size = UDim2.new(1, 0, 0, TOP + 10)
     OtherContainer.BackgroundColor3 = Color3.fromRGB(25,25,25)
     OtherContainer.ClipsDescendants = true
@@ -35583,7 +36660,9 @@ function BuildOtherSettings()
     AddToggle("FPS Counter", "Show FPS on screen", SetFps)
     AddToggle("Ping Display", "Show ping on screen", SetPing)
     AddToggle("Join/Leave Alert", "Small notice when a player joins or leaves", SetJoinAlert)
-    AddToggle("Exploiter Detector", "Flag players with suspicious speed, flying, teleport or noclip", function(on) if DHExp then DHExp.Set(on) end end)
+    AddToggle("Exploiter Detector", "Flag players with suspicious speed, flying, teleport, noclip, fake emote or animation spam", function(on) if DHExp then DHExp.Set(on) end end)
+    DHExpAIToggle = AddToggle("ED AI Check", "AI looks at flagged players and says likely / unsure / unlikely (marks only, sends numbers only)", function(on) if DHExp and DHExp.AI then DHExp.AI.On = on end end)
+    DHExpAIToggle.Set(true)
     local mvToggle = AddToggle("Move Button", "Move, resize or hide game buttons", function(on) DHMove.Set(on) end)
     DHMoveToggle = mvToggle
     DHLogToggle = AddToggle("Send Console Log", "Send short error/status lines (no name) to the owner's web console", function(on) if DHLog then DHLog.Set(on) end end)
@@ -38746,7 +39825,9 @@ featureItems = {
     "   • Statistics table & live monitor (FPS, Ping,",
     "     Players, Memory, Net Out)",
     "   • Exploiter Watch: suspects list (Speed, Fly,",
-    "     Teleport, Noclip, Fling)",
+    "     Teleport, Noclip, Fling, fake Emote, Anim spam, TP loop)",
+    "   • It reads the game first (sprint, morph, jetpack...),",
+    "     records 10 seconds per player and checks flagged players again",
     "   • 3D Preview of a player (drag to rotate, zoom)",
     "   • Calculator",
     "   • DaffzHub Users: see other DaffzHub users in your server (notice + purple ESP)",
@@ -38935,7 +40016,7 @@ featureItems = {
     "   • FOV: custom field of view (slider, at the bottom)",
     "   • Other Settings: No Audio, FPS Counter,",
     "     Ping Display, Join/Leave Alert,",
-    "     Exploiter Detector",
+    "     Exploiter Detector (+ AI check)",
     "   • Move Button (move, resize or hide game buttons)",
     "   • Auto Execute (DaffzHub loads again after you change server)",
     "   • Reload GUI (close DaffzHub and load it again)",
@@ -43034,13 +44115,13 @@ function DHTheme.Build()
     
     -- other containers of the Setting tab (e.g. Other Settings) sit at fixed heights: move them down too
     for _, o in ipairs(SettingScroll:GetChildren()) do
-        if o:IsA("Frame") and o ~= box and o ~= SettingsContainer and o.Position.Y.Offset >= 1000 then
+        if o:IsA("Frame") and o ~= box and o ~= SettingsContainer and o.Position.Y.Offset >= 965 then
             o.Position = UDim2.new(0, 0, 0, o.Position.Y.Offset + 650)
         end
     end
     SettingScroll.ChildAdded:Connect(function(o)
         task.defer(function()
-            if o:IsA("Frame") and o ~= box and o ~= SettingsContainer and o.Position.Y.Offset >= 1000 and o.Position.Y.Offset < 1650 then
+            if o:IsA("Frame") and o ~= box and o ~= SettingsContainer and o.Position.Y.Offset >= 965 and o.Position.Y.Offset < 1650 then
                 o.Position = UDim2.new(0, 0, 0, o.Position.Y.Offset + 650)
             end
         end)
@@ -43272,12 +44353,15 @@ DHChangelog = {
         {"Added", "Server seats: when many people are online, the server serves a limited number of players at a time. Everybody else still uses the whole hub, only Message, Online and ChatBot wait for a free seat. The Home tab shows the server status."},
         {"Added", "ChatBot shows how many messages you have left today, and Control Player shows how many new players you can still ask."},
         {"Added", "Setting > Reload GUI: closes DaffzHub and loads it again, with a confirmation."},
+        {"Fixed", "Custom FOV stays on after you die and respawn."},
+        {"Fixed", "Reload GUI no longer freezes the camera, and the Character, Message and Translate sub-tabs slide sideways instead of being cut off."},
         {"Fixed", "Third Person (Unlock) now stays on when you walk into a room or map that locks the camera again."},
         {"Fixed", "Pages no longer get stuck without scrolling after you move a slider (Visual, Theme and all other sliders)."},
         {"Added", "Setting > Map Scan (read only): lists scripts and remotes with names like anticheat, detect, ban, kick or admin. It only lists them, it changes nothing."},
         {"Added", "Player: the number of people shows as Online n/Max and is colored by how full the server is."},
         {"Added", "Limits, kept on the server per account: Message 80 per 24 hours, Control Player 2 different players per 24 hours, ChatBot 20 per 24 hours (tighter when the server is busy). Your own API key is not limited."},
         {"Added", "Message filter: rude words and selling or buying accounts are blocked. 4 blocked messages in 24 hours give a 2 hour block."},
+        {"Added", "Exploiter Detector is smarter: it reads the game first (sprint, morph, jetpack, teleport, combat) and adjusts its limits, keeps a 10 second recording of every player, and also checks fake Emote, Animation spam and Teleport loops. Flagged players are checked again later and cleared if they are clean. New: an AI looks at flagged players and says likely, unsure or unlikely (only numbers are sent, 40 checks per account per day, switch it in Setting > ED AI Check). It only marks players, it never acts on them."},
         {"Added", "Two servers at the same time: each player gets one of them and the other is the backup, so Message, Online and ChatBot keep working when one server is busy or down."},
         {"Changed", "Loading is smoother: DaffzHub loads in small steps, so the phone no longer freezes near the end, and changing a theme no longer stutters."},
         {"Changed", "Buttons no longer say | ON / | OFF. The name stays and the color shows the state. Sliders now look and work the same everywhere, and the page no longer scrolls while you drag one."},
