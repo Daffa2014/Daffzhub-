@@ -29847,6 +29847,7 @@ function DHInv.MakeGhost(char, cf)
                 d.Color = Color3.fromRGB(150, 220, 255)
             end
             d.CanTouch = false
+            d.Anchored = false
         elseif d:IsA("Decal") then
             d.Transparency = 0.5
         end
@@ -29859,6 +29860,16 @@ function DHInv.MakeGhost(char, cf)
     end
     gh.DisplayDistanceType = Enum.HumanoidDisplayDistanceType.None
     gh.HealthDisplayType = Enum.HumanoidHealthDisplayType.AlwaysOff
+    -- some maps leave the body frozen (anchored, PlatformStand, no jump, no states): the ghost starts clean and free
+    pcall(function()
+        gh.PlatformStand = false
+        gh.Sit = false
+        gh.WalkSpeed = DHInv.Speed
+        if gh.UseJumpPower then gh.JumpPower = 50 else gh.JumpHeight = 7.2 end
+        for _, st in ipairs({Enum.HumanoidStateType.Running, Enum.HumanoidStateType.Jumping, Enum.HumanoidStateType.Freefall, Enum.HumanoidStateType.Landed, Enum.HumanoidStateType.GettingUp}) do
+            gh:SetStateEnabled(st, true)
+        end
+    end)
     ghost.Parent = workspace
     ghost:PivotTo(cf)
     return ghost, gh, gr
@@ -29979,8 +29990,31 @@ function DHInv.Step()
             gr.CFrame = CFrame.lookAt(gr.Position, gr.Position + flat)
         end
     end
-    gh:Move(hum.MoveDirection, false)
+    -- a map script may freeze the ghost the same way it freezes players: undo it every frame
+    if gh.PlatformStand then gh.PlatformStand = false end
+    if gh.Sit then gh.Sit = false end
+    if gr.Anchored then gr.Anchored = false end
+    local md = hum.MoveDirection
+    gh:Move(md, false)
     if hum.Jump then gh.Jump = true end
+    -- still not moving after 0.35 s of holding the stick (the map blocks Humanoid movement): push it with velocity, walls still block it
+    local now = os.clock()
+    local dt = math.min(now - (DHInv.LastT or now), 0.1)
+    DHInv.LastT = now
+    if md.Magnitude > 0.1 then
+        local v = gr.AssemblyLinearVelocity
+        if Vector3.new(v.X, 0, v.Z).Magnitude < DHInv.Speed * 0.25 then
+            DHInv.Stall = (DHInv.Stall or 0) + dt
+        else
+            DHInv.Stall = 0
+        end
+        if DHInv.Stall > 0.35 then
+            local u = md.Unit
+            gr.AssemblyLinearVelocity = Vector3.new(u.X * DHInv.Speed, v.Y, u.Z * DHInv.Speed)
+        end
+    else
+        DHInv.Stall = 0
+    end
     if gr.Position.Y < workspace.FallenPartsDestroyHeight + 50 and DHInv.Start then
         gr.CFrame = DHInv.Start
         gr.AssemblyLinearVelocity = Vector3.zero
